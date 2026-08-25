@@ -1,0 +1,251 @@
+use std::fs;
+use std::time::{Duration, Instant};
+use sha2::{Digest, Sha256};
+use crate::protocol::NetworkMetrics;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NetCounters {
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+}
+
+pub struct NetworkCollector {
+    configured_interface: String,
+    active_interface: String,
+    boot_id: Option<String>,
+    counter_id: Option<String>,
+
+    latest_metrics: NetworkMetrics,
+    last_counters: Option<NetCounters>,
+    last_sample_instant: Option<Instant>,
+}
+
+impl NetworkCollector {
+    pub fn new(configured_interface: String, boot_id: Option<String>) -> Self {
+        let active_interface = if configured_interface == "auto" {
+            discover_default_interface().unwrap_or_else(|| "eth0".to_string())
+        } else {
+            configured_interface.clone()
+        };
+
+        let counter_id = generate_counter_id(boot_id.as_deref(), &active_interface);
+
+        Self {
+            configured_interface,
+            active_interface: active_interface.clone(),
+            boot_id,
+            counter_id: counter_id.clone(),
+            latest_metrics: NetworkMetrics {
+                interface: active_interface,
+                counter_id,
+                rx_bps: None,
+                tx_bps: None,
+                rx_total_bytes: 0,
+                tx_total_bytes: 0,
+            },
+            last_counters: None,
+            last_sample_instant: None,
+        }
+    }
+
+    pub fn active_interface(&self) -> &str {
+        &self.active_interface
+    }
+
+    pub fn counter_id(&self) -> Option<&str> {
+        self.counter_id.as_deref()
+    }
+
+    pub fn set_interface(&mut self, new_iface: String) {
+        if self.configured_interface != new_iface {
+            self.configured_interface = new_iface.clone();
+            self.active_interface = if new_iface == "auto" {
+                discover_default_interface().unwrap_or_else(|| "eth0".to_string())
+            } else {
+                new_iface
+            };
+            self.counter_id = generate_counter_id(self.boot_id.as_deref(), &self.active_interface);
+            self.last_counters = None;
+            self.last_sample_instant = None;
+        }
+    }
+
+    pub fn sample(&mut self) -> NetworkMetrics {
+        let now = Instant::now();
+
+        // Guard against back-to-back calls within 500ms
+        if let Some(last_time) = self.last_sample_instant {
+            if now.duration_since(last_time) < Duration::from_millis(500) && self.latest_metrics.rx_bps.is_some() {
+                return self.latest_metrics.clone();
+            }
+        }
+
+        // Auto-refresh interface if set to auto and current interface not found
+        if self.configured_interface == "auto" {
+            if let Some(discovered) = discover_default_interface() {
+                if discovered != self.active_interface {
+                    self.active_interface = discovered;
+                    self.counter_id = generate_counter_id(self.boot_id.as_deref(), &self.active_interface);
+                    self.last_counters = None;
+                }
+            }
+        }
+
+        let current_counters = read_network_counters(&self.active_interface);
+
+        let (rx_bps, tx_bps) = match (self.last_counters, current_counters, self.last_sample_instant) {
+            (Some(prev), Some(curr), Some(prev_time)) => {
+                let elapsed_sec = now.duration_since(prev_time).as_secs_f64();
+                if elapsed_sec > 0.0 {
+                    if curr.rx_bytes >= prev.rx_bytes && curr.tx_bytes >= prev.tx_bytes {
+                        let rx_delta = curr.rx_bytes - prev.rx_bytes;
+                        let tx_delta = curr.tx_bytes - prev.tx_bytes;
+
+                        let rx_rate = (rx_delta as f64) / elapsed_sec;
+                        let tx_rate = (tx_delta as f64) / elapsed_sec;
+
+                        (Some(rx_rate.round() as u64), Some(tx_rate.round() as u64))
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                }
+            }
+            _ => (None, None),
+        };
+
+        let (rx_total, tx_total) = current_counters
+            .map(|c| (c.rx_bytes, c.tx_bytes))
+            .unwrap_or((0, 0));
+
+        self.last_counters = current_counters;
+        self.last_sample_instant = Some(now);
+
+        let metrics = NetworkMetrics {
+            interface: self.active_interface.clone(),
+            counter_id: self.counter_id.clone(),
+            rx_bps,
+            tx_bps,
+            rx_total_bytes: rx_total,
+            tx_total_bytes: tx_total,
+        };
+
+        if metrics.rx_bps.is_some() {
+            self.latest_metrics = metrics.clone();
+        }
+
+        metrics
+    }
+}
+
+pub fn read_network_counters(target_iface: &str) -> Option<NetCounters> {
+    #[cfg(windows)]
+    {
+        if let Some(c) = read_windows_network_counters() {
+            return Some(c);
+        }
+    }
+
+    read_proc_net_dev_counters(target_iface)
+}
+
+#[cfg(windows)]
+fn read_windows_network_counters() -> Option<NetCounters> {
+    use windows_sys::Win32::NetworkManagement::IpHelper::{GetIfTable2, FreeMibTable, MIB_IF_TABLE2};
+    unsafe {
+        let mut table_ptr: *mut MIB_IF_TABLE2 = std::ptr::null_mut();
+        if GetIfTable2(&mut table_ptr) == 0 && !table_ptr.is_null() {
+            let table = &*table_ptr;
+            let num_entries = table.NumEntries as usize;
+            let entries_slice = std::slice::from_raw_parts(table.Table.as_ptr(), num_entries);
+            let mut total_rx = 0u64;
+            let mut total_tx = 0u64;
+            for entry in entries_slice {
+                if entry.OperStatus == 1 && entry.Type != 24 {
+                    total_rx += entry.InOctets;
+                    total_tx += entry.OutOctets;
+                }
+            }
+            FreeMibTable(table_ptr as *const _);
+            return Some(NetCounters {
+                rx_bytes: total_rx,
+                tx_bytes: total_tx,
+            });
+        }
+    }
+    None
+}
+
+pub fn discover_default_interface() -> Option<String> {
+    #[cfg(windows)]
+    {
+        Some("Ethernet/Wi-Fi".to_string())
+    }
+
+    #[cfg(not(windows))]
+    {
+        // 1. Check /proc/net/route for default gateway interface (Destination == 00000000)
+        if let Ok(content) = fs::read_to_string("/proc/net/route") {
+            for line in content.lines().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 && parts[1] == "00000000" {
+                    return Some(parts[0].to_string());
+                }
+            }
+        }
+
+        // 2. Fallback: First non-lo interface in /proc/net/dev
+        if let Ok(content) = fs::read_to_string("/proc/net/dev") {
+            for line in content.lines().skip(2) {
+                if let Some(idx) = line.find(':') {
+                    let iface = line[..idx].trim();
+                    if iface != "lo" && !iface.starts_with("docker") && !iface.starts_with("veth") && !iface.starts_with("br-") {
+                        return Some(iface.to_string());
+                    }
+                }
+            }
+        }
+
+        None
+    }
+}
+
+pub fn read_proc_net_dev_counters(target_iface: &str) -> Option<NetCounters> {
+    let content = fs::read_to_string("/proc/net/dev").ok()?;
+    for line in content.lines().skip(2) {
+        if let Some(idx) = line.find(':') {
+            let iface = line[..idx].trim();
+            if iface == target_iface {
+                let parts: Vec<&str> = line[idx + 1..].split_whitespace().collect();
+                if parts.len() >= 9 {
+                    let rx_bytes = parts[0].parse::<u64>().ok()?;
+                    let tx_bytes = parts[8].parse::<u64>().ok()?;
+                    return Some(NetCounters { rx_bytes, tx_bytes });
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn get_netns_inode() -> Option<u64> {
+    #[cfg(unix)]
+    unsafe {
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(meta) = fs::metadata("/proc/self/ns/net") {
+            return Some(meta.ino());
+        }
+    }
+    None
+}
+
+pub fn generate_counter_id(boot_id: Option<&str>, iface: &str) -> Option<String> {
+    let mut hasher = Sha256::new();
+    hasher.update(boot_id.unwrap_or("nobootid").as_bytes());
+    hasher.update(get_netns_inode().unwrap_or(0).to_string().as_bytes());
+    hasher.update(iface.as_bytes());
+    let hash = hasher.finalize();
+    let hex = format!("{:x}", hash);
+    Some(hex[..16].to_string())
+}

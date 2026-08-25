@@ -1,0 +1,29 @@
+# Dependencies & Build artifacts
+node_modules/
+dist/
+.wrangler/
+target/
+Cargo.lock
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+token
+
+# IDE & OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log

@@ -1,0 +1,25 @@
+{
+  "v": 1,
+  "type": "welcome",
+  "instance_id": "550e8400-e29b-41d4-a716-446655440000",
+  "seq": 1,
+  "ts_ms": 1787640000180,
+  "data": {
+    "config_rev": 1,
+    "config": {
+      "sample_interval_sec": 2,
+      "report_interval_sec": 30,
+      "probe_interval_sec": 60,
+      "network_interface": "auto",
+      "probes": [
+        {
+          "id": "cf-dns",
+          "name": "Cloudflare DNS",
+          "host": "1.1.1.1",
+          "method": "tcp",
+          "port": 443
+        }
+      ]
+    }
+  }
+}

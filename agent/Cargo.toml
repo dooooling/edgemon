@@ -1,0 +1,32 @@
+[package]
+name = "edgemon-agent"
+version = "0.1.0"
+edition = "2021"
+authors = ["EdgeMon Team"]
+description = "EdgeMon lightweight Linux telemetry and probe agent"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.5", features = ["derive", "env"] }
+uuid = { version = "1.8", features = ["v4"] }
+sha2 = "0.10"
+log = "0.4"
+env_logger = "0.11"
+libc = "0.2"
+ureq = { version = "2.10", default-features = false, features = ["tls", "gzip", "json"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = [
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_Memory",
+    "Win32_Storage_FileSystem",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Foundation",
+] }
+
+[dev-dependencies]
+tempfile = "3.10"

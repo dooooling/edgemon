@@ -1,0 +1,47 @@
+{
+  "v": 1,
+  "type": "hello",
+  "instance_id": "550e8400-e29b-41d4-a716-446655440000",
+  "seq": 1,
+  "ts_ms": 1787640000123,
+  "data": {
+    "agent": {
+      "version": "0.1.0",
+      "arch": "x86_64"
+    },
+    "system": {
+      "hostname": "node-01",
+      "os": "alpine",
+      "os_version": "3.21",
+      "kernel": "6.8.0"
+    },
+    "environment": {
+      "type": "container",
+      "runtime": "docker",
+      "host_virtualization_hint": "kvm",
+      "cgroup_version": 2,
+      "resource_scope": "container"
+    },
+    "resources": {
+      "cpu_model_visible": "AMD EPYC 9654",
+      "cpu_capacity_cores": 0.5,
+      "memory_limit_bytes": 536870912,
+      "swap_limit_bytes": 0,
+      "rootfs_limit_bytes": null,
+      "rootfs_scope": "unknown"
+    },
+    "sources": {
+      "cpu": "cgroup_v2",
+      "memory": "cgroup_v2",
+      "io": "cgroup_v2",
+      "network": "netns",
+      "rootfs": "unknown"
+    },
+    "capabilities": {
+      "icmp_probe": false,
+      "tcp_probe": true
+    },
+    "boot_id": "8f8b056e-8d8a-4467-bc1a-5bfbf816d953",
+    "network_counter_id": "a94a8fe5ccb19ba6"
+  }
+}

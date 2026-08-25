@@ -1,0 +1,19 @@
+{
+  "name": "edgemon-root",
+  "private": true,
+  "scripts": {
+    "dev:worker": "wrangler dev",
+    "dev:web": "pnpm --filter web dev",
+    "build:web": "pnpm --filter web build",
+    "build:agent": "cargo build --release -p edgemon-agent",
+    "test:agent": "cargo test -p edgemon-agent",
+    "test:worker": "pnpm --filter worker test",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "deploy": "pnpm build:web && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3.109.2",
+    "typescript": "^5.7.3"
+  }
+}

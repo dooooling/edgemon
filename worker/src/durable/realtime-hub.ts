@@ -45,6 +45,11 @@ export class RealtimeHub extends DurableObject<Env> {
     const role = url.searchParams.get('role') || 'browser';
 
     if (role === 'agent') {
+      const internalAuth = request.headers.get('X-Internal-Agent-Auth');
+      if (internalAuth !== 'verified-by-worker') {
+        return new Response('Forbidden: Direct agent role upgrade on DO prohibited', { status: 403 });
+      }
+
       const nodeId = url.searchParams.get('node_id');
       const nodeName = url.searchParams.get('node_name') || 'Unknown Node';
       const instanceId = url.searchParams.get('instance_id');
@@ -196,6 +201,21 @@ export class RealtimeHub extends DurableObject<Env> {
             network_interface: 'auto',
             probes: [],
           };
+
+      // Hydrate previous traffic & counter baselines from D1 node_state
+      const stateRow = await this.env.DB
+        .prepare('SELECT rx_total_bytes, tx_total_bytes, network_counter_id, persisted_at_ms FROM node_state WHERE node_id = ?')
+        .bind(nodeId)
+        .first<{ rx_total_bytes: number; tx_total_bytes: number; network_counter_id: string | null; persisted_at_ms: number }>();
+
+      if (stateRow) {
+        attachment.last_rx_total_bytes = stateRow.rx_total_bytes;
+        attachment.last_tx_total_bytes = stateRow.tx_total_bytes;
+        attachment.bucket_start_rx_bytes = stateRow.rx_total_bytes;
+        attachment.bucket_start_tx_bytes = stateRow.tx_total_bytes;
+        attachment.last_counter_id = stateRow.network_counter_id;
+        attachment.last_persist_bucket_ms = Math.floor((stateRow.persisted_at_ms || 0) / 60000) * 60000;
+      }
 
       attachment.hello_ok = true;
       attachment.config_rev = configRow?.revision || 1;

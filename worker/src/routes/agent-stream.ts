@@ -40,8 +40,11 @@ agentStreamRoute.get('/api/agent/v1/stream', async (c) => {
   forwardUrl.searchParams.set('is_hidden', String(node.hidden || 0));
   forwardUrl.searchParams.set('geo_json', JSON.stringify(geo));
 
+  const forwardHeaders = new Headers(c.req.raw.headers);
+  forwardHeaders.set('X-Internal-Agent-Auth', 'verified-by-worker');
+
   const forwardRequest = new Request(forwardUrl.toString(), {
-    headers: c.req.raw.headers,
+    headers: forwardHeaders,
   });
 
   return hubStub.fetch(forwardRequest);

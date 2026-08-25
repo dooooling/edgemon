@@ -4,14 +4,13 @@ export async function verifyAdminSession(
   cookieHeader: string | null | undefined,
   sessionSecret?: string
 ): Promise<boolean> {
-  if (!cookieHeader) return false;
+  if (!cookieHeader || !sessionSecret) return false;
 
   const match = cookieHeader.match(/edgemon_session=([^;]+)/);
   if (!match) return false;
 
   const token = match[1];
-  const secret = sessionSecret || 'default-session-secret-change-me';
-  const payloadStr = await verifySession(token, secret);
+  const payloadStr = await verifySession(token, sessionSecret);
 
   if (!payloadStr) return false;
 

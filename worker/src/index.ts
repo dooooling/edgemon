@@ -21,16 +21,27 @@ app.get('/api/health', (c) => {
   return c.json({ status: 'ok', version: '0.1.0', time: Date.now() });
 });
 
-// WebSocket Realtime Hub Upgrade for Browser Dashboards
+// WebSocket Realtime Hub Upgrade for Browser Dashboards (strictly restricted to role=browser)
 app.get('/api/realtime', async (c) => {
   const upgradeHeader = c.req.header('Upgrade');
-  if (!upgradeHeader || upgradeHeader !== 'websocket') {
+  if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
     return c.text('Expected Upgrade: websocket', 426);
   }
 
   const id = c.env.REALTIME.idFromName('main');
   const stub = c.env.REALTIME.get(id);
-  return stub.fetch(c.req.raw);
+
+  // Strictly enforce role=browser and strip any agent query params
+  const forwardUrl = new URL(c.req.url);
+  forwardUrl.searchParams.set('role', 'browser');
+  forwardUrl.searchParams.delete('node_id');
+  forwardUrl.searchParams.delete('instance_id');
+
+  const forwardRequest = new Request(forwardUrl.toString(), {
+    headers: c.req.raw.headers,
+  });
+
+  return stub.fetch(forwardRequest);
 });
 
 export default {

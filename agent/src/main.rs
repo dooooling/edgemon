@@ -244,6 +244,7 @@ fn main() -> Result<()> {
     // 5. Thread 2: Transport Loop (WSS Primary Stream + HTTP Fallback)
     let instance_id = Uuid::new_v4().to_string();
     let mut seq: u64 = 1;
+    let mut http_registered = false;
     let mut backoff = Backoff::new();
     let http_client = HttpClient::new(config.server_url.clone(), config.node_id.clone(), config.token.clone());
 
@@ -402,19 +403,49 @@ fn main() -> Result<()> {
             if last_http_fallback_time.elapsed() >= Duration::from_secs(30) {
                 last_http_fallback_time = Instant::now();
 
-                let snapshot_opt = {
-                    shared_snapshot.read().unwrap().clone()
-                };
-
-                if let Some(report) = snapshot_opt {
-                    let report_env = Envelope::new("report", &instance_id, seq, current_ts_ms(), report);
-                    match http_client.send_report(&report_env) {
-                        Ok(ack) => {
-                            info!("[HTTP Fallback] Sent 30s report #{} (Server ACK rev: {})", seq, ack.config_rev);
+                // 1. Ensure instance is registered via Hello first over HTTP
+                if !http_registered {
+                    let hello_env = Envelope::new("hello", &instance_id, seq, current_ts_ms(), hello_payload.clone());
+                    match http_client.send_hello(&hello_env) {
+                        Ok(welcome) => {
+                            info!("[HTTP Fallback] Successfully registered via Hello (Config rev: {})", welcome.config_rev);
+                            http_registered = true;
                             seq += 1;
+                            {
+                                let mut cfg_guard = shared_config.write().unwrap();
+                                cfg_guard.config_rev = welcome.config_rev;
+                                cfg_guard.sample_interval_sec = welcome.config.sample_interval_sec.clamp(1, 60);
+                                cfg_guard.stream_interval_sec = welcome.config.stream_interval_sec.clamp(1, 60);
+                                cfg_guard.probe_interval_sec = welcome.config.probe_interval_sec.clamp(10, 3600);
+                                cfg_guard.network_interface = welcome.config.network_interface;
+                                cfg_guard.probes = welcome.config.probes;
+                            }
                         }
                         Err(e) => {
-                            warn!("[HTTP Fallback] Report failed: {}", e);
+                            warn!("[HTTP Fallback] Hello failed: {}", e);
+                        }
+                    }
+                }
+
+                // 2. Send HTTP Report if registered
+                if http_registered {
+                    let snapshot_opt = {
+                        shared_snapshot.read().unwrap().clone()
+                    };
+
+                    if let Some(report) = snapshot_opt {
+                        let report_env = Envelope::new("report", &instance_id, seq, current_ts_ms(), report);
+                        match http_client.send_report(&report_env) {
+                            Ok(ack) => {
+                                info!("[HTTP Fallback] Sent 30s report #{} (Server ACK rev: {})", seq, ack.config_rev);
+                                seq += 1;
+                            }
+                            Err(e) => {
+                                warn!("[HTTP Fallback] Report failed: {}", e);
+                                if e.to_string().contains("HELLO_REQUIRED") || e.to_string().contains("INSTANCE_MISMATCH") {
+                                    http_registered = false;
+                                }
+                            }
                         }
                     }
                 }

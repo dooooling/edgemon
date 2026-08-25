@@ -5,20 +5,27 @@ import { signSession, verifySession } from '../services/crypto';
 const authRoutes = new Hono<{ Bindings: Env }>();
 
 authRoutes.post('/api/auth/login', async (c) => {
-  const adminKey = c.env.ADMIN_KEY || 'test-admin-key';
+  const adminKey = c.env.ADMIN_KEY;
+  const sessionSecret = c.env.SESSION_SECRET;
+
+  if (!adminKey || !sessionSecret) {
+    return c.json(
+      { error: 'Server misconfiguration: ADMIN_KEY or SESSION_SECRET not set in Worker secrets' },
+      500
+    );
+  }
 
   let body: { key?: string };
   try {
     body = await c.req.json();
   } catch {
-    return c.json({ error: 'Invalid JSON' }, 400);
+    return c.json({ error: 'Invalid JSON body' }, 400);
   }
 
   if (!body.key || body.key !== adminKey) {
     return c.json({ error: 'Invalid Admin Key' }, 401);
   }
 
-  const sessionSecret = c.env.SESSION_SECRET || 'default-session-secret-change-me';
   const now = Date.now();
   const sessionData = JSON.stringify({
     role: 'admin',
@@ -46,7 +53,9 @@ authRoutes.post('/api/auth/logout', (c) => {
 
 authRoutes.get('/api/auth/session', async (c) => {
   const cookieHeader = c.req.header('Cookie');
-  if (!cookieHeader) {
+  const sessionSecret = c.env.SESSION_SECRET;
+
+  if (!cookieHeader || !sessionSecret) {
     return c.json({ authenticated: false });
   }
 
@@ -56,7 +65,6 @@ authRoutes.get('/api/auth/session', async (c) => {
   }
 
   const token = match[1];
-  const sessionSecret = c.env.SESSION_SECRET || 'default-session-secret-change-me';
   const payloadStr = await verifySession(token, sessionSecret);
 
   if (!payloadStr) {
@@ -65,7 +73,7 @@ authRoutes.get('/api/auth/session', async (c) => {
 
   try {
     const data = JSON.parse(payloadStr);
-    if (data.expires_at_ms && data.expires_at_ms > Date.now()) {
+    if (data.role === 'admin' && data.expires_at_ms && data.expires_at_ms > Date.now()) {
       return c.json({ authenticated: true, role: 'admin' });
     }
   } catch {

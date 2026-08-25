@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { Env } from '../durable/realtime-hub';
-import { CloseCodes } from '../protocol/types';
+import { CloseCodes, validateServerConfig } from '../protocol/types';
 import { createNode, getNodeById, rotateNodeToken } from '../db/nodes';
 import { verifyAdminSession } from '../services/session';
 
@@ -153,6 +153,16 @@ adminRoutes.patch('/api/admin/nodes/:id/config', async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json();
   const now = Date.now();
+
+  const validation = validateServerConfig(body);
+  if (!validation.valid) {
+    return c.json({ error: validation.error || 'Invalid configuration' }, 400);
+  }
+
+  const existingNode = await getNodeById(c.env.DB, id);
+  if (!existingNode) {
+    return c.json({ error: 'Node not found' }, 404);
+  }
 
   const configRow = await c.env.DB
     .prepare('SELECT revision FROM node_config WHERE node_id = ?')

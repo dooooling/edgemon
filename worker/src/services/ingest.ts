@@ -122,6 +122,8 @@ export async function ingestReportCore(
     shouldPersist = !lastDbState || bucketStartMs > lastBucketStartMs;
   }
 
+  let actuallyPersisted = false;
+
   if (shouldPersist) {
     const currentSegmentRx = Math.max(0, currentRx - (currentAttachment.bucket_start_rx_bytes ?? currentRx));
     const currentSegmentTx = Math.max(0, currentTx - (currentAttachment.bucket_start_tx_bytes ?? currentTx));
@@ -153,6 +155,7 @@ export async function ingestReportCore(
         ),
       ]);
 
+      actuallyPersisted = true;
       currentAttachment.last_persist_bucket_ms = bucketStartMs;
       currentAttachment.bucket_start_rx_bytes = currentRx;
       currentAttachment.bucket_start_tx_bytes = currentTx;
@@ -173,7 +176,7 @@ export async function ingestReportCore(
   return {
     result: {
       accepted: true,
-      persisted: shouldPersist,
+      persisted: actuallyPersisted,
       livePayload,
       isHiddenNode: currentAttachment.is_hidden,
     },

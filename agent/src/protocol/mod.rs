@@ -7,3 +7,6 @@ pub use envelope::*;
 pub use hello::*;
 pub use report::*;
 pub use response::*;
+
+pub type HelloPayload = hello::HelloData;
+pub type ReportPayload = report::ReportData;

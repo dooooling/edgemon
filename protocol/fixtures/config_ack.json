@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "type": "config_ack",
+  "instance_id": "01991f4e-a3d7-7c4e-aef1-9a1b6c03d442",
+  "seq": 1940,
+  "ts_ms": 1787650200100,
+  "data": {
+    "config_rev": 2,
+    "status": "applied",
+    "reason": null
+  }
+}

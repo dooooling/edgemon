@@ -1,21 +1,24 @@
-// EdgeMon Protocol V1 TypeScript Types
+// EdgeMon Protocol V1.1 TypeScript Types
+// Strictly aligned with edgemon-wss-architecture-v1.md
 
-export interface AgentEnvelope<T = unknown> {
-  v: number;
-  type: 'hello' | 'report';
+export type AgentMessageType = 'hello' | 'report' | 'config_ack' | 'error';
+export type ServerMessageType = 'welcome' | 'config' | 'ack' | 'error';
+
+export interface Envelope<T = unknown> {
+  v: 1;
+  type: string;
   instance_id: string;
   seq: number;
   ts_ms: number;
   data: T;
 }
 
-export interface ServerEnvelope<T = unknown> {
-  v: number;
-  type: 'welcome' | 'ack' | 'error';
-  instance_id: string;
-  seq: number;
-  ts_ms: number;
-  data: T;
+export interface AgentEnvelope<T = unknown> extends Envelope<T> {
+  type: AgentMessageType;
+}
+
+export interface ServerEnvelope<T = unknown> extends Envelope<T> {
+  type: ServerMessageType;
 }
 
 export interface HelloPayload {
@@ -97,7 +100,7 @@ export interface ReportPayload {
 
 export interface ServerConfig {
   sample_interval_sec: number;
-  report_interval_sec: number;
+  stream_interval_sec: number;
   probe_interval_sec: number;
   network_interface: string;
   probes: Array<{
@@ -107,4 +110,76 @@ export interface ServerConfig {
     method: 'icmp' | 'tcp';
     port?: number;
   }>;
+}
+
+export interface WelcomeData {
+  config_rev: number;
+  config: ServerConfig;
+}
+
+export interface ConfigData {
+  config_rev: number;
+  config: ServerConfig;
+}
+
+export interface ConfigAckData {
+  config_rev: number;
+  status: 'applied' | 'rejected';
+  reason?: string | null;
+}
+
+export interface AckData {
+  accepted_seq: number;
+  persisted_seq: number;
+  config_rev: number;
+}
+
+export interface ErrorData {
+  code: string;
+  message: string;
+}
+
+export const CloseCodes = {
+  NORMAL_CLOSURE: 1000,
+  PROTOCOL_ERROR: 1002,
+  POLICY_VIOLATION: 1008,
+  MESSAGE_TOO_BIG: 1009,
+  SERVER_RECONNECT: 4001,
+  REPLACED_BY_NEW_INSTANCE: 4002,
+  TOKEN_REVOKED: 4003,
+  NODE_DISABLED: 4004,
+  CONFIG_FATAL: 4005,
+} as const;
+
+export function validateFiniteMetric(val: number | null | undefined, min?: number, max?: number): boolean {
+  if (val === null || val === undefined) return true;
+  if (!Number.isFinite(val)) return false;
+  if (min !== undefined && val < min) return false;
+  if (max !== undefined && val > max) return false;
+  return true;
+}
+
+export function validateReportPayload(data: ReportPayload): boolean {
+  if (!data || typeof data !== 'object') return false;
+  if (!validateFiniteMetric(data.cpu?.usage_pct, 0, 100)) return false;
+  if (!validateFiniteMetric(data.cpu?.throttled_pct, 0, 100)) return false;
+  if (!validateFiniteMetric(data.memory?.used_bytes, 0)) return false;
+  if (!validateFiniteMetric(data.memory?.working_set_bytes, 0)) return false;
+  if (!validateFiniteMetric(data.memory?.swap_used_bytes, 0)) return false;
+  if (!validateFiniteMetric(data.rootfs?.used_bytes, 0)) return false;
+  if (!validateFiniteMetric(data.io?.read_bps, 0)) return false;
+  if (!validateFiniteMetric(data.io?.write_bps, 0)) return false;
+  if (!validateFiniteMetric(data.network?.rx_bps, 0)) return false;
+  if (!validateFiniteMetric(data.network?.tx_bps, 0)) return false;
+  if (!validateFiniteMetric(data.network?.rx_total_bytes, 0)) return false;
+  if (!validateFiniteMetric(data.network?.tx_total_bytes, 0)) return false;
+  if (!validateFiniteMetric(data.uptime_sec, 0)) return false;
+
+  if (Array.isArray(data.probes)) {
+    for (const p of data.probes) {
+      if (!validateFiniteMetric(p.latency_ms, 0)) return false;
+      if (!validateFiniteMetric(p.loss_ratio, 0, 1)) return false;
+    }
+  }
+  return true;
 }

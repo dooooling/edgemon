@@ -7,6 +7,7 @@ pub enum EdgeMonError {
     Json(serde_json::Error),
     Protocol(String),
     Network(String),
+    Transport(String),
     Security(String),
 }
 
@@ -18,6 +19,7 @@ impl fmt::Display for EdgeMonError {
             Self::Json(err) => write!(f, "JSON serialization error: {err}"),
             Self::Protocol(msg) => write!(f, "Protocol error: {msg}"),
             Self::Network(msg) => write!(f, "Network error: {msg}"),
+            Self::Transport(msg) => write!(f, "Transport error: {msg}"),
             Self::Security(msg) => write!(f, "Security violation: {msg}"),
         }
     }
@@ -37,4 +39,6 @@ impl From<serde_json::Error> for EdgeMonError {
     }
 }
 
-pub type Result<T> = std::result::Result<T, EdgeMonError>;
+pub type AgentError = EdgeMonError;
+pub type AgentResult<T> = std::result::Result<T, EdgeMonError>;
+pub type Result<T> = AgentResult<T>;

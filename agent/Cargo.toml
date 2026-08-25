@@ -3,7 +3,7 @@ name = "edgemon-agent"
 version = "0.1.0"
 edition = "2021"
 authors = ["EdgeMon Team"]
-description = "EdgeMon lightweight Linux telemetry and probe agent"
+description = "EdgeMon lightweight Linux & Windows telemetry daemon"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
@@ -16,6 +16,8 @@ log = "0.4"
 env_logger = "0.11"
 libc = "0.2"
 ureq = { version = "2.10", default-features = false, features = ["tls", "gzip", "json"] }
+tungstenite = { version = "0.24", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
+url = "2.5"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52", features = [

@@ -37,7 +37,7 @@ fn test_parse_welcome_fixture() {
     assert_eq!(envelope.msg_type, "welcome");
     assert_eq!(envelope.data.config_rev, 1);
     assert_eq!(envelope.data.config.sample_interval_sec, 2);
-    assert_eq!(envelope.data.config.report_interval_sec, 30);
+    assert_eq!(envelope.data.config.stream_interval_sec, 2);
     assert_eq!(envelope.data.config.probes.len(), 1);
     assert_eq!(envelope.data.config.probes[0].id, "cf-dns");
 }
@@ -59,6 +59,31 @@ fn test_parse_report_fixture() {
 }
 
 #[test]
+fn test_parse_config_fixture() {
+    let path = fixture_path("config.json");
+    let content = fs::read_to_string(&path).expect("Failed to read config.json fixture");
+    let envelope: Envelope<ConfigData> = serde_json::from_str(&content).expect("Failed to parse config.json");
+
+    assert_eq!(envelope.v, 1);
+    assert_eq!(envelope.msg_type, "config");
+    assert_eq!(envelope.data.config_rev, 2);
+    assert_eq!(envelope.data.config.stream_interval_sec, 2);
+    assert_eq!(envelope.data.config.probes.len(), 1);
+}
+
+#[test]
+fn test_parse_config_ack_fixture() {
+    let path = fixture_path("config_ack.json");
+    let content = fs::read_to_string(&path).expect("Failed to read config_ack.json fixture");
+    let envelope: Envelope<ConfigAckData> = serde_json::from_str(&content).expect("Failed to parse config_ack.json");
+
+    assert_eq!(envelope.v, 1);
+    assert_eq!(envelope.msg_type, "config_ack");
+    assert_eq!(envelope.data.config_rev, 2);
+    assert_eq!(envelope.data.status, "applied");
+}
+
+#[test]
 fn test_parse_ack_fixture() {
     let path = fixture_path("ack.json");
     let content = fs::read_to_string(&path).expect("Failed to read ack.json fixture");
@@ -67,8 +92,8 @@ fn test_parse_ack_fixture() {
     assert_eq!(envelope.v, 1);
     assert_eq!(envelope.msg_type, "ack");
     assert_eq!(envelope.data.config_rev, 1);
-    assert_eq!(envelope.data.config, None);
-    assert_eq!(envelope.data.realtime, None);
+    assert_eq!(envelope.data.accepted_seq, Some(1900));
+    assert_eq!(envelope.data.persisted_seq, Some(1900));
 }
 
 #[test]

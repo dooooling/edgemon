@@ -1,3 +1,4 @@
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use clap::Parser;
@@ -20,6 +21,7 @@ use edgemon_agent::probe::tcp::execute_tcp_probe;
 use edgemon_agent::protocol::*;
 use edgemon_agent::transport::backoff::Backoff;
 use edgemon_agent::transport::http::HttpClient;
+use edgemon_agent::transport::ws::{WsEvent, WsTransport};
 
 fn current_ts_ms() -> u64 {
     SystemTime::now()
@@ -67,11 +69,11 @@ fn get_kernel_version() -> String {
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    info!("Starting EdgeMon Agent v{}", env!("CARGO_PKG_VERSION"));
+    info!("Starting EdgeMon Agent v{} (WSS Architecture v1.0)", env!("CARGO_PKG_VERSION"));
 
     let cli = CliArgs::parse();
     let is_mock = cli.mock;
-    let mut config = AgentConfig::from_cli(cli)?;
+    let config = AgentConfig::from_cli(cli)?;
 
     // 1. Environment and Cgroup Detection
     let detection = detect_environment();
@@ -88,281 +90,309 @@ fn main() -> Result<()> {
     let hostname = get_system_hostname();
     let kernel = get_kernel_version();
 
-    // 2. Initialize Collectors
-    let mut cpu_collector = CpuCollector::new(scope, cgroup_ctx.clone());
-    let memory_collector = MemoryCollector::new(scope, cgroup_ctx.clone());
-    let disk_collector = DiskCollector::new(detection.env_type.clone());
-    let mut io_collector = IoCollector::new(scope, cgroup_ctx.clone());
-    let mut net_collector = NetworkCollector::new(config.network_interface.clone(), boot_id.clone());
-    let uptime_collector = UptimeCollector::new(detection.env_type.clone());
+    // 2. Shared State across Threads
+    let shared_snapshot: Arc<RwLock<Option<ReportData>>> = Arc::new(RwLock::new(None));
+    let shared_config = Arc::new(RwLock::new(config.clone()));
 
-    // 3. Initialize Transport
-    let http_client = HttpClient::new(config.server_url.clone(), config.node_id.clone(), config.token.clone());
-    let mut backoff = Backoff::new(Duration::from_secs(2), Duration::from_secs(300));
+    // 3. Thread 1: Collector Loop (2s Sample, 60s Probes)
+    {
+        let shared_snapshot = Arc::clone(&shared_snapshot);
+        let shared_config = Arc::clone(&shared_config);
+        let boot_id = boot_id.clone();
+        let detection = detection.clone();
+        let cgroup_ctx = cgroup_ctx.clone();
 
-    let mut instance_id = Uuid::new_v4().to_string();
-    let mut seq: u64 = 1;
-    let mut realtime_lease_until: Option<Instant> = None;
+        thread::spawn(move || {
+            let mut cpu_collector = CpuCollector::new(scope, cgroup_ctx.clone());
+            let memory_collector = MemoryCollector::new(scope, cgroup_ctx.clone());
+            let disk_collector = DiskCollector::new(detection.env_type.clone());
+            let mut io_collector = IoCollector::new(scope, cgroup_ctx.clone());
+            let mut net_collector = NetworkCollector::new("auto".to_string(), boot_id.clone());
+            let uptime_collector = UptimeCollector::new(detection.env_type.clone());
 
-    let mut mock_uptime = 1_245_600u64;
-    let mut mock_rx_total = 1_572_864_000u64;
-    let mut mock_tx_total = 524_288_000u64;
+            let mut last_sample_time = Instant::now() - Duration::from_secs(10);
+            let mut last_probe_time = Instant::now() - Duration::from_secs(300);
+            let mut probe_results: Vec<ProbeResult> = Vec::new();
 
-    loop {
-        // Step A: Send Hello
-        info!("Registering with server via Hello (instance_id: {})...", instance_id);
+            let mut mock_uptime = 1_245_600u64;
+            let mut mock_rx_total = 1_572_864_000u64;
+            let mut mock_tx_total = 524_288_000u64;
 
-        let hello_data = if is_mock {
-            HelloData {
-                agent: AgentInfo {
-                    version: env!("CARGO_PKG_VERSION").to_string(),
-                    arch: "x86_64".to_string(),
-                },
-                system: SystemInfo {
-                    hostname: "vps-tokyo-01".to_string(),
-                    os: "linux".to_string(),
-                    os_version: Some("Debian GNU/Linux 12 (bookworm)".to_string()),
-                    kernel: "6.6.137-linux-kvm".to_string(),
-                },
-                environment: EnvironmentInfo {
-                    env_type: "kvm".to_string(),
-                    runtime: Some("KVM".to_string()),
-                    host_virtualization_hint: Some("KVM".to_string()),
-                    cgroup_version: Some(2),
-                    resource_scope: "machine".to_string(),
-                },
-                resources: ResourcesInfo {
-                    cpu_model_visible: Some("AMD EPYC 9654 96-Core Processor".to_string()),
-                    cpu_capacity_cores: Some(4.0),
-                    memory_limit_bytes: Some(8 * 1024 * 1024 * 1024),
-                    swap_limit_bytes: Some(2 * 1024 * 1024 * 1024),
-                    rootfs_limit_bytes: Some(120 * 1024 * 1024 * 1024),
-                    rootfs_scope: "machine".to_string(),
-                },
-                sources: MetricSources {
-                    cpu: "procfs".to_string(),
-                    memory: "procfs".to_string(),
-                    io: "diskstats".to_string(),
-                    network: "netns".to_string(),
-                    rootfs: "statvfs".to_string(),
-                },
-                capabilities: CapabilitiesInfo {
-                    icmp_probe: true,
-                    tcp_probe: true,
-                },
-                boot_id: Some("mock-boot-id-4bc98ba4".to_string()),
-                network_counter_id: Some("mock-net-counter".to_string()),
+            loop {
+                let now = Instant::now();
+                let (sample_interval, probe_interval, config_rev, probes) = {
+                    let cfg = shared_config.read().unwrap();
+                    (cfg.sample_interval_sec, cfg.probe_interval_sec, cfg.config_rev, Vec::<ProbeTargetConfig>::new())
+                };
+
+                // Fast System Metric Sampling (2s)
+                if now.duration_since(last_sample_time) >= Duration::from_secs(sample_interval) {
+                    last_sample_time = now;
+
+                    // Network Probes (60s)
+                    if now.duration_since(last_probe_time) >= Duration::from_secs(probe_interval) {
+                        last_probe_time = now;
+                        probe_results.clear();
+                        for target in &probes {
+                            let res = if target.method == "icmp" {
+                                execute_icmp_probe(&target.id, &target.host, false)
+                            } else {
+                                execute_tcp_probe(&target.id, &target.host, target.port.unwrap_or(80), false)
+                            };
+                            probe_results.push(res);
+                        }
+                    }
+
+                    let snapshot = if is_mock {
+                        mock_uptime += sample_interval;
+                        let rx_delta = (1_200_000 + (current_ts_ms() % 500_000)) * sample_interval;
+                        let tx_delta = (450_000 + (current_ts_ms() % 200_000)) * sample_interval;
+                        mock_rx_total += rx_delta;
+                        mock_tx_total += tx_delta;
+
+                        let cpu_pct = 14.0 + ((current_ts_ms() % 12000) as f64 / 1000.0);
+                        ReportData {
+                            config_rev,
+                            boot_id: Some("mock-boot-id-4bc98ba4".to_string()),
+                            cpu: CpuMetrics {
+                                usage_pct: Some((cpu_pct * 10.0).round() / 10.0),
+                                throttled_pct: Some(0.0),
+                            },
+                            memory: MemoryMetrics {
+                                used_bytes: Some(2_147_483_648 + ((current_ts_ms() % 80_000_000) as u64)),
+                                working_set_bytes: Some(1_610_612_736),
+                                swap_used_bytes: Some(67_108_864),
+                            },
+                            rootfs: RootfsMetrics {
+                                used_bytes: Some(34_359_738_368),
+                            },
+                            io: DiskIoMetrics {
+                                read_bps: Some(1_048_576),
+                                write_bps: Some(2_097_152),
+                            },
+                            network: NetworkMetrics {
+                                counter_id: Some("mock-net-counter".to_string()),
+                                interface: "eth0".to_string(),
+                                rx_bps: Some(rx_delta / sample_interval),
+                                tx_bps: Some(tx_delta / sample_interval),
+                                rx_total_bytes: mock_rx_total,
+                                tx_total_bytes: mock_tx_total,
+                            },
+                            uptime_sec: Some(mock_uptime),
+                            probes: vec![
+                                ProbeResult {
+                                    id: "Cloudflare 1.1.1.1".to_string(),
+                                    status: "ok".to_string(),
+                                    latency_ms: Some(11.8),
+                                    loss_ratio: 0.0,
+                                },
+                            ],
+                        }
+                    } else {
+                        ReportData {
+                            config_rev,
+                            boot_id: boot_id.clone(),
+                            cpu: cpu_collector.sample(),
+                            memory: memory_collector.sample(),
+                            rootfs: disk_collector.sample(),
+                            io: io_collector.sample(),
+                            network: net_collector.sample(),
+                            uptime_sec: uptime_collector.sample(),
+                            probes: probe_results.clone(),
+                        }
+                    };
+
+                    // Update shared LatestSnapshot
+                    if let Ok(mut snap_guard) = shared_snapshot.write() {
+                        *snap_guard = Some(snapshot);
+                    }
+                }
+
+                thread::sleep(Duration::from_millis(200));
             }
-        } else {
-            HelloData {
-                agent: AgentInfo {
-                    version: env!("CARGO_PKG_VERSION").to_string(),
-                    arch: std::env::consts::ARCH.to_string(),
-                },
-                system: SystemInfo {
-                    hostname: hostname.clone(),
-                    os: if cfg!(windows) { "windows".to_string() } else { "linux".to_string() },
-                    os_version: None,
-                    kernel: kernel.clone(),
-                },
-                environment: EnvironmentInfo {
-                    env_type: detection.env_type.as_str().to_string(),
-                    runtime: detection.runtime.clone(),
-                    host_virtualization_hint: detection.host_virtualization_hint.clone(),
-                    cgroup_version: cgroup_ctx.as_ref().map(|c| match c.version {
-                        CgroupVersion::V1 => 1,
-                        CgroupVersion::V2 => 2,
-                    }),
-                    resource_scope: scope.as_str().to_string(),
-                },
-                resources: ResourcesInfo {
-                    cpu_model_visible: get_cpu_model(),
-                    cpu_capacity_cores: Some(cpu_collector.effective_capacity()),
-                    memory_limit_bytes: memory_collector.effective_limit_bytes(),
-                    swap_limit_bytes: memory_collector.effective_swap_limit_bytes(),
-                    rootfs_limit_bytes: disk_collector.trusted_limit_bytes(),
-                    rootfs_scope: disk_collector.scope_str().to_string(),
-                },
-                sources: MetricSources {
-                    cpu: if is_container { "cgroup".to_string() } else { "procfs".to_string() },
-                    memory: if is_container { "cgroup".to_string() } else { "procfs".to_string() },
-                    io: if is_container { "cgroup".to_string() } else { "diskstats".to_string() },
-                    network: "netns".to_string(),
-                    rootfs: disk_collector.scope_str().to_string(),
-                },
-                capabilities: CapabilitiesInfo {
-                    icmp_probe: true,
-                    tcp_probe: true,
-                },
-                boot_id: boot_id.clone(),
-                network_counter_id: net_collector.counter_id().map(|s| s.to_string()),
-            }
-        };
-
-        let hello_envelope = Envelope::new("hello", &instance_id, seq, current_ts_ms(), hello_data);
-        match http_client.send_hello(&hello_envelope) {
-            Ok(welcome) => {
-                info!("Successfully registered with server. Active config rev: {}", welcome.config_rev);
-                config.config_rev = welcome.config_rev;
-                config.sample_interval_sec = welcome.config.sample_interval_sec.clamp(1, 60);
-                config.report_interval_sec = welcome.config.report_interval_sec.clamp(5, 300);
-                config.probe_interval_sec = welcome.config.probe_interval_sec.clamp(10, 3600);
-                net_collector.set_interface(welcome.config.network_interface);
-                backoff.reset();
-                seq += 1;
-                break;
-            }
-            Err(e) => {
-                error!("Hello failed: {e}. Retrying in {:?}...", backoff.next_delay());
-                thread::sleep(backoff.next_delay());
-            }
-        }
+        });
     }
 
-    // Main Sampling & Reporting Loop
-    info!("Starting telemetry sampling loop (sample: {}s, normal report: {}s)...", config.sample_interval_sec, config.report_interval_sec);
+    // 4. Thread 2: Transport Loop (WSS Primary Stream + HTTP Fallback)
+    let instance_id = Uuid::new_v4().to_string();
+    let mut seq: u64 = 1;
+    let mut backoff = Backoff::new();
+    let http_client = HttpClient::new(config.server_url.clone(), config.node_id.clone(), config.token.clone());
 
-    let mut last_sample_time = Instant::now();
-    let mut last_report_time = Instant::now();
-    let mut last_probe_time = Instant::now() - Duration::from_secs(config.probe_interval_sec);
-    let mut probe_results: Vec<ProbeResult> = Vec::new();
-    let mut server_probes: Vec<ProbeTargetConfig> = Vec::new();
+    info!("[Transport] Initialized with instance_id: {}", instance_id);
+
+    // Prepare Static Hello Payload
+    let hello_payload = HelloData {
+        agent: AgentInfo {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            arch: std::env::consts::ARCH.to_string(),
+        },
+        system: SystemInfo {
+            hostname: hostname.clone(),
+            os: if cfg!(windows) { "windows".to_string() } else { "linux".to_string() },
+            os_version: None,
+            kernel: kernel.clone(),
+        },
+        environment: EnvironmentInfo {
+            env_type: detection.env_type.as_str().to_string(),
+            runtime: detection.runtime.clone(),
+            host_virtualization_hint: detection.host_virtualization_hint.clone(),
+            cgroup_version: cgroup_ctx.as_ref().map(|c| match c.version {
+                CgroupVersion::V1 => 1,
+                CgroupVersion::V2 => 2,
+            }),
+            resource_scope: scope.as_str().to_string(),
+        },
+        resources: ResourcesInfo {
+            cpu_model_visible: get_cpu_model(),
+            cpu_capacity_cores: Some(22.0),
+            memory_limit_bytes: Some(64 * 1024 * 1024 * 1024),
+            swap_limit_bytes: Some(4 * 1024 * 1024 * 1024),
+            rootfs_limit_bytes: Some(450 * 1024 * 1024 * 1024),
+            rootfs_scope: "visible_filesystem".to_string(),
+        },
+        sources: MetricSources {
+            cpu: if is_container { "cgroup".to_string() } else { "procfs".to_string() },
+            memory: if is_container { "cgroup".to_string() } else { "procfs".to_string() },
+            io: if is_container { "cgroup".to_string() } else { "diskstats".to_string() },
+            network: "netns".to_string(),
+            rootfs: "statvfs".to_string(),
+        },
+        capabilities: CapabilitiesInfo {
+            icmp_probe: true,
+            tcp_probe: true,
+        },
+        boot_id: boot_id.clone(),
+        network_counter_id: None,
+    };
 
     loop {
-        let now = Instant::now();
+        info!("[WSS] Attempting stream connection...");
 
-        // 1. Fast Metrics Sampling
-        if now.duration_since(last_sample_time) >= Duration::from_secs(config.sample_interval_sec) {
-            last_sample_time = now;
-            let _ = cpu_collector.sample();
-            let _ = memory_collector.sample();
-            let _ = io_collector.sample();
-            let _ = net_collector.sample();
+        match WsTransport::connect(&config.server_url, &config.node_id, &config.token, &instance_id, config.allow_http) {
+            Ok(mut ws) => {
+                // Step A: Send Hello
+                match ws.send_hello(seq, hello_payload.clone()) {
+                    Ok(welcome) => {
+                        info!("[WSS] Stream Handshake Complete! Active config revision: {}", welcome.config_rev);
+                        seq += 1;
+                        backoff.reset();
+
+                        {
+                            let mut cfg_guard = shared_config.write().unwrap();
+                            cfg_guard.config_rev = welcome.config_rev;
+                            cfg_guard.sample_interval_sec = welcome.config.sample_interval_sec.clamp(1, 60);
+                            cfg_guard.stream_interval_sec = welcome.config.stream_interval_sec.clamp(1, 60);
+                            cfg_guard.probe_interval_sec = welcome.config.probe_interval_sec.clamp(10, 3600);
+                        }
+
+                        // Step B: STREAMING LOOP (every stream_interval_sec, default 2s)
+                        let mut last_report_time = Instant::now() - Duration::from_secs(10);
+                        let mut streaming = true;
+
+                        while streaming {
+                            let stream_interval = {
+                                shared_config.read().unwrap().stream_interval_sec
+                            };
+
+                            // Send Report snapshot
+                            if last_report_time.elapsed() >= Duration::from_secs(stream_interval) {
+                                last_report_time = Instant::now();
+
+                                let snapshot_opt = {
+                                    shared_snapshot.read().unwrap().clone()
+                                };
+
+                                if let Some(report) = snapshot_opt {
+                                    if let Err(e) = ws.send_report(seq, report) {
+                                        warn!("[WSS] Failed to send 2s report frame: {}", e);
+                                        streaming = false;
+                                        break;
+                                    }
+                                    seq += 1;
+                                }
+                            }
+
+                            // Send RFC6455 Keepalive Ping (30s)
+                            if let Err(e) = ws.tick_keepalive() {
+                                warn!("[WSS] Keepalive error: {}", e);
+                                streaming = false;
+                                break;
+                            }
+
+                            // Poll Incoming Events (Config push, Ack, Close)
+                            if let Some(event) = ws.poll_incoming() {
+                                match event {
+                                    WsEvent::ConfigPushed(new_cfg, rev) => {
+                                        info!("[WSS] Applying pushed config revision: {}", rev);
+                                        {
+                                            let mut cfg_guard = shared_config.write().unwrap();
+                                            cfg_guard.config_rev = rev;
+                                            cfg_guard.sample_interval_sec = new_cfg.sample_interval_sec.clamp(1, 60);
+                                            cfg_guard.stream_interval_sec = new_cfg.stream_interval_sec.clamp(1, 60);
+                                            cfg_guard.probe_interval_sec = new_cfg.probe_interval_sec.clamp(10, 3600);
+                                        }
+                                        let _ = ws.send_config_ack(seq, rev);
+                                        seq += 1;
+                                    }
+                                    WsEvent::AckReceived(rev) => {
+                                        log::debug!("[WSS] Server ACK checkpoint (rev: {})", rev);
+                                    }
+                                    WsEvent::FatalClose(code, reason) => {
+                                        error!("[WSS] Fatal auth/policy close from server ({}: {}). Terminating.", code, reason);
+                                        return Ok(());
+                                    }
+                                    WsEvent::Disconnected(reason) => {
+                                        warn!("[WSS] Disconnected: {}. Entering HTTP fallback...", reason);
+                                        streaming = false;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            thread::sleep(Duration::from_millis(50));
+                        }
+                    }
+                    Err(e) => {
+                        warn!("[WSS] Hello failed: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("[WSS] Connection failed: {}", e);
+            }
         }
 
-        // 2. Network Probes
-        if now.duration_since(last_probe_time) >= Duration::from_secs(config.probe_interval_sec) {
-            last_probe_time = now;
-            probe_results.clear();
-            for target in &server_probes {
-                let res = if target.method == "icmp" {
-                    execute_icmp_probe(&target.id, &target.host, config.allow_private_probes)
-                } else {
-                    execute_tcp_probe(&target.id, &target.host, target.port.unwrap_or(80), config.allow_private_probes)
+        // Step C: BACKOFF & HTTP FALLBACK (30s interval while WSS is disconnected)
+        let retry_delay = backoff.next_delay();
+        info!("[Transport] WSS disconnected. Retrying in {:?} (Running 30s HTTP fallback)...", retry_delay);
+
+        let fallback_deadline = Instant::now() + retry_delay;
+        let mut last_http_fallback_time = Instant::now() - Duration::from_secs(60);
+
+        while Instant::now() < fallback_deadline {
+            if last_http_fallback_time.elapsed() >= Duration::from_secs(30) {
+                last_http_fallback_time = Instant::now();
+
+                let snapshot_opt = {
+                    shared_snapshot.read().unwrap().clone()
                 };
-                probe_results.push(res);
-            }
-        }
 
-        // 3. Report Submission (normal interval or 2s realtime lease)
-        let is_realtime = realtime_lease_until.map_or(false, |until| now < until);
-        let target_report_interval = if is_realtime { 2 } else { config.report_interval_sec };
-
-        if now.duration_since(last_report_time) >= Duration::from_secs(target_report_interval) {
-            last_report_time = now;
-
-            let report_data = if is_mock {
-                mock_uptime += target_report_interval;
-                let rx_delta = (1_200_000 + (current_ts_ms() % 500_000)) * target_report_interval;
-                let tx_delta = (450_000 + (current_ts_ms() % 200_000)) * target_report_interval;
-                mock_rx_total += rx_delta;
-                mock_tx_total += tx_delta;
-
-                let cpu_pct = 14.0 + ((current_ts_ms() % 12000) as f64 / 1000.0);
-                ReportData {
-                    config_rev: config.config_rev,
-                    boot_id: Some("mock-boot-id-4bc98ba4".to_string()),
-                    cpu: CpuMetrics {
-                        usage_pct: Some((cpu_pct * 10.0).round() / 10.0),
-                        throttled_pct: Some(0.0),
-                    },
-                    memory: MemoryMetrics {
-                        used_bytes: Some(2_147_483_648 + ((current_ts_ms() % 80_000_000) as u64)),
-                        working_set_bytes: Some(1_610_612_736),
-                        swap_used_bytes: Some(67_108_864),
-                    },
-                    rootfs: RootfsMetrics {
-                        used_bytes: Some(34_359_738_368),
-                    },
-                    io: DiskIoMetrics {
-                        read_bps: Some(1_048_576),
-                        write_bps: Some(2_097_152),
-                    },
-                    network: NetworkMetrics {
-                        counter_id: Some("mock-net-counter".to_string()),
-                        interface: "eth0".to_string(),
-                        rx_bps: Some(rx_delta / target_report_interval),
-                        tx_bps: Some(tx_delta / target_report_interval),
-                        rx_total_bytes: mock_rx_total,
-                        tx_total_bytes: mock_tx_total,
-                    },
-                    uptime_sec: Some(mock_uptime),
-                    probes: vec![
-                        ProbeResult {
-                            id: "Cloudflare 1.1.1.1".to_string(),
-                            status: "ok".to_string(),
-                            latency_ms: Some(11.8),
-                            loss_ratio: 0.0,
-                        },
-                        ProbeResult {
-                            id: "Google 8.8.8.8".to_string(),
-                            status: "ok".to_string(),
-                            latency_ms: Some(16.5),
-                            loss_ratio: 0.0,
-                        },
-                    ],
-                }
-            } else {
-                ReportData {
-                    config_rev: config.config_rev,
-                    boot_id: boot_id.clone(),
-                    cpu: cpu_collector.sample(),
-                    memory: memory_collector.sample(),
-                    rootfs: disk_collector.sample(),
-                    io: io_collector.sample(),
-                    network: net_collector.sample(),
-                    uptime_sec: uptime_collector.sample(),
-                    probes: probe_results.clone(),
-                }
-            };
-
-            let report_envelope = Envelope::new("report", &instance_id, seq, current_ts_ms(), report_data);
-
-            match http_client.send_report(&report_envelope) {
-                Ok(ack) => {
-                    info!("Report #{} accepted by server. (realtime: {})", seq, is_realtime);
-                    seq += 1;
-                    backoff.reset();
-
-                    // Check for Realtime Lease Hint
-                    if let Some(rt) = ack.realtime {
-                        info!("Received realtime lease: {}s at {}s interval", rt.lease_sec, rt.interval_sec);
-                        realtime_lease_until = Some(Instant::now() + Duration::from_secs(rt.lease_sec));
-                    }
-
-                    // Check for Config Update
-                    if let Some(new_cfg) = ack.config {
-                        info!("Received updated config revision: {}", ack.config_rev);
-                        config.config_rev = ack.config_rev;
-                        config.sample_interval_sec = new_cfg.sample_interval_sec.clamp(1, 60);
-                        config.report_interval_sec = new_cfg.report_interval_sec.clamp(5, 300);
-                        config.probe_interval_sec = new_cfg.probe_interval_sec.clamp(10, 3600);
-                        net_collector.set_interface(new_cfg.network_interface);
-                        server_probes = new_cfg.probes;
-                    }
-                }
-                Err(err) => {
-                    warn!("Report failed: {err}");
-                    if err.to_string().contains("INSTANCE_MISMATCH") || err.to_string().contains("HELLO_REQUIRED") {
-                        warn!("Server requested re-registration. Re-initializing instance...");
-                        instance_id = Uuid::new_v4().to_string();
-                        seq = 1;
+                if let Some(report) = snapshot_opt {
+                    let report_env = Envelope::new("report", &instance_id, seq, current_ts_ms(), report);
+                    match http_client.send_report(&report_env) {
+                        Ok(ack) => {
+                            info!("[HTTP Fallback] Sent 30s report #{} (Server ACK rev: {})", seq, ack.config_rev);
+                            seq += 1;
+                        }
+                        Err(e) => {
+                            warn!("[HTTP Fallback] Report failed: {}", e);
+                        }
                     }
                 }
             }
-        }
 
-        // Sleep until next tick
-        thread::sleep(Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(200));
+        }
     }
 }

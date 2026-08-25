@@ -20,6 +20,7 @@ impl EnvType {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DetectionResult {
     pub env_type: EnvType,
     pub runtime: Option<String>,

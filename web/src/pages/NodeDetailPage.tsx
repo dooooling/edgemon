@@ -65,7 +65,7 @@ export const NodeDetailPage: React.FC = () => {
         </Link>
         <div className="status-indicator-beacon" style={{ border: '1px solid var(--colors-hairline-on-dark)', padding: '6px 14px', borderRadius: '32px' }}>
           <span className="beacon-dot beacon-live"></span>
-          <span>HIGH-PRECISION REALTIME STREAM (2-SEC LEASE ACTIVE)</span>
+          <span>ORBITAL TELEMETRY STREAM (2-SEC LIVE)</span>
         </div>
       </div>
 

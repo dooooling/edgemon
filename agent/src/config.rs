@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use crate::error::{EdgeMonError, Result};
 
 #[derive(Parser, Debug, Clone)]
-#[command(author, version, about = "EdgeMon Agent - Lightweight Linux Telemetry Daemon", long_about = None)]
+#[command(author, version, about = "EdgeMon Agent - Lightweight Linux & Windows Telemetry Daemon", long_about = None)]
 pub struct CliArgs {
-    /// Server URL (e.g. https://monitor.example.com)
+    /// Server URL (e.g. https://monitor.example.com or http://127.0.0.1:8787)
     #[arg(short, long, env = "EDGEMON_SERVER")]
     pub server: String,
 
@@ -22,7 +22,7 @@ pub struct CliArgs {
     #[arg(long = "token", env = "EDGEMON_TOKEN", hide_env_values = true)]
     pub token: Option<String>,
 
-    /// Allow insecure HTTP server URLs (for local testing only)
+    /// Allow insecure HTTP / WS server URLs (for local testing only)
     #[arg(long = "allow-http", default_value_t = false)]
     pub allow_http: bool,
 
@@ -44,9 +44,9 @@ pub struct AgentConfig {
     pub allow_private_probes: bool,
     pub mock: bool,
 
-    // Dynamic configuration (updated via Welcome / ACK)
+    // Dynamic configuration (updated via Welcome / WSS Config Push)
     pub sample_interval_sec: u64,
-    pub report_interval_sec: u64,
+    pub stream_interval_sec: u64,
     pub probe_interval_sec: u64,
     pub network_interface: String,
     pub config_rev: u64,
@@ -55,9 +55,9 @@ pub struct AgentConfig {
 impl AgentConfig {
     pub fn from_cli(cli: CliArgs) -> Result<Self> {
         // Enforce HTTPS unless explicitly permitted
-        if !cli.allow_http && !cli.server.starts_with("https://") {
+        if !cli.allow_http && !cli.server.starts_with("https://") && !cli.server.starts_with("wss://") {
             return Err(EdgeMonError::Config(
-                "Production server URL must use HTTPS. Pass --allow-http for local testing only.".into(),
+                "Production server URL must use HTTPS / WSS. Pass --allow-http for local testing only.".into(),
             ));
         }
 
@@ -87,9 +87,9 @@ impl AgentConfig {
             allow_private_probes: cli.allow_private_probes,
             mock: cli.mock,
 
-            // Default baseline values
+            // Default baseline values (WSS Architecture v1.0)
             sample_interval_sec: 2,
-            report_interval_sec: 30,
+            stream_interval_sec: 2,
             probe_interval_sec: 60,
             network_interface: "auto".to_string(),
             config_rev: 0,

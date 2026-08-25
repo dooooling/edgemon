@@ -1,30 +1,44 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct Backoff {
-    min: Duration,
-    max: Duration,
-    current: Duration,
-    factor: f64,
+    step_index: usize,
+    steps: &'static [u64],
 }
 
+const BACKOFF_STEPS: &[u64] = &[1, 2, 4, 8, 16, 30, 60];
+
 impl Backoff {
-    pub fn new(min: Duration, max: Duration) -> Self {
+    pub fn new() -> Self {
         Self {
-            min,
-            max,
-            current: min,
-            factor: 1.5,
+            step_index: 0,
+            steps: BACKOFF_STEPS,
         }
     }
 
     pub fn next_delay(&mut self) -> Duration {
-        let delay = self.current;
-        let next_secs = (self.current.as_secs_f64() * self.factor).min(self.max.as_secs_f64());
-        self.current = Duration::from_secs_f64(next_secs);
-        delay
+        let base_secs = self.steps[self.step_index.min(self.steps.len() - 1)];
+        if self.step_index < self.steps.len() - 1 {
+            self.step_index += 1;
+        }
+
+        // Add +/- 20% jitter
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .subsec_nanos();
+        let jitter_factor = 0.8 + ((nanos % 400) as f64 / 1000.0); // 0.80 .. 1.20
+        let actual_secs = (base_secs as f64 * jitter_factor).max(0.5);
+
+        Duration::from_secs_f64(actual_secs)
     }
 
     pub fn reset(&mut self) {
-        self.current = self.min;
+        self.step_index = 0;
+    }
+}
+
+impl Default for Backoff {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -1,5 +1,25 @@
 import { DurableObject } from 'cloudflare:workers';
-import { verifySession } from '../services/crypto';
+import {
+  AgentEnvelope,
+  HelloPayload,
+  ReportPayload,
+  ConfigAckData,
+  ServerEnvelope,
+  WelcomeData,
+  ConfigData,
+  AckData,
+  ErrorData,
+  ServerConfig,
+  CloseCodes,
+} from '../protocol/types';
+import { updateNodeMetadataFromHello } from '../db/nodes';
+import { NormalizedGeo } from '../services/geo';
+import {
+  AgentAttachment,
+  createDefaultAttachment,
+  ingestReportCore,
+} from '../services/ingest';
+import { verifyAdminSession } from '../services/session';
 
 export interface Env {
   DB: D1Database;
@@ -9,50 +29,63 @@ export interface Env {
   DATA_ENCRYPTION_KEY?: string;
 }
 
-export class RealtimeHub extends DurableObject {
-  // SQLite-backed Durable Object with WebSocket Hibernation support
+export interface BrowserAttachment {
+  kind: 'browser';
+  authenticated: boolean;
+}
+
+type SocketAttachment = AgentAttachment | BrowserAttachment;
+
+export class RealtimeHub extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
 
     const url = new URL(request.url);
-    const scope = url.searchParams.get('scope') || 'overview';
-    const nodeId = url.searchParams.get('id');
+    const role = url.searchParams.get('role') || 'browser';
 
-    // 1. Verify Authorization on WebSocket Upgrade Request
-    const cookieHeader = request.headers.get('Cookie') || '';
-    const match = cookieHeader.match(/edgemon_session=([^;]+)/);
-    let isAuthenticated = false;
-    if (match) {
-      const token = match[1];
-      const sessionSecret = (this.env as any).SESSION_SECRET || 'default-session-secret-change-me';
-      const payloadStr = await verifySession(token, sessionSecret);
-      if (payloadStr) {
-        try {
-          const data = JSON.parse(payloadStr);
-          if (data.expires_at_ms && data.expires_at_ms > Date.now()) {
-            isAuthenticated = true;
-          }
-        } catch {
-          // ignore
-        }
+    if (role === 'agent') {
+      const nodeId = url.searchParams.get('node_id');
+      const nodeName = url.searchParams.get('node_name') || 'Unknown Node';
+      const instanceId = url.searchParams.get('instance_id');
+      const trafficResetDay = parseInt(url.searchParams.get('traffic_reset_day') || '1', 10);
+      const geoJson = url.searchParams.get('geo_json');
+      const geo: NormalizedGeo = geoJson ? JSON.parse(geoJson) : { edge_rtt_ms: null, edge_transport: null };
+
+      if (!nodeId || !instanceId) {
+        return new Response('Missing Agent connection parameters', { status: 400 });
       }
+
+      const now = Date.now();
+      const attachment: AgentAttachment = createDefaultAttachment(nodeId, instanceId, now);
+
+      // Hibernation accept with Agent tags
+      const tags = ['role:agent', `agent:${nodeId}`];
+      this.ctx.acceptWebSocket(server, tags);
+      server.serializeAttachment(attachment);
+
+      // Store Geo & Metadata on active connection object
+      (server as any).__nodeName = nodeName;
+      (server as any).__geo = geo;
+      (server as any).__trafficResetDay = trafficResetDay;
+
+      return new Response(null, {
+        status: 101,
+        webSocket: client,
+      });
     }
 
-    // 2. Tag assignments with Hibernation
-    const tags: string[] = [];
-    if (scope === 'node' && nodeId) {
-      // All viewers receive node detail broadcasts
-      tags.push(`node:view:${nodeId}`);
-      // ONLY authenticated admin sessions trigger high-frequency 2s realtime lease
-      if (isAuthenticated) {
-        tags.push(`node:watch:${nodeId}`);
-      }
-    } else {
-      tags.push('overview');
-    }
+    // Role === 'browser'
+    const cookieHeader = request.headers.get('Cookie');
+    const isAuthenticated = await verifyAdminSession(cookieHeader, this.env.SESSION_SECRET);
 
-    this.ctx.acceptWebSocket(server, tags);
+    const browserAttachment: BrowserAttachment = {
+      kind: 'browser',
+      authenticated: isAuthenticated,
+    };
+
+    this.ctx.acceptWebSocket(server, ['role:browser']);
+    server.serializeAttachment(browserAttachment);
 
     return new Response(null, {
       status: 101,
@@ -61,34 +94,297 @@ export class RealtimeHub extends DurableObject {
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    // Best-effort message handling
+    const rawAttachment = ws.deserializeAttachment() as SocketAttachment | null;
+    if (!rawAttachment) {
+      ws.close(CloseCodes.POLICY_VIOLATION, 'Missing connection state');
+      return;
+    }
+
+    if (rawAttachment.kind === 'agent') {
+      await this.handleAgentMessage(ws, rawAttachment, message);
+    }
+  }
+
+  private async handleAgentMessage(
+    ws: WebSocket,
+    attachment: AgentAttachment,
+    message: string | ArrayBuffer
+  ): Promise<void> {
+    const text = typeof message === 'string' ? message : new TextDecoder().decode(message);
+
+    // Frame size guard (max 16KB for control, max 8KB for report)
+    if (text.length > 16384) {
+      ws.close(CloseCodes.MESSAGE_TOO_BIG, 'Frame exceeds 16KB limit');
+      return;
+    }
+
+    let envelope: AgentEnvelope;
+    try {
+      envelope = JSON.parse(text);
+      if (envelope.v !== 1 || !envelope.type || !envelope.instance_id) {
+        this.sendError(ws, 'INVALID_ENVELOPE', 'Envelope v must be 1 with valid type and instance_id');
+        return;
+      }
+    } catch {
+      this.sendError(ws, 'INVALID_JSON', 'Failed to parse JSON envelope');
+      return;
+    }
+
+    // Instance verification
+    if (envelope.instance_id !== attachment.instance_id) {
+      this.sendError(ws, 'INSTANCE_MISMATCH', 'Message instance_id does not match upgrade handshake');
+      return;
+    }
+
+    const now = Date.now();
+
+    // 1. HELLO MESSAGE
+    if (envelope.type === 'hello') {
+      const helloData = envelope.data as HelloPayload;
+      const nodeId = attachment.node_id;
+
+      // Close any existing active instance for this node
+      const existingSockets = this.ctx.getWebSockets(`agent:${nodeId}`);
+      for (const existing of existingSockets) {
+        if (existing !== ws) {
+          const oldAttachment = existing.deserializeAttachment() as AgentAttachment | null;
+          if (oldAttachment && oldAttachment.instance_id !== attachment.instance_id) {
+            existing.close(CloseCodes.REPLACED_BY_NEW_INSTANCE, 'Replaced by newer instance');
+          }
+        }
+      }
+
+      const geo = (ws as any).__geo || { edge_rtt_ms: null, edge_transport: null };
+      await updateNodeMetadataFromHello(this.env.DB, nodeId, helloData, geo);
+
+      // Update active instance fields in D1
+      await this.env.DB
+        .prepare(
+          `UPDATE nodes SET
+            active_instance_id = ?,
+            active_instance_started_at_ms = ?,
+            last_stream_connected_at_ms = ?,
+            updated_at_ms = ?
+          WHERE id = ?`
+        )
+        .bind(attachment.instance_id, now, now, now, nodeId)
+        .run();
+
+      // Load latest config
+      const configRow = await this.env.DB
+        .prepare('SELECT revision, config_json FROM node_config WHERE node_id = ?')
+        .bind(nodeId)
+        .first<{ revision: number; config_json: string }>();
+
+      const serverConfig: ServerConfig = configRow
+        ? JSON.parse(configRow.config_json)
+        : {
+            sample_interval_sec: 2,
+            stream_interval_sec: 2,
+            probe_interval_sec: 60,
+            network_interface: 'auto',
+            probes: [],
+          };
+
+      attachment.hello_ok = true;
+      attachment.config_rev = configRow?.revision || 1;
+      ws.serializeAttachment(attachment);
+
+      const welcomeEnvelope: ServerEnvelope<WelcomeData> = {
+        v: 1,
+        type: 'welcome',
+        instance_id: attachment.instance_id,
+        seq: envelope.seq,
+        ts_ms: now,
+        data: {
+          config_rev: attachment.config_rev,
+          config: serverConfig,
+        },
+      };
+
+      ws.send(JSON.stringify(welcomeEnvelope));
+      return;
+    }
+
+    // 2. REPORT MESSAGE
+    if (envelope.type === 'report') {
+      if (!attachment.hello_ok) {
+        ws.close(CloseCodes.POLICY_VIOLATION, 'Hello handshake required before reporting');
+        return;
+      }
+
+      const reportData = envelope.data as ReportPayload;
+      const nodeId = attachment.node_id;
+      const nodeName = (ws as any).__nodeName || 'Node';
+      const geo = (ws as any).__geo || { edge_rtt_ms: null, edge_transport: null };
+      const trafficResetDay = (ws as any).__trafficResetDay || 1;
+
+      const { result, updatedAttachment } = await ingestReportCore(
+        this.env.DB,
+        nodeId,
+        nodeName,
+        attachment.instance_id,
+        envelope.seq,
+        reportData,
+        geo,
+        attachment,
+        trafficResetDay
+      );
+
+      if (!result.accepted) {
+        this.sendError(ws, result.error || 'REPORT_REJECTED', 'Report failed validation', envelope.seq);
+        return;
+      }
+
+      // Save updated attachment state
+      ws.serializeAttachment(updatedAttachment);
+
+      // Realtime 0~2s broadcast to all connected browsers!
+      if (result.livePayload) {
+        this.broadcastToBrowsers(result.livePayload);
+      }
+
+      // Low-frequency ACK on 60s Checkpoint
+      if (result.persisted) {
+        const ackEnvelope: ServerEnvelope<AckData> = {
+          v: 1,
+          type: 'ack',
+          instance_id: attachment.instance_id,
+          seq: envelope.seq,
+          ts_ms: now,
+          data: {
+            accepted_seq: envelope.seq,
+            persisted_seq: envelope.seq,
+            config_rev: updatedAttachment.config_rev,
+          },
+        };
+        try {
+          ws.send(JSON.stringify(ackEnvelope));
+        } catch {
+          // Socket write non-blocking
+        }
+      }
+      return;
+    }
+
+    // 3. CONFIG_ACK MESSAGE
+    if (envelope.type === 'config_ack') {
+      const configAckData = envelope.data as ConfigAckData;
+      attachment.config_rev = configAckData.config_rev;
+      attachment.last_seq = envelope.seq;
+      ws.serializeAttachment(attachment);
+    }
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
-    ws.close(code, 'Hub closed');
-  }
-
-  async broadcast(tag: string, payload: unknown): Promise<void> {
-    const sockets = this.ctx.getWebSockets(tag);
-    const message = JSON.stringify(payload);
-    for (const ws of sockets) {
+    // Note: Do NOT call ws.close() inside webSocketClose callback!
+    const attachment = ws.deserializeAttachment() as SocketAttachment | null;
+    if (attachment && attachment.kind === 'agent') {
+      const now = Date.now();
       try {
-        ws.send(message);
+        await this.env.DB
+          .prepare('UPDATE nodes SET last_stream_disconnected_at_ms = ? WHERE id = ?')
+          .bind(now, attachment.node_id)
+          .run();
       } catch {
-        // Socket may have closed
+        // Best-effort update on close
       }
     }
   }
 
-  async publishAndCheckDetailWatch(nodeId: string, payload: unknown): Promise<{ detailWatched: boolean }> {
-    // 1. Broadcast to overview subscribers
-    await this.broadcast('overview', payload);
+  private sendError(ws: WebSocket, code: string, message: string, seq = 0): void {
+    const errorEnvelope: ServerEnvelope<ErrorData> = {
+      v: 1,
+      type: 'error',
+      instance_id: '',
+      seq,
+      ts_ms: Date.now(),
+      data: { code, message },
+    };
+    try {
+      ws.send(JSON.stringify(errorEnvelope));
+    } catch {
+      // ignore
+    }
+  }
 
-    // 2. Broadcast to specific node viewers
-    await this.broadcast(`node:view:${nodeId}`, payload);
+  private broadcastToBrowsers(payload: unknown): void {
+    const message = JSON.stringify(payload);
+    const browsers = this.ctx.getWebSockets('role:browser');
+    for (const ws of browsers) {
+      try {
+        ws.send(message);
+      } catch {
+        // Closed socket will be cleaned by hibernation
+      }
+    }
+  }
 
-    // 3. Check if any authorized active detail watchers exist
-    const authorizedWatchers = this.ctx.getWebSockets(`node:watch:${nodeId}`);
-    return { detailWatched: authorizedWatchers.length > 0 };
+  // --- RPC Methods callable from Worker endpoints ---
+
+  async pushConfig(nodeId: string, config: ServerConfig, revision: number): Promise<boolean> {
+    const sockets = this.ctx.getWebSockets(`agent:${nodeId}`);
+    if (sockets.length === 0) return false;
+
+    const configEnvelope: ServerEnvelope<ConfigData> = {
+      v: 1,
+      type: 'config',
+      instance_id: '',
+      seq: 0,
+      ts_ms: Date.now(),
+      data: {
+        config_rev: revision,
+        config,
+      },
+    };
+
+    const message = JSON.stringify(configEnvelope);
+    for (const ws of sockets) {
+      try {
+        ws.send(message);
+      } catch {
+        // ignore
+      }
+    }
+    return true;
+  }
+
+  async disconnectAgent(nodeId: string, code = CloseCodes.TOKEN_REVOKED, reason = 'TOKEN_REVOKED'): Promise<void> {
+    const sockets = this.ctx.getWebSockets(`agent:${nodeId}`);
+    for (const ws of sockets) {
+      try {
+        ws.close(code, reason);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  async ingestFallback(
+    nodeId: string,
+    nodeName: string,
+    instanceId: string,
+    seq: number,
+    report: ReportPayload,
+    geo: NormalizedGeo,
+    trafficResetDay = 1
+  ): Promise<{ accepted: boolean; persisted: boolean; error?: string }> {
+    const { result } = await ingestReportCore(
+      this.env.DB,
+      nodeId,
+      nodeName,
+      instanceId,
+      seq,
+      report,
+      geo,
+      null,
+      trafficResetDay
+    );
+
+    if (result.accepted && result.livePayload) {
+      this.broadcastToBrowsers(result.livePayload);
+    }
+
+    return result;
   }
 }

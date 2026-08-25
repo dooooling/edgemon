@@ -88,7 +88,7 @@ export async function createNode(
   // Create initial default agent config
   const initialConfig = JSON.stringify({
     sample_interval_sec: 2,
-    report_interval_sec: 30,
+    stream_interval_sec: 2,
     probe_interval_sec: 60,
     network_interface: 'auto',
     probes: [],

@@ -90,11 +90,24 @@ fn main() -> Result<()> {
     let hostname = get_system_hostname();
     let kernel = get_kernel_version();
 
-    // 2. Shared State across Threads
+    // 2. Measure True Initial Hardware Limits (Accuracy First)
+    let init_cpu = CpuCollector::new(scope, cgroup_ctx.clone());
+    let init_mem = MemoryCollector::new(scope, cgroup_ctx.clone());
+    let init_disk = DiskCollector::new(detection.env_type.clone());
+    let init_net = NetworkCollector::new(config.network_interface.clone(), boot_id.clone());
+
+    let true_cpu_capacity = init_cpu.effective_capacity();
+    let true_mem_limit = init_mem.effective_limit_bytes();
+    let true_swap_limit = init_mem.effective_swap_limit_bytes();
+    let true_rootfs_limit = init_disk.trusted_limit_bytes();
+    let true_rootfs_scope = init_disk.scope_str().to_string();
+    let initial_net_counter_id = init_net.counter_id().map(|s| s.to_string());
+
+    // 3. Shared State across Threads
     let shared_snapshot: Arc<RwLock<Option<ReportData>>> = Arc::new(RwLock::new(None));
     let shared_config = Arc::new(RwLock::new(config.clone()));
 
-    // 3. Thread 1: Collector Loop (2s Sample, 60s Probes)
+    // 4. Thread 1: Collector Loop (2s Sample, 60s Probes)
     {
         let shared_snapshot = Arc::clone(&shared_snapshot);
         let shared_config = Arc::clone(&shared_config);
@@ -113,6 +126,7 @@ fn main() -> Result<()> {
             let mut last_sample_time = Instant::now() - Duration::from_secs(10);
             let mut last_probe_time = Instant::now() - Duration::from_secs(300);
             let mut probe_results: Vec<ProbeResult> = Vec::new();
+            let mut current_interface = "auto".to_string();
 
             let mut mock_uptime = 1_245_600u64;
             let mut mock_rx_total = 1_572_864_000u64;
@@ -120,10 +134,24 @@ fn main() -> Result<()> {
 
             loop {
                 let now = Instant::now();
-                let (sample_interval, probe_interval, config_rev, probes) = {
+                let (sample_interval, probe_interval, config_rev, probes, net_iface, allow_private) = {
                     let cfg = shared_config.read().unwrap();
-                    (cfg.sample_interval_sec, cfg.probe_interval_sec, cfg.config_rev, Vec::<ProbeTargetConfig>::new())
+                    (
+                        cfg.sample_interval_sec,
+                        cfg.probe_interval_sec,
+                        cfg.config_rev,
+                        cfg.probes.clone(),
+                        cfg.network_interface.clone(),
+                        cfg.allow_private_probes,
+                    )
                 };
+
+                // Dynamic network interface update
+                if net_iface != current_interface {
+                    info!("[Collector] Switching network interface to: {}", net_iface);
+                    net_collector.set_interface(net_iface.clone());
+                    current_interface = net_iface;
+                }
 
                 // Fast System Metric Sampling (2s)
                 if now.duration_since(last_sample_time) >= Duration::from_secs(sample_interval) {
@@ -135,9 +163,9 @@ fn main() -> Result<()> {
                         probe_results.clear();
                         for target in &probes {
                             let res = if target.method == "icmp" {
-                                execute_icmp_probe(&target.id, &target.host, false)
+                                execute_icmp_probe(&target.id, &target.host, allow_private)
                             } else {
-                                execute_tcp_probe(&target.id, &target.host, target.port.unwrap_or(80), false)
+                                execute_tcp_probe(&target.id, &target.host, target.port.unwrap_or(80), allow_private)
                             };
                             probe_results.push(res);
                         }
@@ -213,7 +241,7 @@ fn main() -> Result<()> {
         });
     }
 
-    // 4. Thread 2: Transport Loop (WSS Primary Stream + HTTP Fallback)
+    // 5. Thread 2: Transport Loop (WSS Primary Stream + HTTP Fallback)
     let instance_id = Uuid::new_v4().to_string();
     let mut seq: u64 = 1;
     let mut backoff = Backoff::new();
@@ -221,7 +249,7 @@ fn main() -> Result<()> {
 
     info!("[Transport] Initialized with instance_id: {}", instance_id);
 
-    // Prepare Static Hello Payload
+    // Prepare Accurate Hello Payload (Accuracy First)
     let hello_payload = HelloData {
         agent: AgentInfo {
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -245,11 +273,11 @@ fn main() -> Result<()> {
         },
         resources: ResourcesInfo {
             cpu_model_visible: get_cpu_model(),
-            cpu_capacity_cores: Some(22.0),
-            memory_limit_bytes: Some(64 * 1024 * 1024 * 1024),
-            swap_limit_bytes: Some(4 * 1024 * 1024 * 1024),
-            rootfs_limit_bytes: Some(450 * 1024 * 1024 * 1024),
-            rootfs_scope: "visible_filesystem".to_string(),
+            cpu_capacity_cores: Some(true_cpu_capacity),
+            memory_limit_bytes: true_mem_limit,
+            swap_limit_bytes: true_swap_limit,
+            rootfs_limit_bytes: true_rootfs_limit,
+            rootfs_scope: true_rootfs_scope,
         },
         sources: MetricSources {
             cpu: if is_container { "cgroup".to_string() } else { "procfs".to_string() },
@@ -263,7 +291,7 @@ fn main() -> Result<()> {
             tcp_probe: true,
         },
         boot_id: boot_id.clone(),
-        network_counter_id: None,
+        network_counter_id: initial_net_counter_id,
     };
 
     loop {
@@ -284,6 +312,8 @@ fn main() -> Result<()> {
                             cfg_guard.sample_interval_sec = welcome.config.sample_interval_sec.clamp(1, 60);
                             cfg_guard.stream_interval_sec = welcome.config.stream_interval_sec.clamp(1, 60);
                             cfg_guard.probe_interval_sec = welcome.config.probe_interval_sec.clamp(10, 3600);
+                            cfg_guard.network_interface = welcome.config.network_interface;
+                            cfg_guard.probes = welcome.config.probes;
                         }
 
                         // Step B: STREAMING LOOP (every stream_interval_sec, default 2s)
@@ -313,9 +343,9 @@ fn main() -> Result<()> {
                                 }
                             }
 
-                            // Send RFC6455 Keepalive Ping (30s)
+                            // Send RFC6455 Keepalive Ping & Check Pong Timeout
                             if let Err(e) = ws.tick_keepalive() {
-                                warn!("[WSS] Keepalive error: {}", e);
+                                warn!("[WSS] Keepalive / Pong error: {}", e);
                                 streaming = false;
                                 break;
                             }
@@ -331,6 +361,8 @@ fn main() -> Result<()> {
                                             cfg_guard.sample_interval_sec = new_cfg.sample_interval_sec.clamp(1, 60);
                                             cfg_guard.stream_interval_sec = new_cfg.stream_interval_sec.clamp(1, 60);
                                             cfg_guard.probe_interval_sec = new_cfg.probe_interval_sec.clamp(10, 3600);
+                                            cfg_guard.network_interface = new_cfg.network_interface;
+                                            cfg_guard.probes = new_cfg.probes;
                                         }
                                         let _ = ws.send_config_ack(seq, rev);
                                         seq += 1;

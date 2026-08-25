@@ -1,31 +1,26 @@
 import { Hono } from 'hono';
 import { Env } from '../durable/realtime-hub';
-import { verifySession } from '../services/crypto';
+import { CloseCodes } from '../protocol/types';
 import { createNode, getNodeById, rotateNodeToken } from '../db/nodes';
+import { verifyAdminSession } from '../services/session';
 
 const adminRoutes = new Hono<{ Bindings: Env }>();
 
 // Admin Auth Middleware
 adminRoutes.use('/api/admin/*', async (c, next) => {
   const authHeader = c.req.header('Authorization');
-  const expectedAdminKey = c.env.ADMIN_KEY || 'test-admin-key';
+  const expectedAdminKey = c.env.ADMIN_KEY;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const bearerKey = authHeader.slice(7).trim();
-    if (bearerKey === expectedAdminKey) {
+    if (expectedAdminKey && bearerKey === expectedAdminKey) {
       return next();
     }
   }
 
   const cookieHeader = c.req.header('Cookie');
-  if (cookieHeader) {
-    const match = cookieHeader.match(/edgemon_session=([^;]+)/);
-    if (match) {
-      const sessionSecret = c.env.SESSION_SECRET || 'default-session-secret-change-me';
-      const payloadStr = await verifySession(match[1], sessionSecret);
-      if (payloadStr) {
-        return next();
-      }
-    }
+  const isAuthenticated = await verifyAdminSession(cookieHeader, c.env.SESSION_SECRET);
+  if (isAuthenticated) {
+    return next();
   }
 
   return c.json({ error: 'Unauthorized' }, 401);
@@ -119,6 +114,16 @@ adminRoutes.patch('/api/admin/nodes/:id', async (c) => {
 // DELETE /api/admin/nodes/:id
 adminRoutes.delete('/api/admin/nodes/:id', async (c) => {
   const id = c.req.param('id');
+
+  // Disconnect any active WSS agent connection immediately
+  const hubId = c.env.REALTIME.idFromName('main');
+  const hubStub = c.env.REALTIME.get(hubId);
+  try {
+    await (hubStub as any).disconnectAgent(id, CloseCodes.NODE_DISABLED, 'NODE_DISABLED');
+  } catch {
+    // best-effort
+  }
+
   await c.env.DB.prepare('DELETE FROM nodes WHERE id = ?').bind(id).run();
   return c.json({ status: 'deleted', id });
 });
@@ -130,6 +135,16 @@ adminRoutes.post('/api/admin/nodes/:id/token', async (c) => {
   if (!rawToken) {
     return c.json({ error: 'Node not found' }, 404);
   }
+
+  // Disconnect any active WSS agent connection immediately on token rotation
+  const hubId = c.env.REALTIME.idFromName('main');
+  const hubStub = c.env.REALTIME.get(hubId);
+  try {
+    await (hubStub as any).disconnectAgent(id, CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED');
+  } catch {
+    // best-effort
+  }
+
   return c.json({ rawToken });
 });
 
@@ -158,6 +173,15 @@ adminRoutes.patch('/api/admin/nodes/:id/config', async (c) => {
     )
     .bind(id, newRevision, configJson, now)
     .run();
+
+  // Push new config to connected agent via WebSocket
+  const hubId = c.env.REALTIME.idFromName('main');
+  const hubStub = c.env.REALTIME.get(hubId);
+  try {
+    await (hubStub as any).pushConfig(id, body, newRevision);
+  } catch {
+    // best-effort
+  }
 
   return c.json({ revision: newRevision, config: body });
 });

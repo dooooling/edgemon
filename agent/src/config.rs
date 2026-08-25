@@ -2,6 +2,7 @@ use clap::Parser;
 use std::fs;
 use std::path::PathBuf;
 use crate::error::{EdgeMonError, Result};
+use crate::protocol::ProbeTargetConfig;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about = "EdgeMon Agent - Lightweight Linux & Windows Telemetry Daemon", long_about = None)]
@@ -49,6 +50,7 @@ pub struct AgentConfig {
     pub stream_interval_sec: u64,
     pub probe_interval_sec: u64,
     pub network_interface: String,
+    pub probes: Vec<ProbeTargetConfig>,
     pub config_rev: u64,
 }
 
@@ -92,6 +94,7 @@ impl AgentConfig {
             stream_interval_sec: 2,
             probe_interval_sec: 60,
             network_interface: "auto".to_string(),
+            probes: Vec::new(),
             config_rev: 0,
         })
     }

@@ -15,11 +15,9 @@ pub type WsStream = WebSocket<MaybeTlsStream<TcpStream>>;
 
 pub struct WsTransport {
     socket: WsStream,
-    server_url: String,
-    node_id: String,
-    token: String,
     instance_id: String,
-    last_ping: Instant,
+    last_activity: Instant,
+    last_ping_sent: Option<Instant>,
 }
 
 pub enum WsEvent {
@@ -103,7 +101,7 @@ impl WsTransport {
 
         info!("[WSS] Handshake successful (Status: {})", response.status());
 
-        // Set TCP read timeout so socket.read() doesn't block forever
+        // Set TCP read timeout so socket.read() doesn't block indefinitely
         match socket.get_ref() {
             MaybeTlsStream::Plain(s) => {
                 let _ = s.set_read_timeout(Some(Duration::from_millis(500)));
@@ -114,13 +112,12 @@ impl WsTransport {
             _ => {}
         }
 
+        let now = Instant::now();
         Ok(Self {
             socket,
-            server_url: server_url.to_string(),
-            node_id: node_id.to_string(),
-            token: token.to_string(),
             instance_id: instance_id.to_string(),
-            last_ping: Instant::now(),
+            last_activity: now,
+            last_ping_sent: None,
         })
     }
 
@@ -147,6 +144,8 @@ impl WsTransport {
 
             match self.socket.read() {
                 Ok(Message::Text(text)) => {
+                    self.last_activity = Instant::now();
+                    self.last_ping_sent = None;
                     let env: serde_json::Value = serde_json::from_str(&text)?;
                     if env.get("type").and_then(|t| t.as_str()) == Some("welcome") {
                         let welcome_env: Envelope<WelcomeData> = serde_json::from_value(env)?;
@@ -161,7 +160,12 @@ impl WsTransport {
                     }
                 }
                 Ok(Message::Ping(data)) => {
+                    self.last_activity = Instant::now();
                     let _ = self.socket.send(Message::Pong(data));
+                }
+                Ok(Message::Pong(_)) => {
+                    self.last_activity = Instant::now();
+                    self.last_ping_sent = None;
                 }
                 Ok(Message::Close(frame)) => {
                     let reason = frame.map(|f| format!("{}: {}", f.code, f.reason)).unwrap_or_default();
@@ -216,18 +220,31 @@ impl WsTransport {
     }
 
     pub fn tick_keepalive(&mut self) -> AgentResult<()> {
-        if self.last_ping.elapsed() >= Duration::from_secs(30) {
+        let now = Instant::now();
+
+        // 1. Check Pong Timeout if ping was sent
+        if let Some(ping_time) = self.last_ping_sent {
+            if now.duration_since(ping_time) >= Duration::from_secs(10) {
+                return Err(AgentError::Transport("Pong timeout: no keepalive response from server".to_string()));
+            }
+        }
+
+        // 2. Send 30s RFC6455 Ping
+        if now.duration_since(self.last_activity) >= Duration::from_secs(30) && self.last_ping_sent.is_none() {
             self.socket.send(Message::Ping(vec![]))
                 .map_err(|e| AgentError::Transport(format!("Failed to send RFC6455 Ping: {}", e)))?;
-            self.last_ping = Instant::now();
+            self.last_ping_sent = Some(now);
             debug!("[WSS] Sent RFC6455 Ping");
         }
+
         Ok(())
     }
 
     pub fn poll_incoming(&mut self) -> Option<WsEvent> {
         match self.socket.read() {
             Ok(Message::Text(text)) => {
+                self.last_activity = Instant::now();
+                self.last_ping_sent = None;
                 if let Ok(env) = serde_json::from_str::<serde_json::Value>(&text) {
                     let msg_type = env.get("type").and_then(|t| t.as_str()).unwrap_or("");
                     match msg_type {
@@ -251,10 +268,13 @@ impl WsTransport {
                 None
             }
             Ok(Message::Ping(data)) => {
+                self.last_activity = Instant::now();
                 let _ = self.socket.send(Message::Pong(data));
                 None
             }
             Ok(Message::Pong(_)) => {
+                self.last_activity = Instant::now();
+                self.last_ping_sent = None;
                 debug!("[WSS] Received Pong");
                 None
             }
@@ -263,7 +283,7 @@ impl WsTransport {
                     let code: u16 = f.code.into();
                     let reason = f.reason.to_string();
                     if code == 4003 || code == 4004 {
-                        error!("[WSS] Fatal close received (code: {}, reason: {})", code, reason);
+                        error!("[WSS] Fatal auth/policy close from server ({}: {}). Terminating.", code, reason);
                         return Some(WsEvent::FatalClose(code, reason));
                     }
                     return Some(WsEvent::Disconnected(format!("Close {}: {}", code, reason)));

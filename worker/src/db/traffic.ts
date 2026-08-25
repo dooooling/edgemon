@@ -40,7 +40,9 @@ export async function trackTrafficDelta(
   currentRxTotal: number,
   currentTxTotal: number,
   counterId: string | null,
-  resetDay = 1
+  resetDay = 1,
+  previousRxTotal: number | null = null,
+  previousTxTotal: number | null = null
 ): Promise<{ periodRxBytes: number; periodTxBytes: number }> {
   const now = Date.now();
   const periodStartMs = computeBillingPeriodStart(now, resetDay);
@@ -68,19 +70,22 @@ export async function trackTrafficDelta(
     };
   }
 
-  // Check if counter domain has changed or restarted
-  if (
-    period.active_counter_id !== counterId ||
+  const isCounterChanged = period.active_counter_id !== counterId;
+  const isCounterReset =
     period.active_rx_base_bytes === null ||
     period.active_tx_base_bytes === null ||
     currentRxTotal < period.active_rx_base_bytes ||
-    currentTxTotal < period.active_tx_base_bytes
-  ) {
-    // Finalize previous segment
-    const previousRxBase = period.active_rx_base_bytes ?? currentRxTotal;
-    const previousTxBase = period.active_tx_base_bytes ?? currentTxTotal;
-    const segmentRx = Math.max(0, currentRxTotal - previousRxBase);
-    const segmentTx = Math.max(0, currentTxTotal - previousTxBase);
+    currentTxTotal < period.active_tx_base_bytes;
+
+  if (isCounterChanged || isCounterReset) {
+    // Settle the old counter segment using the highest known reading before reset/change
+    const oldSegmentEndRx = previousRxTotal ?? period.active_rx_base_bytes ?? currentRxTotal;
+    const oldSegmentEndTx = previousTxTotal ?? period.active_tx_base_bytes ?? currentTxTotal;
+    const oldBaseRx = period.active_rx_base_bytes ?? oldSegmentEndRx;
+    const oldBaseTx = period.active_tx_base_bytes ?? oldSegmentEndTx;
+
+    const segmentRx = Math.max(0, oldSegmentEndRx - oldBaseRx);
+    const segmentTx = Math.max(0, oldSegmentEndTx - oldBaseTx);
 
     const newFinalizedRx = period.finalized_rx_bytes + segmentRx;
     const newFinalizedTx = period.finalized_tx_bytes + segmentTx;
@@ -98,6 +103,7 @@ export async function trackTrafficDelta(
 
     period.finalized_rx_bytes = newFinalizedRx;
     period.finalized_tx_bytes = newFinalizedTx;
+    period.active_counter_id = counterId;
     period.active_rx_base_bytes = currentRxTotal;
     period.active_tx_base_bytes = currentTxTotal;
   } else {

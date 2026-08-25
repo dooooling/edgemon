@@ -26,34 +26,40 @@ describe('Traffic Period Calculation', () => {
     expect(periodStart).toBe(expected);
   });
 
-  it('computes step deltas correctly without duplicate accumulation', () => {
-    // Step Delta Logic Verification
-    const counterId = 'counter-segment-1';
-    let lastSeenRx = 100;
-    let accumulatedDelta = 0;
+  it('computes 60s bucket step deltas correctly across high-frequency reports', () => {
+    // Scenario: Agent streams every 2 seconds.
+    // At bucket start (0s): cumulative Rx is 1000
+    // Over 30 reports, Rx reaches 1600.
+    // When 60s checkpoint triggers, full bucket delta must be 1600 - 1000 = 600 bytes.
+    const bucketStartRx = 1000;
+    let currentRx = 1000;
 
-    // Report 1: 100 bytes (initial)
-    let currentRx = 100;
-    let stepDelta = currentRx >= lastSeenRx ? currentRx - lastSeenRx : 0;
-    accumulatedDelta += stepDelta;
-    lastSeenRx = currentRx;
-    expect(stepDelta).toBe(0);
-    expect(accumulatedDelta).toBe(0);
+    for (let i = 1; i <= 30; i++) {
+      currentRx += 20; // 20 bytes every 2s
+    }
 
-    // Report 2: 110 bytes
-    currentRx = 110;
-    stepDelta = currentRx >= lastSeenRx ? currentRx - lastSeenRx : 0;
-    accumulatedDelta += stepDelta;
-    lastSeenRx = currentRx;
-    expect(stepDelta).toBe(10);
-    expect(accumulatedDelta).toBe(10);
+    const bucketDelta = currentRx - bucketStartRx;
+    expect(bucketDelta).toBe(600);
+  });
 
-    // Report 3: 125 bytes
-    currentRx = 125;
-    stepDelta = currentRx >= lastSeenRx ? currentRx - lastSeenRx : 0;
-    accumulatedDelta += stepDelta;
-    lastSeenRx = currentRx;
-    expect(stepDelta).toBe(15);
-    expect(accumulatedDelta).toBe(25); // Exactly 125 - 100 = 25!
+  it('settles traffic across counter reset correctly', () => {
+    // Old counter base: 100, final reading before reboot: 250 (accumulated 150)
+    // Server reboots, new counter starts at 10, reaches 30 (accumulated 20)
+    // Total monthly traffic must be 150 + 20 = 170.
+    let finalizedRx = 0;
+    let activeBaseRx = 100;
+    const oldFinalRx = 250;
+
+    // Finalize old counter segment
+    const oldSegment = Math.max(0, oldFinalRx - activeBaseRx);
+    finalizedRx += oldSegment;
+
+    // New counter segment begins
+    activeBaseRx = 10;
+    const newCurrentRx = 30;
+    const newActiveSegment = Math.max(0, newCurrentRx - activeBaseRx);
+
+    const totalMonthRx = finalizedRx + newActiveSegment;
+    expect(totalMonthRx).toBe(170);
   });
 });

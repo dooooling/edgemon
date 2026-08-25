@@ -37,6 +37,7 @@ agentStreamRoute.get('/api/agent/v1/stream', async (c) => {
   forwardUrl.searchParams.set('node_name', node.name);
   forwardUrl.searchParams.set('instance_id', instanceId);
   forwardUrl.searchParams.set('traffic_reset_day', String(node.traffic_reset_day || 1));
+  forwardUrl.searchParams.set('is_hidden', String(node.hidden || 0));
   forwardUrl.searchParams.set('geo_json', JSON.stringify(geo));
 
   const forwardRequest = new Request(forwardUrl.toString(), {

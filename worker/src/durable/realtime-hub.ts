@@ -49,6 +49,7 @@ export class RealtimeHub extends DurableObject<Env> {
       const nodeName = url.searchParams.get('node_name') || 'Unknown Node';
       const instanceId = url.searchParams.get('instance_id');
       const trafficResetDay = parseInt(url.searchParams.get('traffic_reset_day') || '1', 10);
+      const isHidden = url.searchParams.get('is_hidden') === '1';
       const geoJson = url.searchParams.get('geo_json');
       const geo: NormalizedGeo = geoJson ? JSON.parse(geoJson) : { edge_rtt_ms: null, edge_transport: null };
 
@@ -57,17 +58,20 @@ export class RealtimeHub extends DurableObject<Env> {
       }
 
       const now = Date.now();
-      const attachment: AgentAttachment = createDefaultAttachment(nodeId, instanceId, now);
+      const attachment: AgentAttachment = createDefaultAttachment(
+        nodeId,
+        nodeName,
+        instanceId,
+        now,
+        geo,
+        trafficResetDay,
+        isHidden
+      );
 
       // Hibernation accept with Agent tags
       const tags = ['role:agent', `agent:${nodeId}`];
       this.ctx.acceptWebSocket(server, tags);
       server.serializeAttachment(attachment);
-
-      // Store Geo & Metadata on active connection object
-      (server as any).__nodeName = nodeName;
-      (server as any).__geo = geo;
-      (server as any).__trafficResetDay = trafficResetDay;
 
       return new Response(null, {
         status: 101,
@@ -84,7 +88,14 @@ export class RealtimeHub extends DurableObject<Env> {
       authenticated: isAuthenticated,
     };
 
-    this.ctx.acceptWebSocket(server, ['role:browser']);
+    const browserTags = ['role:browser'];
+    if (isAuthenticated) {
+      browserTags.push('role:browser:admin');
+    } else {
+      browserTags.push('role:browser:public');
+    }
+
+    this.ctx.acceptWebSocket(server, browserTags);
     server.serializeAttachment(browserAttachment);
 
     return new Response(null, {
@@ -143,19 +154,19 @@ export class RealtimeHub extends DurableObject<Env> {
       const helloData = envelope.data as HelloPayload;
       const nodeId = attachment.node_id;
 
-      // Close any existing active instance for this node
+      // Close ANY existing socket for this node (even if same instance_id to prevent duplicates)
       const existingSockets = this.ctx.getWebSockets(`agent:${nodeId}`);
       for (const existing of existingSockets) {
         if (existing !== ws) {
-          const oldAttachment = existing.deserializeAttachment() as AgentAttachment | null;
-          if (oldAttachment && oldAttachment.instance_id !== attachment.instance_id) {
-            existing.close(CloseCodes.REPLACED_BY_NEW_INSTANCE, 'Replaced by newer instance');
+          try {
+            existing.close(CloseCodes.REPLACED_BY_NEW_INSTANCE, 'Replaced by newer connection');
+          } catch {
+            // ignore
           }
         }
       }
 
-      const geo = (ws as any).__geo || { edge_rtt_ms: null, edge_transport: null };
-      await updateNodeMetadataFromHello(this.env.DB, nodeId, helloData, geo);
+      await updateNodeMetadataFromHello(this.env.DB, nodeId, helloData, attachment.geo);
 
       // Update active instance fields in D1
       await this.env.DB
@@ -215,20 +226,18 @@ export class RealtimeHub extends DurableObject<Env> {
 
       const reportData = envelope.data as ReportPayload;
       const nodeId = attachment.node_id;
-      const nodeName = (ws as any).__nodeName || 'Node';
-      const geo = (ws as any).__geo || { edge_rtt_ms: null, edge_transport: null };
-      const trafficResetDay = (ws as any).__trafficResetDay || 1;
 
       const { result, updatedAttachment } = await ingestReportCore(
         this.env.DB,
         nodeId,
-        nodeName,
+        attachment.node_name,
         attachment.instance_id,
         envelope.seq,
         reportData,
-        geo,
+        attachment.geo,
         attachment,
-        trafficResetDay
+        attachment.traffic_reset_day,
+        attachment.is_hidden
       );
 
       if (!result.accepted) {
@@ -236,12 +245,12 @@ export class RealtimeHub extends DurableObject<Env> {
         return;
       }
 
-      // Save updated attachment state
+      // Save updated attachment state in WebSocket Hibernation
       ws.serializeAttachment(updatedAttachment);
 
-      // Realtime 0~2s broadcast to all connected browsers!
+      // Realtime 0~2s broadcast (Public nodes to all browsers, hidden nodes to Admin browsers only!)
       if (result.livePayload) {
-        this.broadcastToBrowsers(result.livePayload);
+        this.broadcastToBrowsers(result.livePayload, attachment.is_hidden);
       }
 
       // Low-frequency ACK on 60s Checkpoint
@@ -308,9 +317,11 @@ export class RealtimeHub extends DurableObject<Env> {
     }
   }
 
-  private broadcastToBrowsers(payload: unknown): void {
+  private broadcastToBrowsers(payload: unknown, isHidden = false): void {
     const message = JSON.stringify(payload);
-    const browsers = this.ctx.getWebSockets('role:browser');
+    // Hidden nodes broadcast ONLY to authenticated admin browsers!
+    const targetTag = isHidden ? 'role:browser:admin' : 'role:browser';
+    const browsers = this.ctx.getWebSockets(targetTag);
     for (const ws of browsers) {
       try {
         ws.send(message);
@@ -367,7 +378,8 @@ export class RealtimeHub extends DurableObject<Env> {
     seq: number,
     report: ReportPayload,
     geo: NormalizedGeo,
-    trafficResetDay = 1
+    trafficResetDay = 1,
+    isHidden = false
   ): Promise<{ accepted: boolean; persisted: boolean; error?: string }> {
     const { result } = await ingestReportCore(
       this.env.DB,
@@ -378,11 +390,12 @@ export class RealtimeHub extends DurableObject<Env> {
       report,
       geo,
       null,
-      trafficResetDay
+      trafficResetDay,
+      isHidden
     );
 
     if (result.accepted && result.livePayload) {
-      this.broadcastToBrowsers(result.livePayload);
+      this.broadcastToBrowsers(result.livePayload, isHidden);
     }
 
     return result;

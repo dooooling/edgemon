@@ -51,7 +51,20 @@ agentRoutes.post('/api/agent/v1/hello', async (c) => {
   }
 
   const geo = extractCloudflareMetadata(c.req.raw);
+  const now = Date.now();
   await updateNodeMetadataFromHello(c.env.DB, creds.nodeId, body.data, geo);
+
+  // Register active instance in nodes table
+  await c.env.DB
+    .prepare(
+      `UPDATE nodes SET
+        active_instance_id = ?,
+        active_instance_started_at_ms = ?,
+        updated_at_ms = ?
+      WHERE id = ?`
+    )
+    .bind(body.instance_id, now, now, creds.nodeId)
+    .run();
 
   // Load config
   const configRow = await c.env.DB
@@ -104,6 +117,17 @@ agentRoutes.post('/api/agent/v1/report', async (c) => {
     return errorResponse('INVALID_MESSAGE', 'Failed to parse JSON body', 400);
   }
 
+  // Active instance ownership verification (prevent stale/duplicate instances from overwriting)
+  if (node.active_instance_id && node.active_instance_id !== body.instance_id) {
+    return errorResponse(
+      'INSTANCE_MISMATCH',
+      'Instance ID mismatch with currently active registered instance. Hello handshake required.',
+      409,
+      body.instance_id,
+      body.seq
+    );
+  }
+
   const geo = extractCloudflareMetadata(c.req.raw);
 
   // Forward to RealtimeHub DO for uniform Ingest, 60s Checkpoint gate & Live Broadcast
@@ -125,6 +149,14 @@ agentRoutes.post('/api/agent/v1/report', async (c) => {
     return errorResponse(res.error || 'REPORT_REJECTED', 'Report failed validation', 400, body.instance_id, body.seq);
   }
 
+  // Query latest config revision from DB to notify HTTP-fallback nodes of updates
+  const configRow = await c.env.DB
+    .prepare('SELECT revision FROM node_config WHERE node_id = ?')
+    .bind(creds.nodeId)
+    .first<{ revision: number }>();
+
+  const latestConfigRev = configRow?.revision || body.data.config_rev;
+
   const ackEnvelope: ServerEnvelope<AckData> = {
     v: 1,
     type: 'ack',
@@ -134,7 +166,7 @@ agentRoutes.post('/api/agent/v1/report', async (c) => {
     data: {
       accepted_seq: body.seq,
       persisted_seq: res.persisted ? body.seq : 0,
-      config_rev: body.data.config_rev,
+      config_rev: latestConfigRev,
     },
   };
 

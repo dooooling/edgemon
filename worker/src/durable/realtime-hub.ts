@@ -19,6 +19,7 @@ import {
   createDefaultAttachment,
   ingestReportCore,
 } from '../services/ingest';
+import { trackTrafficDelta } from '../db/traffic';
 import { verifyAdminSession } from '../services/session';
 
 export interface Env {
@@ -126,13 +127,17 @@ export class RealtimeHub extends DurableObject<Env> {
     attachment: AgentAttachment,
     message: string | ArrayBuffer
   ): Promise<void> {
-    const text = typeof message === 'string' ? message : new TextDecoder().decode(message);
+    const byteLength = typeof message === 'string'
+      ? new TextEncoder().encode(message).byteLength
+      : (message instanceof ArrayBuffer ? message.byteLength : 0);
 
-    // Frame size guard (max 16KB for control, max 8KB for report)
-    if (text.length > 16384) {
+    // Frame size guard (max 16KB for control frames)
+    if (byteLength > 16384) {
       ws.close(CloseCodes.MESSAGE_TOO_BIG, 'Frame exceeds 16KB limit');
       return;
     }
+
+    const text = typeof message === 'string' ? message : new TextDecoder().decode(message);
 
     let envelope: AgentEnvelope;
     try {
@@ -146,6 +151,12 @@ export class RealtimeHub extends DurableObject<Env> {
       return;
     }
 
+    // Byte size guard for report payload (max 8KB)
+    if (envelope.type === 'report' && byteLength > 8192) {
+      ws.close(CloseCodes.MESSAGE_TOO_BIG, 'Report frame exceeds 8KB limit');
+      return;
+    }
+
     // Instance verification
     if (envelope.instance_id !== attachment.instance_id) {
       this.sendError(ws, 'INSTANCE_MISMATCH', 'Message instance_id does not match upgrade handshake');
@@ -154,8 +165,13 @@ export class RealtimeHub extends DurableObject<Env> {
 
     const now = Date.now();
 
-    // 1. HELLO MESSAGE
+    // 1. HELLO MESSAGE (Must be first message and single-shot)
     if (envelope.type === 'hello') {
+      if (attachment.hello_ok) {
+        this.sendError(ws, 'DUPLICATE_HELLO', 'Hello handshake already completed for this connection', envelope.seq);
+        return;
+      }
+
       const helloData = envelope.data as HelloPayload;
       const nodeId = attachment.node_id;
 
@@ -219,6 +235,7 @@ export class RealtimeHub extends DurableObject<Env> {
 
       attachment.hello_ok = true;
       attachment.config_rev = configRow?.revision || 1;
+      attachment.last_seq = envelope.seq;
       ws.serializeAttachment(attachment);
 
       const welcomeEnvelope: ServerEnvelope<WelcomeData> = {
@@ -237,13 +254,25 @@ export class RealtimeHub extends DurableObject<Env> {
       return;
     }
 
+    // Guard: hello must precede all other messages
+    if (!attachment.hello_ok) {
+      ws.close(CloseCodes.POLICY_VIOLATION, 'Hello handshake required before reporting');
+      return;
+    }
+
+    // Monotonic sequence verification
+    if (envelope.seq <= attachment.last_seq) {
+      this.sendError(
+        ws,
+        'NON_MONOTONIC_SEQ',
+        `Envelope seq ${envelope.seq} is not greater than last acknowledged seq ${attachment.last_seq}`,
+        envelope.seq
+      );
+      return;
+    }
+
     // 2. REPORT MESSAGE
     if (envelope.type === 'report') {
-      if (!attachment.hello_ok) {
-        ws.close(CloseCodes.POLICY_VIOLATION, 'Hello handshake required before reporting');
-        return;
-      }
-
       const reportData = envelope.data as ReportPayload;
       const nodeId = attachment.node_id;
 
@@ -315,6 +344,24 @@ export class RealtimeHub extends DurableObject<Env> {
           .prepare('UPDATE nodes SET last_stream_disconnected_at_ms = ? WHERE id = ?')
           .bind(now, attachment.node_id)
           .run();
+
+        // Best-effort final traffic checkpoint on clean/replace disconnection
+        if (
+          attachment.hello_ok &&
+          attachment.last_rx_total_bytes !== null &&
+          attachment.last_tx_total_bytes !== null
+        ) {
+          await trackTrafficDelta(
+            this.env.DB,
+            attachment.node_id,
+            attachment.last_rx_total_bytes,
+            attachment.last_tx_total_bytes,
+            attachment.last_counter_id,
+            attachment.traffic_reset_day,
+            attachment.last_rx_total_bytes,
+            attachment.last_tx_total_bytes
+          );
+        }
       } catch {
         // Best-effort update on close
       }
@@ -401,6 +448,34 @@ export class RealtimeHub extends DurableObject<Env> {
     trafficResetDay = 1,
     isHidden = false
   ): Promise<{ accepted: boolean; persisted: boolean; error?: string }> {
+    const now = Date.now();
+    const syntheticAttachment = createDefaultAttachment(
+      nodeId,
+      nodeName,
+      instanceId,
+      now,
+      geo,
+      trafficResetDay,
+      isHidden
+    );
+    syntheticAttachment.hello_ok = true;
+
+    // Hydrate previous state from D1 node_state
+    const stateRow = await this.env.DB
+      .prepare('SELECT rx_total_bytes, tx_total_bytes, network_counter_id, persisted_at_ms, last_seq FROM node_state WHERE node_id = ?')
+      .bind(nodeId)
+      .first<{ rx_total_bytes: number; tx_total_bytes: number; network_counter_id: string | null; persisted_at_ms: number; last_seq: number }>();
+
+    if (stateRow) {
+      syntheticAttachment.last_seq = stateRow.last_seq || 0;
+      syntheticAttachment.last_rx_total_bytes = stateRow.rx_total_bytes;
+      syntheticAttachment.last_tx_total_bytes = stateRow.tx_total_bytes;
+      syntheticAttachment.bucket_start_rx_bytes = stateRow.rx_total_bytes;
+      syntheticAttachment.bucket_start_tx_bytes = stateRow.tx_total_bytes;
+      syntheticAttachment.last_counter_id = stateRow.network_counter_id;
+      syntheticAttachment.last_persist_bucket_ms = Math.floor((stateRow.persisted_at_ms || 0) / 60000) * 60000;
+    }
+
     const { result } = await ingestReportCore(
       this.env.DB,
       nodeId,
@@ -409,7 +484,7 @@ export class RealtimeHub extends DurableObject<Env> {
       seq,
       report,
       geo,
-      null,
+      syntheticAttachment,
       trafficResetDay,
       isHidden
     );

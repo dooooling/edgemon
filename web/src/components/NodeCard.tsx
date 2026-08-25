@@ -11,7 +11,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
   const overlay = useRealtimeStore((s) => s.overlays[node.id]);
 
   const lastSeenAtMs = overlay?.last_seen_at_ms ?? node.state?.last_seen_at_ms;
-  const isOnline = lastSeenAtMs ? Date.now() - lastSeenAtMs < 180 * 1000 : false;
+  const isOnline = lastSeenAtMs ? Date.now() - lastSeenAtMs < 90 * 1000 : false;
 
   const cpuUsagePct = overlay?.cpu_usage_pct ?? node.state?.cpu_usage_pct;
   const memoryUsedBytes = overlay?.memory_used_bytes ?? node.state?.memory_used_bytes;
@@ -43,6 +43,13 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
     : rootfsUsedBytes
     ? `${(rootfsUsedBytes / (1024 * 1024 * 1024)).toFixed(1)} / ${(rootfsLimitBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
     : `${(rootfsLimitBytes / (1024 * 1024 * 1024)).toFixed(1)} GB TOTAL`;
+
+  const traffic = node.traffic;
+  const trafficUsed = traffic?.period_total_bytes || 0;
+  const trafficQuota = traffic?.quota_bytes;
+  const trafficBarWidth = trafficQuota && trafficQuota > 0
+    ? Math.min(100, Math.round((trafficUsed / trafficQuota) * 100))
+    : 0;
 
   return (
     <div className="node-card-tile">
@@ -94,6 +101,24 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
             </div>
           </div>
 
+          {/* Traffic Billing Cycle */}
+          {traffic && (
+            <div className="telemetry-row">
+              <div className="telemetry-header-row">
+                <span style={{ color: 'var(--colors-on-primary-mute)' }}>CYCLE TRAFFIC (DAY {traffic.reset_day})</span>
+                <span>
+                  {formatBytes(trafficUsed)}
+                  {trafficQuota ? ` / ${formatBytes(trafficQuota)}` : ''}
+                </span>
+              </div>
+              {trafficQuota ? (
+                <div className="telemetry-bar-track">
+                  <div className="telemetry-bar-fill" style={{ width: `${trafficBarWidth}%` }}></div>
+                </div>
+              ) : null}
+            </div>
+          )}
+
           {/* Network Throughput */}
           <div className="traffic-rates-block">
             <span>↓ {formatBps(rxBps)}</span>
@@ -130,6 +155,14 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
     </div>
   );
 };
+
+function formatBytes(bytes?: number | null): string {
+  if (!bytes || bytes === 0) return '0 B';
+  if (bytes >= 1024 * 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2) + ' TB';
+  if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return (bytes / 1024).toFixed(0) + ' KB';
+}
 
 function formatBps(bps?: number | null): string {
   if (!bps || bps === 0) return '0 B/S';

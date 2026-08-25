@@ -40,7 +40,14 @@ agentStreamRoute.get('/api/agent/v1/stream', async (c) => {
   forwardUrl.searchParams.set('is_hidden', String(node.hidden || 0));
   forwardUrl.searchParams.set('geo_json', JSON.stringify(geo));
 
-  const forwardHeaders = new Headers(c.req.raw.headers);
+  const forwardHeaders = new Headers();
+  forwardHeaders.set('Upgrade', 'websocket');
+  const secWsKey = c.req.header('Sec-WebSocket-Key');
+  if (secWsKey) forwardHeaders.set('Sec-WebSocket-Key', secWsKey);
+  const secWsVer = c.req.header('Sec-WebSocket-Version');
+  if (secWsVer) forwardHeaders.set('Sec-WebSocket-Version', secWsVer);
+  const secWsProto = c.req.header('Sec-WebSocket-Protocol');
+  if (secWsProto) forwardHeaders.set('Sec-WebSocket-Protocol', secWsProto);
   forwardHeaders.set('X-Internal-Agent-Auth', 'verified-by-worker');
 
   const forwardRequest = new Request(forwardUrl.toString(), {

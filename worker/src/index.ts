@@ -28,6 +28,22 @@ app.get('/api/realtime', async (c) => {
     return c.text('Expected Upgrade: websocket', 426);
   }
 
+  // Validate Origin header
+  const origin = c.req.header('Origin');
+  const host = c.req.header('Host');
+  if (origin && host) {
+    try {
+      const originUrl = new URL(origin);
+      const isLocal = originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1';
+      const isSameHost = originUrl.host === host;
+      if (!isLocal && !isSameHost) {
+        return c.text('Forbidden: Cross-origin WebSocket connection prohibited', 403);
+      }
+    } catch {
+      return c.text('Forbidden: Invalid Origin header', 403);
+    }
+  }
+
   const id = c.env.REALTIME.idFromName('main');
   const stub = c.env.REALTIME.get(id);
 

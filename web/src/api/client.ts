@@ -37,6 +37,14 @@ export interface NodeItem {
     as_org?: string | null;
     colo?: string | null;
   };
+  traffic?: {
+    reset_day: number;
+    quota_bytes: number | null;
+    period_start_ms: number;
+    period_rx_bytes: number;
+    period_tx_bytes: number;
+    period_total_bytes: number;
+  } | null;
   state?: {
     last_seen_at_ms: number;
     cpu_usage_pct?: number | null;

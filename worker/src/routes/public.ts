@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { Env } from '../durable/realtime-hub';
 import { getRawHistory, getHourlyHistory } from '../db/metrics';
+import { computeBillingPeriodStart } from '../db/traffic';
 
 const publicRoutes = new Hono<{ Bindings: Env }>();
 
@@ -28,6 +29,7 @@ publicRoutes.get('/api/public/nodes', async (c) => {
       n.geo_country, n.geo_region, n.geo_region_code, n.geo_city,
       n.geo_lat, n.geo_lon, n.asn, n.as_org, n.cf_colo,
       n.location_mode, n.manual_country, n.manual_city, n.manual_lat, n.manual_lon,
+      n.traffic_reset_day, n.traffic_quota_bytes,
       n.expires_at_ms,
       s.last_seen_at_ms, s.cpu_usage_pct, s.cpu_throttled_pct,
       s.memory_used_bytes, s.memory_working_set_bytes, s.swap_used_bytes,
@@ -41,8 +43,33 @@ publicRoutes.get('/api/public/nodes', async (c) => {
   `;
 
   const rows = await c.env.DB.prepare(query).all();
+  const now = Date.now();
+
+  // Query active traffic periods for all nodes
+  const periodRows = await c.env.DB
+    .prepare('SELECT * FROM traffic_periods')
+    .all();
+
+  const periodMap = new Map<string, any>();
+  for (const p of periodRows.results || []) {
+    periodMap.set(`${(p as any).node_id}:${(p as any).period_start_ms}`, p);
+  }
+
   const nodes = (rows.results || []).map((row: any) => {
     const isManual = row.location_mode === 'manual';
+    const resetDay = row.traffic_reset_day || 1;
+    const periodStartMs = computeBillingPeriodStart(now, resetDay);
+    const p = periodMap.get(`${row.id}:${periodStartMs}`);
+
+    let periodRx = p?.finalized_rx_bytes || 0;
+    let periodTx = p?.finalized_tx_bytes || 0;
+    if (p && p.active_rx_base_bytes !== null && row.rx_total_bytes !== undefined) {
+      periodRx += Math.max(0, row.rx_total_bytes - p.active_rx_base_bytes);
+    }
+    if (p && p.active_tx_base_bytes !== null && row.tx_total_bytes !== undefined) {
+      periodTx += Math.max(0, row.tx_total_bytes - p.active_tx_base_bytes);
+    }
+
     return {
       id: row.id,
       name: row.name,
@@ -79,6 +106,14 @@ publicRoutes.get('/api/public/nodes', async (c) => {
         asn: row.asn,
         as_org: row.as_org,
         colo: row.cf_colo,
+      },
+      traffic: {
+        reset_day: resetDay,
+        quota_bytes: row.traffic_quota_bytes || null,
+        period_start_ms: periodStartMs,
+        period_rx_bytes: periodRx,
+        period_tx_bytes: periodTx,
+        period_total_bytes: periodRx + periodTx,
       },
       state: row.last_seen_at_ms ? {
         last_seen_at_ms: row.last_seen_at_ms,

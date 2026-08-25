@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "edgemon",
   "main": "worker/src/index.ts",
-  "compatibility_date": "2024-11-01",
+  "compatibility_date": "2025-02-14",
   "compatibility_flags": [
     "nodejs_compat"
   ],

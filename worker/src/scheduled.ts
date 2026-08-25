@@ -27,8 +27,8 @@ export async function runScheduled(
   }
 
   // 3. Default: Every-minute Alert Evaluation (* * * * *)
-  const alerts = await evaluateAlerts(env.DB, 180);
-  for (const alert of alerts) {
-    await recordEvent(env.DB, alert.nodeId, 'alert_triggered', alert);
+  const transitions = await evaluateAlerts(env.DB, 90);
+  for (const t of transitions) {
+    await recordEvent(env.DB, t.nodeId, `alert_${t.status}`, t);
   }
 }

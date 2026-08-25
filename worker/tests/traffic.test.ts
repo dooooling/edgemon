@@ -26,11 +26,43 @@ describe('Traffic Period Calculation', () => {
     expect(periodStart).toBe(expected);
   });
 
+  it('handles resetDay = 31 in February (short month edge case)', () => {
+    // 2026-02-28 UTC (non-leap year, last day of Feb) with resetDay = 31
+    // Effective reset day in Feb is 28, so on Feb 28 it belongs to Feb 28 cycle!
+    const feb28 = Date.UTC(2026, 1, 28, 12, 0, 0);
+    const periodFeb28 = computeBillingPeriodStart(feb28, 31);
+    expect(periodFeb28).toBe(Date.UTC(2026, 1, 28, 0, 0, 0));
+
+    // 2026-02-15 UTC with resetDay = 31 -> before Feb 28, belongs to Jan 31 cycle
+    const feb15 = Date.UTC(2026, 1, 15, 12, 0, 0);
+    const periodFeb15 = computeBillingPeriodStart(feb15, 31);
+    expect(periodFeb15).toBe(Date.UTC(2026, 0, 31, 0, 0, 0));
+  });
+
+  it('handles resetDay = 31 in leap year February 29', () => {
+    // 2028 is a leap year (Feb has 29 days)
+    const feb29 = Date.UTC(2028, 1, 29, 12, 0, 0);
+    const periodFeb29 = computeBillingPeriodStart(feb29, 31);
+    expect(periodFeb29).toBe(Date.UTC(2028, 1, 29, 0, 0, 0));
+
+    const feb28 = Date.UTC(2028, 1, 28, 12, 0, 0);
+    const periodFeb28 = computeBillingPeriodStart(feb28, 31);
+    expect(periodFeb28).toBe(Date.UTC(2028, 0, 31, 0, 0, 0));
+  });
+
+  it('handles resetDay = 31 in 30-day month (April)', () => {
+    // 2026-04-30 UTC with resetDay = 31 -> effective reset day is April 30
+    const apr30 = Date.UTC(2026, 3, 30, 10, 0, 0);
+    const periodApr30 = computeBillingPeriodStart(apr30, 31);
+    expect(periodApr30).toBe(Date.UTC(2026, 3, 30, 0, 0, 0));
+
+    // 2026-05-01 UTC with resetDay = 31 -> May has 31 days, so May 1 is before May 31 -> April 30
+    const may01 = Date.UTC(2026, 4, 1, 10, 0, 0);
+    const periodMay01 = computeBillingPeriodStart(may01, 31);
+    expect(periodMay01).toBe(Date.UTC(2026, 3, 30, 0, 0, 0));
+  });
+
   it('computes 60s bucket step deltas correctly across high-frequency reports', () => {
-    // Scenario: Agent streams every 2 seconds.
-    // At bucket start (0s): cumulative Rx is 1000
-    // Over 30 reports, Rx reaches 1600.
-    // When 60s checkpoint triggers, full bucket delta must be 1600 - 1000 = 600 bytes.
     const bucketStartRx = 1000;
     let currentRx = 1000;
 
@@ -43,9 +75,6 @@ describe('Traffic Period Calculation', () => {
   });
 
   it('settles traffic across counter reset correctly', () => {
-    // Old counter base: 100, final reading before reboot: 250 (accumulated 150)
-    // Server reboots, new counter starts at 10, reaches 30 (accumulated 20)
-    // Total monthly traffic must be 150 + 20 = 170.
     let finalizedRx = 0;
     let activeBaseRx = 100;
     const oldFinalRx = 250;

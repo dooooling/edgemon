@@ -439,6 +439,11 @@ fn main() -> Result<()> {
                             Ok(ack) => {
                                 info!("[HTTP Fallback] Sent 30s report #{} (Server ACK rev: {})", seq, ack.config_rev);
                                 seq += 1;
+                                let current_rev = shared_config.read().unwrap().config_rev;
+                                if ack.config_rev > current_rev {
+                                    info!("[HTTP Fallback] Server has newer config rev {} > {}. Triggering re-hello.", ack.config_rev, current_rev);
+                                    http_registered = false;
+                                }
                             }
                             Err(e) => {
                                 warn!("[HTTP Fallback] Report failed: {}", e);

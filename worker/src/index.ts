@@ -6,17 +6,7 @@ import { publicRoutes } from './routes/public';
 import { adminRoutes } from './routes/admin';
 import { runScheduled } from './scheduled';
 
-import { ensureSchema } from './db/schema';
-
 const app = new Hono<{ Bindings: Env }>();
-
-// Auto-ensure D1 database tables
-app.use('*', async (c, next) => {
-  if (c.env.DB) {
-    await ensureSchema(c.env.DB);
-  }
-  return next();
-});
 
 // Mount routes
 app.route('/', agentRoutes);

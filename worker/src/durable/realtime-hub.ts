@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import { verifySession } from '../services/crypto';
 
 export interface Env {
   DB: D1Database;
@@ -18,9 +19,40 @@ export class RealtimeHub extends DurableObject {
     const scope = url.searchParams.get('scope') || 'overview';
     const nodeId = url.searchParams.get('id');
 
-    // Register WebSocket with hibernation support
-    const tag = scope === 'node' && nodeId ? `node:${nodeId}` : 'overview';
-    this.ctx.acceptWebSocket(server, [tag]);
+    // 1. Verify Authorization on WebSocket Upgrade Request
+    const cookieHeader = request.headers.get('Cookie') || '';
+    const match = cookieHeader.match(/edgemon_session=([^;]+)/);
+    let isAuthenticated = false;
+    if (match) {
+      const token = match[1];
+      const sessionSecret = (this.env as any).SESSION_SECRET || 'default-session-secret-change-me';
+      const payloadStr = await verifySession(token, sessionSecret);
+      if (payloadStr) {
+        try {
+          const data = JSON.parse(payloadStr);
+          if (data.expires_at_ms && data.expires_at_ms > Date.now()) {
+            isAuthenticated = true;
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    // 2. Tag assignments with Hibernation
+    const tags: string[] = [];
+    if (scope === 'node' && nodeId) {
+      // All viewers receive node detail broadcasts
+      tags.push(`node:view:${nodeId}`);
+      // ONLY authenticated admin sessions trigger high-frequency 2s realtime lease
+      if (isAuthenticated) {
+        tags.push(`node:watch:${nodeId}`);
+      }
+    } else {
+      tags.push('overview');
+    }
+
+    this.ctx.acceptWebSocket(server, tags);
 
     return new Response(null, {
       status: 101,
@@ -52,20 +84,11 @@ export class RealtimeHub extends DurableObject {
     // 1. Broadcast to overview subscribers
     await this.broadcast('overview', payload);
 
-    // 2. Broadcast to specific node subscribers
-    const nodeSockets = this.ctx.getWebSockets(`node:${nodeId}`);
-    if (nodeSockets.length > 0) {
-      const message = JSON.stringify(payload);
-      for (const ws of nodeSockets) {
-        try {
-          ws.send(message);
-        } catch {
-          // ignore
-        }
-      }
-      return { detailWatched: true };
-    }
+    // 2. Broadcast to specific node viewers
+    await this.broadcast(`node:view:${nodeId}`, payload);
 
-    return { detailWatched: false };
+    // 3. Check if any authorized active detail watchers exist
+    const authorizedWatchers = this.ctx.getWebSockets(`node:watch:${nodeId}`);
+    return { detailWatched: authorizedWatchers.length > 0 };
   }
 }

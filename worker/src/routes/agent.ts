@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { Env } from '../durable/realtime-hub';
 import { AgentEnvelope, HelloPayload, ReportPayload, ServerEnvelope, WelcomeData, AckData, ErrorData } from '../protocol/types';
 import { verifyNodeAuth, updateNodeMetadataFromHello, getNodeById } from '../db/nodes';
-import { upsertNodeState, upsertMetricsRaw } from '../db/metrics';
+import { getNodeState, upsertNodeState, upsertMetricsRaw } from '../db/metrics';
 import { trackTrafficDelta } from '../db/traffic';
 import { extractCloudflareMetadata } from '../services/geo';
 
@@ -109,7 +109,7 @@ agentRoutes.post('/api/agent/v1/report', async (c) => {
   const nowMs = Date.now();
   const geo = extractCloudflareMetadata(c.req.raw);
 
-  // 1. Broadcast live metrics to RealtimeHub DO & check if node is watched in detail
+  // 1. In-Memory Live Broadcast to RealtimeHub DO & Check if Node is Watched in Detail
   const hubId = c.env.REALTIME.idFromName('main');
   const hubStub = c.env.REALTIME.get(hubId);
   const livePayload = {
@@ -129,33 +129,52 @@ agentRoutes.post('/api/agent/v1/report', async (c) => {
     // Best-effort DO broadcast
   }
 
-  // 2. Track Traffic Delta
-  const trafficResult = await trackTrafficDelta(
-    c.env.DB,
-    creds.nodeId,
-    body.data.network.rx_total_bytes,
-    body.data.network.tx_total_bytes,
-    body.data.network.counter_id || null,
-    node.traffic_reset_day
-  );
-
-  // 3. Persist State Snapshot and 60s Raw Bucket UPSERT
+  // 2. Strict D1 60s Throttling & Incremental Step Delta Calculation
+  const lastState = await getNodeState(c.env.DB, creds.nodeId);
   const bucketStartMs = Math.floor(nowMs / 60000) * 60000;
+  const lastPersistedMs = lastState?.persisted_at_ms || 0;
+  const lastBucketStartMs = Math.floor(lastPersistedMs / 60000) * 60000;
 
-  await Promise.all([
-    upsertNodeState(c.env.DB, creds.nodeId, body.instance_id, body.seq, body.data, geo, nowMs),
-    upsertMetricsRaw(
-      c.env.DB,
-      creds.nodeId,
-      bucketStartMs,
-      body.data,
-      geo.edge_rtt_ms,
-      trafficResult.rxDelta,
-      trafficResult.txDelta
-    ),
-  ]);
+  // Persist D1 only if: first state ever, OR >= 60s elapsed, OR crossed into a new minute bucket
+  const shouldPersistD1 = !lastState || (nowMs - lastPersistedMs >= 60000) || (bucketStartMs > lastBucketStartMs);
 
-  // 4. Return ACK envelope
+  if (shouldPersistD1) {
+    // Compute true step delta since last persisted D1 state to prevent duplicate base accumulation
+    let stepRxDelta = 0;
+    let stepTxDelta = 0;
+    if (
+      lastState &&
+      lastState.network_counter_id === body.data.network.counter_id &&
+      body.data.network.rx_total_bytes >= (lastState.rx_total_bytes ?? 0) &&
+      body.data.network.tx_total_bytes >= (lastState.tx_total_bytes ?? 0)
+    ) {
+      stepRxDelta = body.data.network.rx_total_bytes - (lastState.rx_total_bytes ?? 0);
+      stepTxDelta = body.data.network.tx_total_bytes - (lastState.tx_total_bytes ?? 0);
+    }
+
+    await Promise.all([
+      trackTrafficDelta(
+        c.env.DB,
+        creds.nodeId,
+        body.data.network.rx_total_bytes,
+        body.data.network.tx_total_bytes,
+        body.data.network.counter_id || null,
+        node.traffic_reset_day
+      ),
+      upsertNodeState(c.env.DB, creds.nodeId, body.instance_id, body.seq, body.data, geo, nowMs),
+      upsertMetricsRaw(
+        c.env.DB,
+        creds.nodeId,
+        bucketStartMs,
+        body.data,
+        geo.edge_rtt_ms,
+        stepRxDelta,
+        stepTxDelta
+      ),
+    ]);
+  }
+
+  // 3. Return ACK Envelope (with realtime lease if authorized watchers are present)
   const ackEnvelope: ServerEnvelope<AckData> = {
     v: 1,
     type: 'ack',

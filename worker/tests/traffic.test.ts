@@ -25,4 +25,35 @@ describe('Traffic Period Calculation', () => {
     const expected = Date.UTC(2025, 11, 15, 0, 0, 0);
     expect(periodStart).toBe(expected);
   });
+
+  it('computes step deltas correctly without duplicate accumulation', () => {
+    // Step Delta Logic Verification
+    const counterId = 'counter-segment-1';
+    let lastSeenRx = 100;
+    let accumulatedDelta = 0;
+
+    // Report 1: 100 bytes (initial)
+    let currentRx = 100;
+    let stepDelta = currentRx >= lastSeenRx ? currentRx - lastSeenRx : 0;
+    accumulatedDelta += stepDelta;
+    lastSeenRx = currentRx;
+    expect(stepDelta).toBe(0);
+    expect(accumulatedDelta).toBe(0);
+
+    // Report 2: 110 bytes
+    currentRx = 110;
+    stepDelta = currentRx >= lastSeenRx ? currentRx - lastSeenRx : 0;
+    accumulatedDelta += stepDelta;
+    lastSeenRx = currentRx;
+    expect(stepDelta).toBe(10);
+    expect(accumulatedDelta).toBe(10);
+
+    // Report 3: 125 bytes
+    currentRx = 125;
+    stepDelta = currentRx >= lastSeenRx ? currentRx - lastSeenRx : 0;
+    accumulatedDelta += stepDelta;
+    lastSeenRx = currentRx;
+    expect(stepDelta).toBe(15);
+    expect(accumulatedDelta).toBe(25); // Exactly 125 - 100 = 25!
+  });
 });

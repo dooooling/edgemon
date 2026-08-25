@@ -41,7 +41,7 @@ export async function trackTrafficDelta(
   currentTxTotal: number,
   counterId: string | null,
   resetDay = 1
-): Promise<{ periodRxBytes: number; periodTxBytes: number; rxDelta: number; txDelta: number }> {
+): Promise<{ periodRxBytes: number; periodTxBytes: number }> {
   const now = Date.now();
   const periodStartMs = computeBillingPeriodStart(now, resetDay);
 
@@ -65,16 +65,17 @@ export async function trackTrafficDelta(
     return {
       periodRxBytes: 0,
       periodTxBytes: 0,
-      rxDelta: 0,
-      txDelta: 0,
     };
   }
 
-  let rxDelta = 0;
-  let txDelta = 0;
-
   // Check if counter domain has changed or restarted
-  if (period.active_counter_id !== counterId || period.active_rx_base_bytes === null || currentRxTotal < period.active_rx_base_bytes) {
+  if (
+    period.active_counter_id !== counterId ||
+    period.active_rx_base_bytes === null ||
+    period.active_tx_base_bytes === null ||
+    currentRxTotal < period.active_rx_base_bytes ||
+    currentTxTotal < period.active_tx_base_bytes
+  ) {
     // Finalize previous segment
     const previousRxBase = period.active_rx_base_bytes ?? currentRxTotal;
     const previousTxBase = period.active_tx_base_bytes ?? currentTxTotal;
@@ -100,8 +101,13 @@ export async function trackTrafficDelta(
     period.active_rx_base_bytes = currentRxTotal;
     period.active_tx_base_bytes = currentTxTotal;
   } else {
-    rxDelta = Math.max(0, currentRxTotal - period.active_rx_base_bytes);
-    txDelta = Math.max(0, currentTxTotal - (period.active_tx_base_bytes ?? 0));
+    // Update timestamp for current active segment
+    await db
+      .prepare(
+        `UPDATE traffic_periods SET updated_at_ms = ? WHERE node_id = ? AND period_start_ms = ?`
+      )
+      .bind(now, nodeId, periodStartMs)
+      .run();
   }
 
   const activeRx = Math.max(0, currentRxTotal - (period.active_rx_base_bytes ?? currentRxTotal));
@@ -110,7 +116,5 @@ export async function trackTrafficDelta(
   return {
     periodRxBytes: period.finalized_rx_bytes + activeRx,
     periodTxBytes: period.finalized_tx_bytes + activeTx,
-    rxDelta,
-    txDelta,
   };
 }

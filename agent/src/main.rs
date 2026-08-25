@@ -318,9 +318,8 @@ fn main() -> Result<()> {
 
                         // Step B: STREAMING LOOP (every stream_interval_sec, default 2s)
                         let mut last_report_time = Instant::now() - Duration::from_secs(10);
-                        let mut streaming = true;
 
-                        while streaming {
+                        loop {
                             let stream_interval = {
                                 shared_config.read().unwrap().stream_interval_sec
                             };
@@ -336,7 +335,6 @@ fn main() -> Result<()> {
                                 if let Some(report) = snapshot_opt {
                                     if let Err(e) = ws.send_report(seq, report) {
                                         warn!("[WSS] Failed to send 2s report frame: {}", e);
-                                        streaming = false;
                                         break;
                                     }
                                     seq += 1;
@@ -346,7 +344,6 @@ fn main() -> Result<()> {
                             // Send RFC6455 Keepalive Ping & Check Pong Timeout
                             if let Err(e) = ws.tick_keepalive() {
                                 warn!("[WSS] Keepalive / Pong error: {}", e);
-                                streaming = false;
                                 break;
                             }
 
@@ -376,7 +373,6 @@ fn main() -> Result<()> {
                                     }
                                     WsEvent::Disconnected(reason) => {
                                         warn!("[WSS] Disconnected: {}. Entering HTTP fallback...", reason);
-                                        streaming = false;
                                         break;
                                     }
                                 }

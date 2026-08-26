@@ -20,6 +20,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.66.9
         version: 5.102.3(react@19.2.8)
+      country-flag-icons:
+        specifier: ^1.6.20
+        version: 1.6.20
       react:
         specifier: ^19.0.0
         version: 19.2.8
@@ -932,6 +935,9 @@ packages:
   cookie@1.1.1:
     resolution: {integrity: sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ==}
     engines: {node: '>=18'}
+
+  country-flag-icons@1.6.20:
+    resolution: {integrity: sha512-py8JiEKzjhYw6HPJ0L7SxLgCYim36UPRTZX43/kqGueUCZLSvnrqAiwW8HtQibur7mdkFQUkjOgdK+o/9FBtaw==}
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
@@ -2036,6 +2042,8 @@ snapshots:
   cookie@0.7.2: {}
 
   cookie@1.1.1: {}
+
+  country-flag-icons@1.6.20: {}
 
   csstype@3.2.3: {}
 

@@ -1,10 +1,12 @@
 import React from 'react';
+import * as Flags from 'country-flag-icons/react/3x2';
 
 interface CountryFlagProps {
   countryCode?: string | null;
   className?: string;
   style?: React.CSSProperties;
   showCode?: boolean;
+  width?: number;
 }
 
 export function getCountryFlag(countryCode?: string | null): string {
@@ -23,10 +25,44 @@ export const CountryFlag: React.FC<CountryFlagProps> = ({
   className,
   style,
   showCode = false,
+  width = 18,
 }) => {
-  const flag = getCountryFlag(countryCode);
   const code = (countryCode || '').toUpperCase();
+  const FlagComponent = (Flags as Record<string, React.ComponentType<any>>)[code];
+  const height = Math.round((width * 2) / 3);
 
+  if (FlagComponent) {
+    return (
+      <span
+        className={className}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '5px',
+          verticalAlign: 'middle',
+          ...style,
+        }}
+        title={`Country: ${code}`}
+      >
+        <span
+          style={{
+            display: 'inline-flex',
+            width: `${width}px`,
+            height: `${height}px`,
+            borderRadius: '2px',
+            overflow: 'hidden',
+            boxShadow: '0 0 1px rgba(255, 255, 255, 0.4)',
+            flexShrink: 0,
+          }}
+        >
+          <FlagComponent style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        </span>
+        {showCode && code && <span style={{ fontSize: '11px', letterSpacing: '0.5px' }}>{code}</span>}
+      </span>
+    );
+  }
+
+  // Fallback to emoji or globe icon
   return (
     <span
       className={className}
@@ -41,7 +77,7 @@ export const CountryFlag: React.FC<CountryFlagProps> = ({
       }}
       title={code ? `Country: ${code}` : undefined}
     >
-      <span style={{ fontSize: '15px' }}>{flag}</span>
+      <span style={{ fontSize: '14px' }}>🌐</span>
       {showCode && code && <span style={{ fontSize: '11px', letterSpacing: '0.5px' }}>{code}</span>}
     </span>
   );

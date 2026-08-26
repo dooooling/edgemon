@@ -126,7 +126,7 @@ export const NodeDetailPage: React.FC = () => {
                 <span>{t('spec_title')} // {node.system?.os_version || (node.environment?.type || 'INSTANCE').toUpperCase()}</span>
               </span>
               <h1 className="display-xl" style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <CountryFlag countryCode={node.geo?.country} />
+                <CountryFlag countryCode={node.geo?.country} width={26} />
                 <span>{node.name}</span>
               </h1>
               <span className="eyebrow-cap" style={{ fontSize: '11px', marginTop: '8px', display: 'block' }}>

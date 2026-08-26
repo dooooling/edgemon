@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { finalizeActiveTrafficSegment, trackTrafficDelta, computeBillingPeriodStart } from '../src/db/traffic';
+import { validateReportPayload } from '../src/protocol/types';
 
 function createMockDb() {
   const currentPeriodStartMs = computeBillingPeriodStart(Date.now(), 1);
@@ -66,5 +67,29 @@ describe('Traffic Ingest & WebSocket Disconnect Finalization', () => {
 
     expect(res.periodRxBytes).toBe(1000 + (400 - 100)); // finalized(1000) + active(300) = 1300
     expect(res.periodTxBytes).toBe(500 + (200 - 50));   // finalized(500) + active(150) = 650
+  });
+
+  it('validateReportPayload handles both single report and samples array', () => {
+    const singleReport = {
+      cpu: { usage_pct: 12.5 },
+      memory: { used_bytes: 1024 },
+      rootfs: { used_bytes: null },
+      io: { read_bps: 100 },
+      network: { interface: 'eth0', rx_total_bytes: 1000, tx_total_bytes: 500 },
+      probes: [],
+    };
+    expect(validateReportPayload(singleReport)).toBe(true);
+
+    const batchReport = {
+      samples: [
+        {
+          sample_seq: 100,
+          sampled_at_ms: Date.now(),
+          metrics: singleReport,
+        },
+      ],
+      dropped_samples: 0,
+    };
+    expect(validateReportPayload(batchReport)).toBe(true);
   });
 });

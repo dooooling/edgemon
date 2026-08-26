@@ -5,40 +5,49 @@
   "seq": 2,
   "ts_ms": 1787640030000,
   "data": {
-    "config_rev": 1,
-    "boot_id": "8f8b056e-8d8a-4467-bc1a-5bfbf816d953",
-    "cpu": {
-      "usage_pct": 14.5,
-      "throttled_pct": 0.0
-    },
-    "memory": {
-      "used_bytes": 184549376,
-      "working_set_bytes": 173015040,
-      "swap_used_bytes": 0
-    },
-    "rootfs": {
-      "used_bytes": null
-    },
-    "io": {
-      "read_bps": 10240,
-      "write_bps": 8192
-    },
-    "network": {
-      "interface": "eth0",
-      "counter_id": "a94a8fe5ccb19ba6",
-      "rx_bps": 18273,
-      "tx_bps": 8273,
-      "rx_total_bytes": 918273645,
-      "tx_total_bytes": 281736451
-    },
-    "uptime_sec": 8273,
-    "probes": [
+    "samples": [
       {
-        "id": "cf-dns",
-        "status": "ok",
-        "latency_ms": 18.2,
-        "loss_ratio": 0.0
+        "sample_seq": 1001,
+        "sampled_at_ms": 1787640030000,
+        "metrics": {
+          "config_rev": 1,
+          "boot_id": "8f8b056e-8d8a-4467-bc1a-5bfbf816d953",
+          "cpu": {
+            "usage_pct": 14.5,
+            "throttled_pct": 0.0
+          },
+          "memory": {
+            "used_bytes": 184549376,
+            "working_set_bytes": 173015040,
+            "swap_used_bytes": 0
+          },
+          "rootfs": {
+            "used_bytes": null
+          },
+          "io": {
+            "read_bps": 10240,
+            "write_bps": 8192
+          },
+          "network": {
+            "interface": "eth0",
+            "counter_id": "a94a8fe5ccb19ba6",
+            "rx_bps": 18273,
+            "tx_bps": 8273,
+            "rx_total_bytes": 918273645,
+            "tx_total_bytes": 281736451
+          },
+          "uptime_sec": 8273,
+          "probes": [
+            {
+              "id": "cf-dns",
+              "status": "ok",
+              "latency_ms": 18.2,
+              "loss_ratio": 0.0
+            }
+          ]
+        }
       }
-    ]
+    ],
+    "dropped_samples": 0
   }
 }

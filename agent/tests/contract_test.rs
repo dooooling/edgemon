@@ -42,23 +42,36 @@ fn test_parse_welcome_fixture() {
     assert_eq!(envelope.data.config.stream_interval_sec, 2);
     assert_eq!(envelope.data.config.probes.len(), 1);
     assert_eq!(envelope.data.config.probes[0].id, "cf-dns");
+    assert_eq!(
+        envelope.data.persisted_instance_id,
+        Some("550e8400-e29b-41d4-a716-446655440000".to_string())
+    );
+    assert_eq!(envelope.data.persisted_sample_seq, Some(1000));
 }
 
 #[test]
 fn test_parse_report_fixture() {
     let path = fixture_path("report.json");
     let content = fs::read_to_string(&path).expect("Failed to read report.json fixture");
-    let envelope: Envelope<ReportData> =
+    let envelope: Envelope<ReportPayload> =
         serde_json::from_str(&content).expect("Failed to parse report.json");
 
     assert_eq!(envelope.v, 1);
     assert_eq!(envelope.msg_type, "report");
-    assert_eq!(envelope.data.cpu.usage_pct, Some(14.5));
-    assert_eq!(envelope.data.memory.used_bytes, Some(184549376));
-    assert_eq!(envelope.data.rootfs.used_bytes, None);
-    assert_eq!(envelope.data.network.rx_total_bytes, 918273645);
-    assert_eq!(envelope.data.probes.len(), 1);
-    assert_eq!(envelope.data.probes[0].status, "ok");
+    assert_eq!(envelope.data.samples.len(), 1);
+    assert_eq!(envelope.data.samples[0].sample_seq, 1001);
+    assert_eq!(envelope.data.samples[0].metrics.cpu.usage_pct, Some(14.5));
+    assert_eq!(
+        envelope.data.samples[0].metrics.memory.used_bytes,
+        Some(184549376)
+    );
+    assert_eq!(envelope.data.samples[0].metrics.rootfs.used_bytes, None);
+    assert_eq!(
+        envelope.data.samples[0].metrics.network.rx_total_bytes,
+        918273645
+    );
+    assert_eq!(envelope.data.samples[0].metrics.probes.len(), 1);
+    assert_eq!(envelope.data.samples[0].metrics.probes[0].status, "ok");
 }
 
 #[test]
@@ -98,8 +111,7 @@ fn test_parse_ack_fixture() {
     assert_eq!(envelope.v, 1);
     assert_eq!(envelope.msg_type, "ack");
     assert_eq!(envelope.data.config_rev, 1);
-    assert_eq!(envelope.data.accepted_seq, Some(1900));
-    assert_eq!(envelope.data.persisted_seq, Some(1900));
+    assert_eq!(envelope.data.persisted_sample_seq, Some(1001));
 }
 
 #[test]

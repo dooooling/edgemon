@@ -1,6 +1,20 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MetricSample {
+    pub sample_seq: u64,
+    pub sampled_at_ms: u64,
+    pub metrics: ReportData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReportPayload {
+    pub samples: Vec<MetricSample>,
+    #[serde(default)]
+    pub dropped_samples: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReportData {
     pub config_rev: u64,
     pub boot_id: Option<String>,

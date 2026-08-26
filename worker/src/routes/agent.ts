@@ -80,6 +80,11 @@ agentRoutes.post('/api/agent/v1/hello', async (c) => {
     probes: [],
   };
 
+  const stateRow = await c.env.DB
+    .prepare('SELECT persisted_instance_id, persisted_sample_seq FROM node_state WHERE node_id = ?')
+    .bind(creds.nodeId)
+    .first<{ persisted_instance_id: string | null; persisted_sample_seq: number }>();
+
   const welcomeEnvelope: ServerEnvelope<WelcomeData> = {
     v: 1,
     type: 'welcome',
@@ -89,6 +94,8 @@ agentRoutes.post('/api/agent/v1/hello', async (c) => {
     data: {
       config_rev: configRow?.revision || 1,
       config: serverConfig,
+      persisted_instance_id: stateRow?.persisted_instance_id || null,
+      persisted_sample_seq: stateRow?.persisted_sample_seq || 0,
     },
   };
 
@@ -164,9 +171,10 @@ agentRoutes.post('/api/agent/v1/report', async (c) => {
     seq: body.seq,
     ts_ms: Date.now(),
     data: {
+      persisted_sample_seq: res.persisted_sample_seq || 0,
+      config_rev: latestConfigRev,
       accepted_seq: body.seq,
       persisted_seq: res.persisted ? body.seq : 0,
-      config_rev: latestConfigRev,
     },
   };
 

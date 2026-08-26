@@ -220,9 +220,18 @@ export class RealtimeHub extends DurableObject<Env> {
 
       // Hydrate previous traffic & counter baselines from D1 node_state
       const stateRow = await this.env.DB
-        .prepare('SELECT rx_total_bytes, tx_total_bytes, network_counter_id, persisted_at_ms FROM node_state WHERE node_id = ?')
+        .prepare(
+          'SELECT rx_total_bytes, tx_total_bytes, network_counter_id, persisted_at_ms, persisted_instance_id, persisted_sample_seq FROM node_state WHERE node_id = ?'
+        )
         .bind(nodeId)
-        .first<{ rx_total_bytes: number; tx_total_bytes: number; network_counter_id: string | null; persisted_at_ms: number }>();
+        .first<{
+          rx_total_bytes: number;
+          tx_total_bytes: number;
+          network_counter_id: string | null;
+          persisted_at_ms: number;
+          persisted_instance_id: string | null;
+          persisted_sample_seq: number;
+        }>();
 
       if (stateRow) {
         attachment.last_rx_total_bytes = stateRow.rx_total_bytes;
@@ -231,6 +240,9 @@ export class RealtimeHub extends DurableObject<Env> {
         attachment.bucket_start_tx_bytes = stateRow.tx_total_bytes;
         attachment.last_counter_id = stateRow.network_counter_id;
         attachment.last_persist_bucket_ms = Math.floor((stateRow.persisted_at_ms || 0) / 60000) * 60000;
+        if (stateRow.persisted_sample_seq) {
+          attachment.persisted_sample_seq = stateRow.persisted_sample_seq;
+        }
       }
 
       attachment.hello_ok = true;
@@ -247,6 +259,8 @@ export class RealtimeHub extends DurableObject<Env> {
         data: {
           config_rev: attachment.config_rev,
           config: serverConfig,
+          persisted_instance_id: stateRow?.persisted_instance_id || null,
+          persisted_sample_seq: stateRow?.persisted_sample_seq || 0,
         },
       };
 
@@ -311,9 +325,10 @@ export class RealtimeHub extends DurableObject<Env> {
           seq: envelope.seq,
           ts_ms: now,
           data: {
+            persisted_sample_seq: result.persisted_sample_seq || updatedAttachment.persisted_sample_seq || 0,
+            config_rev: updatedAttachment.config_rev,
             accepted_seq: envelope.seq,
             persisted_seq: envelope.seq,
-            config_rev: updatedAttachment.config_rev,
           },
         };
         try {

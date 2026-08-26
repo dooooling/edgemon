@@ -1,5 +1,5 @@
 // EdgeMon Protocol V1.1 TypeScript Types
-// Strictly aligned with edgemon-wss-architecture-v1.md
+// Strictly aligned with edgemon-data-integrity-v1 specification
 
 export type AgentMessageType = 'hello' | 'report' | 'config_ack' | 'error';
 export type ServerMessageType = 'welcome' | 'config' | 'ack' | 'error';
@@ -62,7 +62,7 @@ export interface HelloPayload {
   network_counter_id?: string | null;
 }
 
-export interface ReportPayload {
+export interface ReportMetrics {
   config_rev: number;
   boot_id?: string | null;
   cpu: {
@@ -98,6 +98,28 @@ export interface ReportPayload {
   }>;
 }
 
+export interface MetricSample {
+  sample_seq: number;
+  sampled_at_ms: number;
+  metrics: ReportMetrics;
+}
+
+export interface ReportPayload {
+  samples?: MetricSample[];
+  dropped_samples?: number;
+
+  // Legacy single snapshot fields for backward compatibility fallback
+  config_rev?: number;
+  boot_id?: string | null;
+  cpu?: { usage_pct?: number | null; throttled_pct?: number | null };
+  memory?: { used_bytes?: number | null; working_set_bytes?: number | null; swap_used_bytes?: number | null };
+  rootfs?: { used_bytes?: number | null };
+  io?: { read_bps?: number | null; write_bps?: number | null };
+  network?: { interface: string; counter_id?: string | null; rx_bps?: number | null; tx_bps?: number | null; rx_total_bytes: number; tx_total_bytes: number };
+  uptime_sec?: number | null;
+  probes?: Array<{ id: string; status: string; latency_ms?: number | null; loss_ratio: number }>;
+}
+
 export interface ServerConfig {
   sample_interval_sec: number;
   stream_interval_sec: number;
@@ -115,6 +137,8 @@ export interface ServerConfig {
 export interface WelcomeData {
   config_rev: number;
   config: ServerConfig;
+  persisted_instance_id?: string | null;
+  persisted_sample_seq?: number | null;
 }
 
 export interface ConfigData {
@@ -129,9 +153,10 @@ export interface ConfigAckData {
 }
 
 export interface AckData {
-  accepted_seq: number;
-  persisted_seq: number;
+  persisted_sample_seq: number;
   config_rev: number;
+  accepted_seq?: number;
+  persisted_seq?: number;
 }
 
 export interface ErrorData {
@@ -159,7 +184,7 @@ export function validateFiniteMetric(val: number | null | undefined, min?: numbe
   return true;
 }
 
-export function validateReportPayload(data: ReportPayload): boolean {
+export function validateReportMetrics(data: ReportMetrics): boolean {
   if (!data || typeof data !== 'object') return false;
   if (!validateFiniteMetric(data.cpu?.usage_pct, 0, 100)) return false;
   if (!validateFiniteMetric(data.cpu?.throttled_pct, 0, 100)) return false;
@@ -182,6 +207,24 @@ export function validateReportPayload(data: ReportPayload): boolean {
     }
   }
   return true;
+}
+
+export function validateReportPayload(data: ReportPayload): boolean {
+  if (!data || typeof data !== 'object') return false;
+
+  if (Array.isArray(data.samples)) {
+    if (data.samples.length > 32) return false; // MAX_SAMPLES_PER_REPORT guard
+    for (const s of data.samples) {
+      if (!s || typeof s !== 'object') return false;
+      if (typeof s.sample_seq !== 'number' || s.sample_seq <= 0) return false;
+      if (typeof s.sampled_at_ms !== 'number' || s.sampled_at_ms <= 0) return false;
+      if (!validateReportMetrics(s.metrics)) return false;
+    }
+    return true;
+  }
+
+  // Legacy single metrics fallback
+  return validateReportMetrics(data as unknown as ReportMetrics);
 }
 
 export function validateServerConfig(cfg: any): { valid: boolean; error?: string } {

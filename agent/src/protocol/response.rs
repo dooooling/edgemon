@@ -52,6 +52,10 @@ pub struct ProbeTargetConfig {
 pub struct WelcomeData {
     pub config_rev: u64,
     pub config: ServerConfig,
+    #[serde(default)]
+    pub persisted_instance_id: Option<String>,
+    #[serde(default)]
+    pub persisted_sample_seq: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -69,9 +73,12 @@ pub struct ConfigAckData {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AckData {
-    pub accepted_seq: Option<u64>,
-    pub persisted_seq: Option<u64>,
+    pub persisted_sample_seq: Option<u64>,
     pub config_rev: u64,
+    #[serde(default)]
+    pub accepted_seq: Option<u64>,
+    #[serde(default)]
+    pub persisted_seq: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

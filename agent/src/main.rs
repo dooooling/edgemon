@@ -1,6 +1,7 @@
 use clap::Parser;
 use log::{error, info, warn};
-use std::sync::{Arc, RwLock};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
@@ -22,6 +23,15 @@ use edgemon_agent::protocol::*;
 use edgemon_agent::transport::backoff::Backoff;
 use edgemon_agent::transport::http::HttpClient;
 use edgemon_agent::transport::ws::{WsEvent, WsTransport};
+
+#[derive(Debug, Default)]
+pub struct SampleBuffer {
+    pub samples: VecDeque<MetricSample>,
+    pub sample_seq: u64,
+    pub last_sent_sample_seq: u64,
+    pub persisted_sample_seq: u64,
+    pub dropped_samples: u64,
+}
 
 fn current_ts_ms() -> u64 {
     SystemTime::now()
@@ -317,12 +327,12 @@ fn main() -> Result<()> {
     let initial_net_counter_id = init_net.counter_id().map(|s| s.to_string());
 
     // 3. Shared State across Threads
-    let shared_snapshot: Arc<RwLock<Option<ReportData>>> = Arc::new(RwLock::new(None));
+    let shared_buffer: Arc<Mutex<SampleBuffer>> = Arc::new(Mutex::new(SampleBuffer::default()));
     let shared_config = Arc::new(RwLock::new(config.clone()));
 
     // 4. Thread 1: Collector Loop (2s Sample, 60s Probes)
     {
-        let shared_snapshot = Arc::clone(&shared_snapshot);
+        let shared_buffer = Arc::clone(&shared_buffer);
         let shared_config = Arc::clone(&shared_config);
         let boot_id = boot_id.clone();
         let detection = detection.clone();
@@ -446,9 +456,23 @@ fn main() -> Result<()> {
                         }
                     };
 
-                    // Update shared LatestSnapshot
-                    if let Ok(mut snap_guard) = shared_snapshot.write() {
-                        *snap_guard = Some(snapshot);
+                    // Push sample into bounded RAM SampleBuffer (Max 300 samples, ~10 mins)
+                    if let Ok(mut buf) = shared_buffer.lock() {
+                        buf.sample_seq += 1;
+                        let seq = buf.sample_seq;
+                        buf.samples.push_back(MetricSample {
+                            sample_seq: seq,
+                            sampled_at_ms: current_ts_ms(),
+                            metrics: snapshot,
+                        });
+                        if buf.samples.len() > 300 {
+                            buf.samples.pop_front();
+                            buf.dropped_samples += 1;
+                            warn!(
+                                "[Buffer] Overflow! Dropped oldest sample. Total dropped: {}",
+                                buf.dropped_samples
+                            );
+                        }
                     }
                 }
 
@@ -565,6 +589,27 @@ fn main() -> Result<()> {
                             cfg_guard.probes = welcome.config.probes;
                         }
 
+                        // Align persisted_sample_seq watermark from Welcome
+                        {
+                            if let Ok(mut buf) = shared_buffer.lock() {
+                                if welcome.persisted_instance_id.as_deref() == Some(&instance_id) {
+                                    if let Some(p_seq) = welcome.persisted_sample_seq {
+                                        buf.persisted_sample_seq =
+                                            buf.persisted_sample_seq.max(p_seq);
+                                        let target_p_seq = buf.persisted_sample_seq;
+                                        let before_len = buf.samples.len();
+                                        buf.samples.retain(|s| s.sample_seq > target_p_seq);
+                                        let freed = before_len - buf.samples.len();
+                                        info!(
+                                            "[Transport] Welcome synced persisted_sample_seq: {} (freed {} cached samples)",
+                                            buf.persisted_sample_seq, freed
+                                        );
+                                    }
+                                }
+                                buf.last_sent_sample_seq = buf.persisted_sample_seq;
+                            }
+                        }
+
                         // Step B: STREAMING LOOP (every stream_interval_sec, default 2s)
                         let mut last_report_time = Instant::now() - Duration::from_secs(10);
 
@@ -572,18 +617,44 @@ fn main() -> Result<()> {
                             let stream_interval =
                                 { shared_config.read().unwrap().stream_interval_sec };
 
-                            // Send Report snapshot
+                            // Send Report samples batch (up to 16 samples per report)
                             if last_report_time.elapsed() >= Duration::from_secs(stream_interval) {
                                 last_report_time = Instant::now();
 
-                                let snapshot_opt = { shared_snapshot.read().unwrap().clone() };
+                                let (batch_samples, dropped) = {
+                                    if let Ok(buf) = shared_buffer.lock() {
+                                        let unsent: Vec<MetricSample> = buf
+                                            .samples
+                                            .iter()
+                                            .filter(|s| s.sample_seq > buf.last_sent_sample_seq)
+                                            .take(16)
+                                            .cloned()
+                                            .collect();
+                                        (unsent, buf.dropped_samples)
+                                    } else {
+                                        (Vec::new(), 0)
+                                    }
+                                };
 
-                                if let Some(report) = snapshot_opt {
-                                    if let Err(e) = ws.send_report(seq, report) {
+                                if !batch_samples.is_empty() {
+                                    let max_batch_seq = batch_samples
+                                        .iter()
+                                        .map(|s| s.sample_seq)
+                                        .max()
+                                        .unwrap_or(0);
+                                    let payload = ReportPayload {
+                                        samples: batch_samples,
+                                        dropped_samples: dropped,
+                                    };
+                                    if let Err(e) = ws.send_report(seq, payload) {
                                         warn!("[WSS] Failed to send 2s report frame: {}", e);
                                         break;
                                     }
                                     seq += 1;
+                                    if let Ok(mut buf) = shared_buffer.lock() {
+                                        buf.last_sent_sample_seq =
+                                            buf.last_sent_sample_seq.max(max_batch_seq);
+                                    }
                                 }
                             }
 
@@ -613,8 +684,27 @@ fn main() -> Result<()> {
                                         let _ = ws.send_config_ack(seq, rev);
                                         seq += 1;
                                     }
-                                    WsEvent::AckReceived(rev) => {
-                                        log::debug!("[WSS] Server ACK checkpoint (rev: {})", rev);
+                                    WsEvent::AckReceived {
+                                        config_rev,
+                                        persisted_sample_seq,
+                                    } => {
+                                        log::debug!("[WSS] Server ACK checkpoint (rev: {}, persisted_sample_seq: {:?})", config_rev, persisted_sample_seq);
+                                        if let Some(watermark) = persisted_sample_seq {
+                                            if let Ok(mut buf) = shared_buffer.lock() {
+                                                buf.persisted_sample_seq =
+                                                    buf.persisted_sample_seq.max(watermark);
+                                                let target_p_seq = buf.persisted_sample_seq;
+                                                let before_len = buf.samples.len();
+                                                buf.samples.retain(|s| s.sample_seq > target_p_seq);
+                                                let freed = before_len - buf.samples.len();
+                                                if freed > 0 {
+                                                    log::debug!(
+                                                        "[Buffer] Cleaned {} ACKed samples up to sample_seq: {}",
+                                                        freed, buf.persisted_sample_seq
+                                                    );
+                                                }
+                                            }
+                                        }
                                     }
                                     WsEvent::FatalClose(code, reason) => {
                                         error!("[WSS] Fatal auth/policy close from server ({}: {}). Terminating.", code, reason);
@@ -683,6 +773,17 @@ fn main() -> Result<()> {
                                 cfg_guard.network_interface = welcome.config.network_interface;
                                 cfg_guard.probes = welcome.config.probes;
                             }
+                            if let Ok(mut buf) = shared_buffer.lock() {
+                                if welcome.persisted_instance_id.as_deref() == Some(&instance_id) {
+                                    if let Some(p_seq) = welcome.persisted_sample_seq {
+                                        buf.persisted_sample_seq =
+                                            buf.persisted_sample_seq.max(p_seq);
+                                        let target_p_seq = buf.persisted_sample_seq;
+                                        buf.samples.retain(|s| s.sample_seq > target_p_seq);
+                                    }
+                                }
+                                buf.last_sent_sample_seq = buf.persisted_sample_seq;
+                            }
                         }
                         Err(e) => {
                             warn!("[HTTP Fallback] Hello failed: {}", e);
@@ -692,18 +793,43 @@ fn main() -> Result<()> {
 
                 // 2. Send HTTP Report if registered
                 if http_registered {
-                    let snapshot_opt = { shared_snapshot.read().unwrap().clone() };
+                    let (batch_samples, dropped) = {
+                        if let Ok(buf) = shared_buffer.lock() {
+                            let unsent: Vec<MetricSample> = buf
+                                .samples
+                                .iter()
+                                .filter(|s| s.sample_seq > buf.persisted_sample_seq)
+                                .take(16)
+                                .cloned()
+                                .collect();
+                            (unsent, buf.dropped_samples)
+                        } else {
+                            (Vec::new(), 0)
+                        }
+                    };
 
-                    if let Some(report) = snapshot_opt {
+                    if !batch_samples.is_empty() {
+                        let payload = ReportPayload {
+                            samples: batch_samples,
+                            dropped_samples: dropped,
+                        };
                         let report_env =
-                            Envelope::new("report", &instance_id, seq, current_ts_ms(), report);
+                            Envelope::new("report", &instance_id, seq, current_ts_ms(), payload);
                         match http_client.send_report(&report_env) {
                             Ok(ack) => {
                                 info!(
-                                    "[HTTP Fallback] Sent 30s report #{} (Server ACK rev: {})",
-                                    seq, ack.config_rev
+                                    "[HTTP Fallback] Sent 30s report batch #{} (Server ACK rev: {}, persisted_sample_seq: {:?})",
+                                    seq, ack.config_rev, ack.persisted_sample_seq
                                 );
                                 seq += 1;
+                                if let Some(p_seq) = ack.persisted_sample_seq {
+                                    if let Ok(mut buf) = shared_buffer.lock() {
+                                        buf.persisted_sample_seq =
+                                            buf.persisted_sample_seq.max(p_seq);
+                                        let target_p_seq = buf.persisted_sample_seq;
+                                        buf.samples.retain(|s| s.sample_seq > target_p_seq);
+                                    }
+                                }
                                 let current_rev = shared_config.read().unwrap().config_rev;
                                 if ack.config_rev > current_rev {
                                     info!("[HTTP Fallback] Server has newer config rev {} > {}. Triggering re-hello.", ack.config_rev, current_rev);

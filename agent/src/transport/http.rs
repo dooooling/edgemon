@@ -1,5 +1,5 @@
-use crate::error::{EdgeMonError, Result};
-use crate::protocol::{AckData, Envelope, ErrorData, HelloData, ReportData, WelcomeData};
+use crate::error::{AgentError as EdgeMonError, AgentResult as Result};
+use crate::protocol::{AckData, Envelope, ErrorData, HelloData, ReportPayload, WelcomeData};
 use std::time::Duration;
 use ureq::{Agent, AgentBuilder};
 
@@ -64,7 +64,7 @@ impl HttpClient {
         }
     }
 
-    pub fn send_report(&self, envelope: &Envelope<ReportData>) -> Result<AckData> {
+    pub fn send_report(&self, envelope: &Envelope<ReportPayload>) -> Result<AckData> {
         let url = format!("{}/api/agent/v1/report", self.server_url);
         let resp = self
             .agent

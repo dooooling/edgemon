@@ -1,4 +1,4 @@
-import { ReportPayload } from '../protocol/types';
+import { ReportMetrics } from '../protocol/types';
 import { NormalizedGeo } from '../services/geo';
 
 export interface NodeStateRow {
@@ -26,6 +26,9 @@ export interface NodeStateRow {
   uptime_sec: number | null;
   probe_data_json: string | null;
   persisted_at_ms: number;
+  persisted_instance_id?: string | null;
+  persisted_sample_seq?: number;
+  dropped_samples?: number;
 }
 
 export async function getNodeState(db: D1Database, nodeId: string): Promise<NodeStateRow | null> {
@@ -37,9 +40,11 @@ export async function upsertNodeState(
   nodeId: string,
   instanceId: string,
   seq: number,
-  report: ReportPayload,
+  report: ReportMetrics,
   geo: NormalizedGeo,
-  persistedAtMs: number
+  persistedAtMs: number,
+  persistedSampleSeq = 0,
+  droppedSamples = 0
 ): Promise<void> {
   const probesJson = JSON.stringify(report.probes);
   await db
@@ -49,9 +54,10 @@ export async function upsertNodeState(
         network_counter_id, network_interface, cpu_usage_pct, cpu_throttled_pct,
         memory_used_bytes, memory_working_set_bytes, swap_used_bytes, rootfs_used_bytes,
         disk_read_bps, disk_write_bps, rx_bps, tx_bps, rx_total_bytes, tx_total_bytes,
-        edge_rtt_ms, edge_transport, uptime_sec, probe_data_json, persisted_at_ms
+        edge_rtt_ms, edge_transport, uptime_sec, probe_data_json, persisted_at_ms,
+        persisted_instance_id, persisted_sample_seq, dropped_samples
       ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       )
       ON CONFLICT(node_id) DO UPDATE SET
         agent_instance_id = excluded.agent_instance_id,
@@ -76,7 +82,10 @@ export async function upsertNodeState(
         edge_transport = excluded.edge_transport,
         uptime_sec = excluded.uptime_sec,
         probe_data_json = excluded.probe_data_json,
-        persisted_at_ms = excluded.persisted_at_ms`
+        persisted_at_ms = excluded.persisted_at_ms,
+        persisted_instance_id = excluded.persisted_instance_id,
+        persisted_sample_seq = MAX(node_state.persisted_sample_seq, excluded.persisted_sample_seq),
+        dropped_samples = excluded.dropped_samples`
     )
     .bind(
       nodeId,
@@ -102,7 +111,10 @@ export async function upsertNodeState(
       geo.edge_transport,
       report.uptime_sec ?? null,
       probesJson,
-      persistedAtMs
+      persistedAtMs,
+      instanceId,
+      persistedSampleSeq,
+      droppedSamples
     )
     .run();
 }
@@ -111,7 +123,7 @@ export async function upsertMetricsRaw(
   db: D1Database,
   nodeId: string,
   bucketStartMs: number,
-  report: ReportPayload,
+  report: ReportMetrics,
   edgeRttMs: number | null,
   rxDelta = 0,
   txDelta = 0

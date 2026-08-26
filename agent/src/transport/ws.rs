@@ -10,7 +10,7 @@ use url::Url;
 use crate::error::{AgentError, AgentResult};
 use crate::protocol::envelope::Envelope;
 use crate::protocol::{
-    ConfigAckData, ConfigData, HelloData, ReportData, ServerConfig, WelcomeData,
+    ConfigAckData, ConfigData, HelloData, ReportPayload, ServerConfig, WelcomeData,
 };
 
 pub type WsStream = WebSocket<MaybeTlsStream<TcpStream>>;
@@ -24,7 +24,10 @@ pub struct WsTransport {
 
 pub enum WsEvent {
     ConfigPushed(ServerConfig, u64),
-    AckReceived(u64),
+    AckReceived {
+        config_rev: u64,
+        persisted_sample_seq: Option<u64>,
+    },
     FatalClose(u16, String),
     Disconnected(String),
 }
@@ -71,7 +74,6 @@ impl WsTransport {
             .set_scheme(scheme)
             .map_err(|_| AgentError::Transport("Failed to set WebSocket scheme".to_string()))?;
 
-        // Append stream path
         let stream_url = parsed
             .join("/api/agent/v1/stream")
             .map_err(|e| AgentError::Transport(format!("Failed to build stream URL: {}", e)))?;
@@ -109,7 +111,6 @@ impl WsTransport {
 
         info!("[WSS] Handshake successful (Status: {})", response.status());
 
-        // Set TCP read timeout so socket.read() doesn't block indefinitely
         match socket.get_ref() {
             MaybeTlsStream::Plain(s) => {
                 let _ = s.set_read_timeout(Some(Duration::from_millis(500)));
@@ -149,7 +150,6 @@ impl WsTransport {
             seq
         );
 
-        // Wait for welcome response with 10s deadline
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             if Instant::now() > deadline {
@@ -166,8 +166,8 @@ impl WsTransport {
                     if env.get("type").and_then(|t| t.as_str()) == Some("welcome") {
                         let welcome_env: Envelope<WelcomeData> = serde_json::from_value(env)?;
                         info!(
-                            "[WSS] Received welcome! Config rev: {}",
-                            welcome_env.data.config_rev
+                            "[WSS] Received welcome! Config rev: {}, persisted_sample_seq: {:?}",
+                            welcome_env.data.config_rev, welcome_env.data.persisted_sample_seq
                         );
                         return Ok(welcome_env.data);
                     } else if env.get("type").and_then(|t| t.as_str()) == Some("error") {
@@ -213,7 +213,7 @@ impl WsTransport {
         }
     }
 
-    pub fn send_report(&mut self, seq: u64, report: ReportData) -> AgentResult<()> {
+    pub fn send_report(&mut self, seq: u64, report: ReportPayload) -> AgentResult<()> {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -255,7 +255,6 @@ impl WsTransport {
     pub fn tick_keepalive(&mut self) -> AgentResult<()> {
         let now = Instant::now();
 
-        // 1. Check Pong Timeout if ping was sent
         if let Some(ping_time) = self.last_ping_sent {
             if now.duration_since(ping_time) >= Duration::from_secs(10) {
                 return Err(AgentError::Transport(
@@ -264,7 +263,6 @@ impl WsTransport {
             }
         }
 
-        // 2. Send 30s RFC6455 Ping
         if now.duration_since(self.last_activity) >= Duration::from_secs(30)
             && self.last_ping_sent.is_none()
         {
@@ -306,7 +304,14 @@ impl WsTransport {
                                 .and_then(|d| d.get("config_rev"))
                                 .and_then(|r| r.as_u64())
                                 .unwrap_or(0);
-                            return Some(WsEvent::AckReceived(rev));
+                            let persisted_sample_seq = env
+                                .get("data")
+                                .and_then(|d| d.get("persisted_sample_seq"))
+                                .and_then(|r| r.as_u64());
+                            return Some(WsEvent::AckReceived {
+                                config_rev: rev,
+                                persisted_sample_seq,
+                            });
                         }
                         "error" => {
                             let msg = env

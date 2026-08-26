@@ -1,7 +1,7 @@
+use crate::protocol::NetworkMetrics;
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::time::{Duration, Instant};
-use sha2::{Digest, Sha256};
-use crate::protocol::NetworkMetrics;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NetCounters {
@@ -75,7 +75,9 @@ impl NetworkCollector {
 
         // Guard against back-to-back calls within 500ms
         if let Some(last_time) = self.last_sample_instant {
-            if now.duration_since(last_time) < Duration::from_millis(500) && self.latest_metrics.rx_bps.is_some() {
+            if now.duration_since(last_time) < Duration::from_millis(500)
+                && self.latest_metrics.rx_bps.is_some()
+            {
                 return self.latest_metrics.clone();
             }
         }
@@ -85,7 +87,8 @@ impl NetworkCollector {
             if let Some(discovered) = discover_default_interface() {
                 if discovered != self.active_interface {
                     self.active_interface = discovered;
-                    self.counter_id = generate_counter_id(self.boot_id.as_deref(), &self.active_interface);
+                    self.counter_id =
+                        generate_counter_id(self.boot_id.as_deref(), &self.active_interface);
                     self.last_counters = None;
                 }
             }
@@ -93,7 +96,11 @@ impl NetworkCollector {
 
         let current_counters = read_network_counters(&self.active_interface);
 
-        let (rx_bps, tx_bps) = match (self.last_counters, current_counters, self.last_sample_instant) {
+        let (rx_bps, tx_bps) = match (
+            self.last_counters,
+            current_counters,
+            self.last_sample_instant,
+        ) {
             (Some(prev), Some(curr), Some(prev_time)) => {
                 let elapsed_sec = now.duration_since(prev_time).as_secs_f64();
                 if elapsed_sec > 0.0 {
@@ -152,7 +159,9 @@ pub fn read_network_counters(target_iface: &str) -> Option<NetCounters> {
 
 #[cfg(windows)]
 fn read_windows_network_counters() -> Option<NetCounters> {
-    use windows_sys::Win32::NetworkManagement::IpHelper::{GetIfTable2, FreeMibTable, MIB_IF_TABLE2};
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        FreeMibTable, GetIfTable2, MIB_IF_TABLE2,
+    };
     unsafe {
         let mut table_ptr: *mut MIB_IF_TABLE2 = std::ptr::null_mut();
         if GetIfTable2(&mut table_ptr) == 0 && !table_ptr.is_null() {
@@ -200,7 +209,11 @@ pub fn discover_default_interface() -> Option<String> {
             for line in content.lines().skip(2) {
                 if let Some(idx) = line.find(':') {
                     let iface = line[..idx].trim();
-                    if iface != "lo" && !iface.starts_with("docker") && !iface.starts_with("veth") && !iface.starts_with("br-") {
+                    if iface != "lo"
+                        && !iface.starts_with("docker")
+                        && !iface.starts_with("veth")
+                        && !iface.starts_with("br-")
+                    {
                         return Some(iface.to_string());
                     }
                 }

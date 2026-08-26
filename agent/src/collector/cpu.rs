@@ -1,8 +1,8 @@
-use std::fs;
-use std::time::{Duration, Instant};
 use crate::env::cgroup::CgroupContext;
 use crate::env::scope::ResourceScope;
 use crate::protocol::CpuMetrics;
+use std::fs;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, Default)]
 struct ProcStatJiffies {
@@ -18,7 +18,14 @@ struct ProcStatJiffies {
 
 impl ProcStatJiffies {
     fn total(&self) -> u64 {
-        self.user + self.nice + self.system + self.idle + self.iowait + self.irq + self.softirq + self.steal
+        self.user
+            + self.nice
+            + self.system
+            + self.idle
+            + self.iowait
+            + self.irq
+            + self.softirq
+            + self.steal
     }
 
     fn busy(&self) -> u64 {
@@ -75,7 +82,9 @@ impl CpuCollector {
         let now = Instant::now();
         // Guard against back-to-back calls within 500ms
         if let Some(last_time) = self.last_sample_instant {
-            if now.duration_since(last_time) < Duration::from_millis(500) && self.latest_metrics.usage_pct.is_some() {
+            if now.duration_since(last_time) < Duration::from_millis(500)
+                && self.latest_metrics.usage_pct.is_some()
+            {
                 return self.latest_metrics.clone();
             }
         }
@@ -100,7 +109,9 @@ impl CpuCollector {
                     let delta_total = total.saturating_sub(prev_total);
                     let delta_busy = busy.saturating_sub(prev_busy);
                     if delta_total > 0 {
-                        Some(round_1_decimal(((delta_busy as f64) / (delta_total as f64)) * 100.0))
+                        Some(round_1_decimal(
+                            ((delta_busy as f64) / (delta_total as f64)) * 100.0,
+                        ))
                     } else {
                         self.latest_metrics.usage_pct.or(Some(0.0))
                     }
@@ -117,18 +128,19 @@ impl CpuCollector {
         }
 
         let current_jiffies = read_proc_stat_cpu_jiffies();
-        let (usage_pct, throttled_pct) = if let (Some(prev), Some(curr)) = (self.last_jiffies, current_jiffies) {
-            let total_delta = curr.total().saturating_sub(prev.total());
-            let busy_delta = curr.busy().saturating_sub(prev.busy());
-            let pct = if total_delta > 0 {
-                ((busy_delta as f64) / (total_delta as f64)) * 100.0
+        let (usage_pct, throttled_pct) =
+            if let (Some(prev), Some(curr)) = (self.last_jiffies, current_jiffies) {
+                let total_delta = curr.total().saturating_sub(prev.total());
+                let busy_delta = curr.busy().saturating_sub(prev.busy());
+                let pct = if total_delta > 0 {
+                    ((busy_delta as f64) / (total_delta as f64)) * 100.0
+                } else {
+                    0.0
+                };
+                (Some(round_1_decimal(pct)), Some(0.0))
             } else {
-                0.0
+                (None, None)
             };
-            (Some(round_1_decimal(pct)), Some(0.0))
-        } else {
-            (None, None)
-        };
 
         self.last_jiffies = current_jiffies;
         self.last_sample_instant = Some(now);
@@ -139,17 +151,26 @@ impl CpuCollector {
     }
 
     fn sample_container(&mut self, now: Instant) -> CpuMetrics {
-        let (curr_usage_usec, curr_throttled_usec) = read_cgroup_cpu_stats(self.cgroup_ctx.as_ref());
+        let (curr_usage_usec, curr_throttled_usec) =
+            read_cgroup_cpu_stats(self.cgroup_ctx.as_ref());
 
-        let (usage_pct, throttled_pct) = match (self.last_usage_usec, curr_usage_usec, self.last_sample_instant) {
+        let (usage_pct, throttled_pct) = match (
+            self.last_usage_usec,
+            curr_usage_usec,
+            self.last_sample_instant,
+        ) {
             (Some(prev_usage), Some(curr_usage), Some(prev_time)) => {
                 let elapsed_sec = now.duration_since(prev_time).as_secs_f64();
                 if elapsed_sec > 0.0 && self.effective_capacity > 0.0 {
-                    let delta_usage_sec = (curr_usage.saturating_sub(prev_usage) as f64) / 1_000_000.0;
-                    let raw_pct = (delta_usage_sec / (elapsed_sec * self.effective_capacity)) * 100.0;
+                    let delta_usage_sec =
+                        (curr_usage.saturating_sub(prev_usage) as f64) / 1_000_000.0;
+                    let raw_pct =
+                        (delta_usage_sec / (elapsed_sec * self.effective_capacity)) * 100.0;
                     let usage_normalized = round_1_decimal(raw_pct.clamp(0.0, 100.0));
 
-                    let throttled = if let (Some(prev_th), Some(curr_th)) = (self.last_throttled_usec, curr_throttled_usec) {
+                    let throttled = if let (Some(prev_th), Some(curr_th)) =
+                        (self.last_throttled_usec, curr_throttled_usec)
+                    {
                         let delta_th_sec = (curr_th.saturating_sub(prev_th) as f64) / 1_000_000.0;
                         let th_pct = (delta_th_sec / elapsed_sec) * 100.0;
                         Some(round_1_decimal(th_pct.clamp(0.0, 100.0)))
@@ -219,14 +240,18 @@ fn resolve_effective_capacity(scope: &ResourceScope, cgroup_ctx: Option<&CgroupC
                 return cores;
             }
             if let Some(cores) = ctx.limits.cpuset_cores {
-                return cores as f64;
+                return cores;
             }
         }
     }
 
     // Default to host physical/logical CPU count
     let count = num_cpus();
-    if count > 0 { count as f64 } else { 1.0 }
+    if count > 0 {
+        count as f64
+    } else {
+        1.0
+    }
 }
 
 fn num_cpus() -> usize {
@@ -242,15 +267,16 @@ fn num_cpus() -> usize {
 
 #[cfg(windows)]
 fn read_windows_cpu_times() -> Option<(u64, u64)> {
-    use windows_sys::Win32::System::Threading::GetSystemTimes;
     use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::GetSystemTimes;
     unsafe {
         let mut idle_ft = std::mem::zeroed::<FILETIME>();
         let mut kernel_ft = std::mem::zeroed::<FILETIME>();
         let mut user_ft = std::mem::zeroed::<FILETIME>();
         if GetSystemTimes(&mut idle_ft, &mut kernel_ft, &mut user_ft) != 0 {
             let idle = ((idle_ft.dwHighDateTime as u64) << 32) | (idle_ft.dwLowDateTime as u64);
-            let kernel = ((kernel_ft.dwHighDateTime as u64) << 32) | (kernel_ft.dwLowDateTime as u64);
+            let kernel =
+                ((kernel_ft.dwHighDateTime as u64) << 32) | (kernel_ft.dwLowDateTime as u64);
             let user = ((user_ft.dwHighDateTime as u64) << 32) | (user_ft.dwLowDateTime as u64);
             let total = kernel + user;
             let busy = total.saturating_sub(idle);

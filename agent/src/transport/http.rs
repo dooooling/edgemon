@@ -1,7 +1,7 @@
-use std::time::Duration;
-use ureq::{Agent, AgentBuilder};
 use crate::error::{EdgeMonError, Result};
 use crate::protocol::{AckData, Envelope, ErrorData, HelloData, ReportData, WelcomeData};
+use std::time::Duration;
+use ureq::{Agent, AgentBuilder};
 
 pub struct HttpClient {
     server_url: String,
@@ -34,7 +34,10 @@ impl HttpClient {
             .set("Authorization", &format!("Bearer {}", self.token))
             .set("X-Node-ID", &self.node_id)
             .set("Content-Type", "application/json")
-            .set("User-Agent", &format!("EdgeMon-Agent/{}", env!("CARGO_PKG_VERSION")))
+            .set(
+                "User-Agent",
+                &format!("EdgeMon-Agent/{}", env!("CARGO_PKG_VERSION")),
+            )
             .send_json(envelope);
 
         match resp {
@@ -52,7 +55,9 @@ impl HttpClient {
                         err.data.code, err.data.message
                     )))
                 } else {
-                    Err(EdgeMonError::Protocol(format!("Server returned HTTP status {status}")))
+                    Err(EdgeMonError::Protocol(format!(
+                        "Server returned HTTP status {status}"
+                    )))
                 }
             }
             Err(ureq::Error::Transport(t)) => Err(EdgeMonError::Network(t.to_string())),
@@ -67,7 +72,10 @@ impl HttpClient {
             .set("Authorization", &format!("Bearer {}", self.token))
             .set("X-Node-ID", &self.node_id)
             .set("Content-Type", "application/json")
-            .set("User-Agent", &format!("EdgeMon-Agent/{}", env!("CARGO_PKG_VERSION")))
+            .set(
+                "User-Agent",
+                &format!("EdgeMon-Agent/{}", env!("CARGO_PKG_VERSION")),
+            )
             .send_json(envelope);
 
         match resp {
@@ -85,7 +93,9 @@ impl HttpClient {
                         err.data.code, err.data.message
                     )))
                 } else {
-                    Err(EdgeMonError::Protocol(format!("Server returned HTTP status {status}")))
+                    Err(EdgeMonError::Protocol(format!(
+                        "Server returned HTTP status {status}"
+                    )))
                 }
             }
             Err(ureq::Error::Transport(t)) => Err(EdgeMonError::Network(t.to_string())),

@@ -1,7 +1,7 @@
-use std::net::{SocketAddr, TcpStream};
-use std::time::{Duration, Instant};
 use crate::probe::security::validate_and_resolve_target;
 use crate::protocol::ProbeResult;
+use std::net::{SocketAddr, TcpStream};
+use std::time::{Duration, Instant};
 
 pub fn execute_tcp_probe(id: &str, host: &str, port: u16, allow_private: bool) -> ProbeResult {
     let resolved_ip = match validate_and_resolve_target(host, port, allow_private) {

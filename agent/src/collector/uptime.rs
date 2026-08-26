@@ -1,6 +1,6 @@
+use crate::env::detect::EnvType;
 #[cfg(not(windows))]
 use std::fs;
-use crate::env::detect::EnvType;
 
 pub struct UptimeCollector {
     pub _env_type: EnvType,
@@ -8,7 +8,9 @@ pub struct UptimeCollector {
 
 impl UptimeCollector {
     pub fn new(env_type: EnvType) -> Self {
-        Self { _env_type: env_type }
+        Self {
+            _env_type: env_type,
+        }
     }
 
     pub fn sample(&self) -> Option<u64> {
@@ -22,7 +24,7 @@ pub fn get_system_uptime_sec() -> Option<u64> {
         use windows_sys::Win32::System::SystemInformation::GetTickCount64;
         unsafe {
             let ms = GetTickCount64();
-            return Some(ms / 1000);
+            Some(ms / 1000)
         }
     }
 
@@ -38,7 +40,7 @@ pub fn get_system_uptime_sec() -> Option<u64> {
 pub fn get_boot_id() -> Option<String> {
     #[cfg(windows)]
     {
-        return Some("windows-host-boot-id".to_string());
+        Some("windows-host-boot-id".to_string())
     }
 
     #[cfg(not(windows))]

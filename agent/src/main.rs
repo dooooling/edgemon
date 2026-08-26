@@ -1,8 +1,8 @@
+use clap::Parser;
+use log::{error, info, warn};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use clap::Parser;
-use log::{error, info, warn};
 use uuid::Uuid;
 
 use edgemon_agent::collector::cpu::{get_cpu_model, CpuCollector};
@@ -69,7 +69,10 @@ fn get_kernel_version() -> String {
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    info!("Starting EdgeMon Agent v{} (WSS Architecture v1.0)", env!("CARGO_PKG_VERSION"));
+    info!(
+        "Starting EdgeMon Agent v{} (WSS Architecture v1.0)",
+        env!("CARGO_PKG_VERSION")
+    );
 
     let cli = CliArgs::parse();
     let is_mock = cli.mock;
@@ -165,7 +168,12 @@ fn main() -> Result<()> {
                             let res = if target.method == "icmp" {
                                 execute_icmp_probe(&target.id, &target.host, allow_private)
                             } else {
-                                execute_tcp_probe(&target.id, &target.host, target.port.unwrap_or(80), allow_private)
+                                execute_tcp_probe(
+                                    &target.id,
+                                    &target.host,
+                                    target.port.unwrap_or(80),
+                                    allow_private,
+                                )
                             };
                             probe_results.push(res);
                         }
@@ -187,7 +195,7 @@ fn main() -> Result<()> {
                                 throttled_pct: Some(0.0),
                             },
                             memory: MemoryMetrics {
-                                used_bytes: Some(2_147_483_648 + ((current_ts_ms() % 80_000_000) as u64)),
+                                used_bytes: Some(2_147_483_648 + (current_ts_ms() % 80_000_000)),
                                 working_set_bytes: Some(1_610_612_736),
                                 swap_used_bytes: Some(67_108_864),
                             },
@@ -207,14 +215,12 @@ fn main() -> Result<()> {
                                 tx_total_bytes: mock_tx_total,
                             },
                             uptime_sec: Some(mock_uptime),
-                            probes: vec![
-                                ProbeResult {
-                                    id: "Cloudflare 1.1.1.1".to_string(),
-                                    status: "ok".to_string(),
-                                    latency_ms: Some(11.8),
-                                    loss_ratio: 0.0,
-                                },
-                            ],
+                            probes: vec![ProbeResult {
+                                id: "Cloudflare 1.1.1.1".to_string(),
+                                status: "ok".to_string(),
+                                latency_ms: Some(11.8),
+                                loss_ratio: 0.0,
+                            }],
                         }
                     } else {
                         ReportData {
@@ -246,7 +252,11 @@ fn main() -> Result<()> {
     let mut seq: u64 = 1;
     let mut http_registered = false;
     let mut backoff = Backoff::new();
-    let http_client = HttpClient::new(config.server_url.clone(), config.node_id.clone(), config.token.clone());
+    let http_client = HttpClient::new(
+        config.server_url.clone(),
+        config.node_id.clone(),
+        config.token.clone(),
+    );
 
     info!("[Transport] Initialized with instance_id: {}", instance_id);
 
@@ -258,7 +268,11 @@ fn main() -> Result<()> {
         },
         system: SystemInfo {
             hostname: hostname.clone(),
-            os: if cfg!(windows) { "windows".to_string() } else { "linux".to_string() },
+            os: if cfg!(windows) {
+                "windows".to_string()
+            } else {
+                "linux".to_string()
+            },
             os_version: None,
             kernel: kernel.clone(),
         },
@@ -281,9 +295,21 @@ fn main() -> Result<()> {
             rootfs_scope: true_rootfs_scope,
         },
         sources: MetricSources {
-            cpu: if is_container { "cgroup".to_string() } else { "procfs".to_string() },
-            memory: if is_container { "cgroup".to_string() } else { "procfs".to_string() },
-            io: if is_container { "cgroup".to_string() } else { "diskstats".to_string() },
+            cpu: if is_container {
+                "cgroup".to_string()
+            } else {
+                "procfs".to_string()
+            },
+            memory: if is_container {
+                "cgroup".to_string()
+            } else {
+                "procfs".to_string()
+            },
+            io: if is_container {
+                "cgroup".to_string()
+            } else {
+                "diskstats".to_string()
+            },
             network: "netns".to_string(),
             rootfs: "statvfs".to_string(),
         },
@@ -298,21 +324,33 @@ fn main() -> Result<()> {
     loop {
         info!("[WSS] Attempting stream connection...");
 
-        match WsTransport::connect(&config.server_url, &config.node_id, &config.token, &instance_id, config.allow_http) {
+        match WsTransport::connect(
+            &config.server_url,
+            &config.node_id,
+            &config.token,
+            &instance_id,
+            config.allow_http,
+        ) {
             Ok(mut ws) => {
                 // Step A: Send Hello
                 match ws.send_hello(seq, hello_payload.clone()) {
                     Ok(welcome) => {
-                        info!("[WSS] Stream Handshake Complete! Active config revision: {}", welcome.config_rev);
+                        info!(
+                            "[WSS] Stream Handshake Complete! Active config revision: {}",
+                            welcome.config_rev
+                        );
                         seq += 1;
                         backoff.reset();
 
                         {
                             let mut cfg_guard = shared_config.write().unwrap();
                             cfg_guard.config_rev = welcome.config_rev;
-                            cfg_guard.sample_interval_sec = welcome.config.sample_interval_sec.clamp(1, 60);
-                            cfg_guard.stream_interval_sec = welcome.config.stream_interval_sec.clamp(1, 60);
-                            cfg_guard.probe_interval_sec = welcome.config.probe_interval_sec.clamp(10, 3600);
+                            cfg_guard.sample_interval_sec =
+                                welcome.config.sample_interval_sec.clamp(1, 60);
+                            cfg_guard.stream_interval_sec =
+                                welcome.config.stream_interval_sec.clamp(1, 60);
+                            cfg_guard.probe_interval_sec =
+                                welcome.config.probe_interval_sec.clamp(10, 3600);
                             cfg_guard.network_interface = welcome.config.network_interface;
                             cfg_guard.probes = welcome.config.probes;
                         }
@@ -321,17 +359,14 @@ fn main() -> Result<()> {
                         let mut last_report_time = Instant::now() - Duration::from_secs(10);
 
                         loop {
-                            let stream_interval = {
-                                shared_config.read().unwrap().stream_interval_sec
-                            };
+                            let stream_interval =
+                                { shared_config.read().unwrap().stream_interval_sec };
 
                             // Send Report snapshot
                             if last_report_time.elapsed() >= Duration::from_secs(stream_interval) {
                                 last_report_time = Instant::now();
 
-                                let snapshot_opt = {
-                                    shared_snapshot.read().unwrap().clone()
-                                };
+                                let snapshot_opt = { shared_snapshot.read().unwrap().clone() };
 
                                 if let Some(report) = snapshot_opt {
                                     if let Err(e) = ws.send_report(seq, report) {
@@ -356,9 +391,12 @@ fn main() -> Result<()> {
                                         {
                                             let mut cfg_guard = shared_config.write().unwrap();
                                             cfg_guard.config_rev = rev;
-                                            cfg_guard.sample_interval_sec = new_cfg.sample_interval_sec.clamp(1, 60);
-                                            cfg_guard.stream_interval_sec = new_cfg.stream_interval_sec.clamp(1, 60);
-                                            cfg_guard.probe_interval_sec = new_cfg.probe_interval_sec.clamp(10, 3600);
+                                            cfg_guard.sample_interval_sec =
+                                                new_cfg.sample_interval_sec.clamp(1, 60);
+                                            cfg_guard.stream_interval_sec =
+                                                new_cfg.stream_interval_sec.clamp(1, 60);
+                                            cfg_guard.probe_interval_sec =
+                                                new_cfg.probe_interval_sec.clamp(10, 3600);
                                             cfg_guard.network_interface = new_cfg.network_interface;
                                             cfg_guard.probes = new_cfg.probes;
                                         }
@@ -373,7 +411,10 @@ fn main() -> Result<()> {
                                         return Ok(());
                                     }
                                     WsEvent::Disconnected(reason) => {
-                                        warn!("[WSS] Disconnected: {}. Entering HTTP fallback...", reason);
+                                        warn!(
+                                            "[WSS] Disconnected: {}. Entering HTTP fallback...",
+                                            reason
+                                        );
                                         break;
                                     }
                                 }
@@ -394,7 +435,10 @@ fn main() -> Result<()> {
 
         // Step C: BACKOFF & HTTP FALLBACK (30s interval while WSS is disconnected)
         let retry_delay = backoff.next_delay();
-        info!("[Transport] WSS disconnected. Retrying in {:?} (Running 30s HTTP fallback)...", retry_delay);
+        info!(
+            "[Transport] WSS disconnected. Retrying in {:?} (Running 30s HTTP fallback)...",
+            retry_delay
+        );
 
         let fallback_deadline = Instant::now() + retry_delay;
         let mut last_http_fallback_time = Instant::now() - Duration::from_secs(60);
@@ -405,7 +449,13 @@ fn main() -> Result<()> {
 
                 // 1. Ensure instance is registered via Hello first over HTTP
                 if !http_registered {
-                    let hello_env = Envelope::new("hello", &instance_id, seq, current_ts_ms(), hello_payload.clone());
+                    let hello_env = Envelope::new(
+                        "hello",
+                        &instance_id,
+                        seq,
+                        current_ts_ms(),
+                        hello_payload.clone(),
+                    );
                     match http_client.send_hello(&hello_env) {
                         Ok(welcome) => {
                             info!("[HTTP Fallback] Successfully registered via Hello (Config rev: {})", welcome.config_rev);
@@ -414,9 +464,12 @@ fn main() -> Result<()> {
                             {
                                 let mut cfg_guard = shared_config.write().unwrap();
                                 cfg_guard.config_rev = welcome.config_rev;
-                                cfg_guard.sample_interval_sec = welcome.config.sample_interval_sec.clamp(1, 60);
-                                cfg_guard.stream_interval_sec = welcome.config.stream_interval_sec.clamp(1, 60);
-                                cfg_guard.probe_interval_sec = welcome.config.probe_interval_sec.clamp(10, 3600);
+                                cfg_guard.sample_interval_sec =
+                                    welcome.config.sample_interval_sec.clamp(1, 60);
+                                cfg_guard.stream_interval_sec =
+                                    welcome.config.stream_interval_sec.clamp(1, 60);
+                                cfg_guard.probe_interval_sec =
+                                    welcome.config.probe_interval_sec.clamp(10, 3600);
                                 cfg_guard.network_interface = welcome.config.network_interface;
                                 cfg_guard.probes = welcome.config.probes;
                             }
@@ -429,15 +482,17 @@ fn main() -> Result<()> {
 
                 // 2. Send HTTP Report if registered
                 if http_registered {
-                    let snapshot_opt = {
-                        shared_snapshot.read().unwrap().clone()
-                    };
+                    let snapshot_opt = { shared_snapshot.read().unwrap().clone() };
 
                     if let Some(report) = snapshot_opt {
-                        let report_env = Envelope::new("report", &instance_id, seq, current_ts_ms(), report);
+                        let report_env =
+                            Envelope::new("report", &instance_id, seq, current_ts_ms(), report);
                         match http_client.send_report(&report_env) {
                             Ok(ack) => {
-                                info!("[HTTP Fallback] Sent 30s report #{} (Server ACK rev: {})", seq, ack.config_rev);
+                                info!(
+                                    "[HTTP Fallback] Sent 30s report #{} (Server ACK rev: {})",
+                                    seq, ack.config_rev
+                                );
                                 seq += 1;
                                 let current_rev = shared_config.read().unwrap().config_rev;
                                 if ack.config_rev > current_rev {
@@ -447,7 +502,9 @@ fn main() -> Result<()> {
                             }
                             Err(e) => {
                                 warn!("[HTTP Fallback] Report failed: {}", e);
-                                if e.to_string().contains("HELLO_REQUIRED") || e.to_string().contains("INSTANCE_MISMATCH") {
+                                if e.to_string().contains("HELLO_REQUIRED")
+                                    || e.to_string().contains("INSTANCE_MISMATCH")
+                                {
                                     http_registered = false;
                                 }
                             }

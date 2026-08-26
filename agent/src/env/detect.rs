@@ -32,7 +32,11 @@ pub fn detect_environment() -> DetectionResult {
     if Path::new("/proc/vz").exists() {
         let is_container = !Path::new("/proc/bc").exists() || Path::new("/proc/vz/veinfo").exists();
         return DetectionResult {
-            env_type: if is_container { EnvType::Container } else { EnvType::Vm },
+            env_type: if is_container {
+                EnvType::Container
+            } else {
+                EnvType::Vm
+            },
             runtime: Some("openvz".to_string()),
             host_virtualization_hint: Some("openvz".to_string()),
         };
@@ -126,7 +130,10 @@ fn detect_container_signals() -> Option<String> {
             // Typical mountinfo line has mountpoint at index 4 (0-based)
             if parts.len() > 8 && parts[4] == "/" {
                 let lower = line.to_lowercase();
-                if lower.contains("overlay") || lower.contains("docker") || lower.contains("containerd") {
+                if lower.contains("overlay")
+                    || lower.contains("docker")
+                    || lower.contains("containerd")
+                {
                     return Some("unknown".to_string());
                 }
             }

@@ -1,5 +1,5 @@
-use std::net::{IpAddr, ToSocketAddrs};
 use crate::error::{EdgeMonError, Result};
+use std::net::{IpAddr, ToSocketAddrs};
 
 pub fn is_private_or_loopback(ip: &IpAddr) -> bool {
     match ip {
@@ -21,11 +21,11 @@ pub fn is_private_or_loopback(ip: &IpAddr) -> bool {
 
 pub fn validate_and_resolve_target(host: &str, port: u16, allow_private: bool) -> Result<IpAddr> {
     let target = format!("{host}:{port}");
-    let addrs = target.to_socket_addrs().map_err(|e| {
-        EdgeMonError::Security(format!("DNS resolution failed for {host}: {e}"))
-    })?;
+    let mut addrs = target
+        .to_socket_addrs()
+        .map_err(|e| EdgeMonError::Security(format!("DNS resolution failed for {host}: {e}")))?;
 
-    for socket_addr in addrs {
+    if let Some(socket_addr) = addrs.next() {
         let ip = socket_addr.ip();
         if !allow_private && is_private_or_loopback(&ip) {
             return Err(EdgeMonError::Security(format!(
@@ -35,5 +35,7 @@ pub fn validate_and_resolve_target(host: &str, port: u16, allow_private: bool) -
         return Ok(ip);
     }
 
-    Err(EdgeMonError::Security(format!("No IP address resolved for {host}")))
+    Err(EdgeMonError::Security(format!(
+        "No IP address resolved for {host}"
+    )))
 }

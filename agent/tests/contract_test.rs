@@ -15,7 +15,8 @@ fn fixture_path(name: &str) -> PathBuf {
 fn test_parse_hello_fixture() {
     let path = fixture_path("hello.json");
     let content = fs::read_to_string(&path).expect("Failed to read hello.json fixture");
-    let envelope: Envelope<HelloData> = serde_json::from_str(&content).expect("Failed to parse hello.json");
+    let envelope: Envelope<HelloData> =
+        serde_json::from_str(&content).expect("Failed to parse hello.json");
 
     assert_eq!(envelope.v, 1);
     assert_eq!(envelope.msg_type, "hello");
@@ -31,7 +32,8 @@ fn test_parse_hello_fixture() {
 fn test_parse_welcome_fixture() {
     let path = fixture_path("welcome.json");
     let content = fs::read_to_string(&path).expect("Failed to read welcome.json fixture");
-    let envelope: Envelope<WelcomeData> = serde_json::from_str(&content).expect("Failed to parse welcome.json");
+    let envelope: Envelope<WelcomeData> =
+        serde_json::from_str(&content).expect("Failed to parse welcome.json");
 
     assert_eq!(envelope.v, 1);
     assert_eq!(envelope.msg_type, "welcome");
@@ -46,7 +48,8 @@ fn test_parse_welcome_fixture() {
 fn test_parse_report_fixture() {
     let path = fixture_path("report.json");
     let content = fs::read_to_string(&path).expect("Failed to read report.json fixture");
-    let envelope: Envelope<ReportData> = serde_json::from_str(&content).expect("Failed to parse report.json");
+    let envelope: Envelope<ReportData> =
+        serde_json::from_str(&content).expect("Failed to parse report.json");
 
     assert_eq!(envelope.v, 1);
     assert_eq!(envelope.msg_type, "report");
@@ -62,7 +65,8 @@ fn test_parse_report_fixture() {
 fn test_parse_config_fixture() {
     let path = fixture_path("config.json");
     let content = fs::read_to_string(&path).expect("Failed to read config.json fixture");
-    let envelope: Envelope<ConfigData> = serde_json::from_str(&content).expect("Failed to parse config.json");
+    let envelope: Envelope<ConfigData> =
+        serde_json::from_str(&content).expect("Failed to parse config.json");
 
     assert_eq!(envelope.v, 1);
     assert_eq!(envelope.msg_type, "config");
@@ -75,7 +79,8 @@ fn test_parse_config_fixture() {
 fn test_parse_config_ack_fixture() {
     let path = fixture_path("config_ack.json");
     let content = fs::read_to_string(&path).expect("Failed to read config_ack.json fixture");
-    let envelope: Envelope<ConfigAckData> = serde_json::from_str(&content).expect("Failed to parse config_ack.json");
+    let envelope: Envelope<ConfigAckData> =
+        serde_json::from_str(&content).expect("Failed to parse config_ack.json");
 
     assert_eq!(envelope.v, 1);
     assert_eq!(envelope.msg_type, "config_ack");
@@ -87,7 +92,8 @@ fn test_parse_config_ack_fixture() {
 fn test_parse_ack_fixture() {
     let path = fixture_path("ack.json");
     let content = fs::read_to_string(&path).expect("Failed to read ack.json fixture");
-    let envelope: Envelope<AckData> = serde_json::from_str(&content).expect("Failed to parse ack.json");
+    let envelope: Envelope<AckData> =
+        serde_json::from_str(&content).expect("Failed to parse ack.json");
 
     assert_eq!(envelope.v, 1);
     assert_eq!(envelope.msg_type, "ack");
@@ -100,7 +106,8 @@ fn test_parse_ack_fixture() {
 fn test_parse_error_fixture() {
     let path = fixture_path("error.json");
     let content = fs::read_to_string(&path).expect("Failed to read error.json fixture");
-    let envelope: Envelope<ErrorData> = serde_json::from_str(&content).expect("Failed to parse error.json");
+    let envelope: Envelope<ErrorData> =
+        serde_json::from_str(&content).expect("Failed to parse error.json");
 
     assert_eq!(envelope.v, 1);
     assert_eq!(envelope.msg_type, "error");

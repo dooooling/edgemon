@@ -1,15 +1,17 @@
+use log::{debug, error, info, warn};
 use std::net::TcpStream;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use log::{debug, error, info, warn};
 use tungstenite::client::IntoClientRequest;
 use tungstenite::http::HeaderValue;
 use tungstenite::protocol::{Message, WebSocket};
 use tungstenite::stream::MaybeTlsStream;
 use url::Url;
 
-use crate::error::{AgentResult, AgentError};
+use crate::error::{AgentError, AgentResult};
 use crate::protocol::envelope::Envelope;
-use crate::protocol::{ConfigAckData, ConfigData, WelcomeData, ServerConfig, HelloData, ReportData};
+use crate::protocol::{
+    ConfigAckData, ConfigData, HelloData, ReportData, ServerConfig, WelcomeData,
+};
 
 pub type WsStream = WebSocket<MaybeTlsStream<TcpStream>>;
 
@@ -58,21 +60,27 @@ impl WsTransport {
             }
             "wss" => "wss",
             other => {
-                return Err(AgentError::Transport(format!("Unsupported scheme: {}", other)));
+                return Err(AgentError::Transport(format!(
+                    "Unsupported scheme: {}",
+                    other
+                )));
             }
         };
 
-        parsed.set_scheme(scheme).map_err(|_| {
-            AgentError::Transport("Failed to set WebSocket scheme".to_string())
-        })?;
+        parsed
+            .set_scheme(scheme)
+            .map_err(|_| AgentError::Transport("Failed to set WebSocket scheme".to_string()))?;
 
         // Append stream path
-        let stream_url = parsed.join("/api/agent/v1/stream")
+        let stream_url = parsed
+            .join("/api/agent/v1/stream")
             .map_err(|e| AgentError::Transport(format!("Failed to build stream URL: {}", e)))?;
 
         info!("[WSS] Connecting to {}", stream_url);
 
-        let mut request = stream_url.as_str().into_client_request()
+        let mut request = stream_url
+            .as_str()
+            .into_client_request()
             .map_err(|e| AgentError::Transport(format!("Failed to build WSS request: {}", e)))?;
 
         let headers = request.headers_mut();
@@ -107,7 +115,9 @@ impl WsTransport {
                 let _ = s.set_read_timeout(Some(Duration::from_millis(500)));
             }
             MaybeTlsStream::Rustls(s) => {
-                let _ = s.get_ref().set_read_timeout(Some(Duration::from_millis(500)));
+                let _ = s
+                    .get_ref()
+                    .set_read_timeout(Some(Duration::from_millis(500)));
             }
             _ => {}
         }
@@ -130,16 +140,22 @@ impl WsTransport {
         let envelope = Envelope::new("hello", &self.instance_id, seq, now_ms, payload);
         let json_str = serde_json::to_string(&envelope)?;
 
-        self.socket.send(Message::Text(json_str))
+        self.socket
+            .send(Message::Text(json_str))
             .map_err(|e| AgentError::Transport(format!("Failed to send hello frame: {}", e)))?;
 
-        info!("[WSS] Sent hello frame (seq: {}), waiting for welcome...", seq);
+        info!(
+            "[WSS] Sent hello frame (seq: {}), waiting for welcome...",
+            seq
+        );
 
         // Wait for welcome response with 10s deadline
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             if Instant::now() > deadline {
-                return Err(AgentError::Transport("Timeout waiting for welcome frame".to_string()));
+                return Err(AgentError::Transport(
+                    "Timeout waiting for welcome frame".to_string(),
+                ));
             }
 
             match self.socket.read() {
@@ -149,10 +165,14 @@ impl WsTransport {
                     let env: serde_json::Value = serde_json::from_str(&text)?;
                     if env.get("type").and_then(|t| t.as_str()) == Some("welcome") {
                         let welcome_env: Envelope<WelcomeData> = serde_json::from_value(env)?;
-                        info!("[WSS] Received welcome! Config rev: {}", welcome_env.data.config_rev);
+                        info!(
+                            "[WSS] Received welcome! Config rev: {}",
+                            welcome_env.data.config_rev
+                        );
                         return Ok(welcome_env.data);
                     } else if env.get("type").and_then(|t| t.as_str()) == Some("error") {
-                        let err_msg = env.get("data")
+                        let err_msg = env
+                            .get("data")
                             .and_then(|d| d.get("message"))
                             .and_then(|m| m.as_str())
                             .unwrap_or("Unknown server error");
@@ -168,14 +188,25 @@ impl WsTransport {
                     self.last_ping_sent = None;
                 }
                 Ok(Message::Close(frame)) => {
-                    let reason = frame.map(|f| format!("{}: {}", f.code, f.reason)).unwrap_or_default();
-                    return Err(AgentError::Transport(format!("Server closed socket during hello: {}", reason)));
+                    let reason = frame
+                        .map(|f| format!("{}: {}", f.code, f.reason))
+                        .unwrap_or_default();
+                    return Err(AgentError::Transport(format!(
+                        "Server closed socket during hello: {}",
+                        reason
+                    )));
                 }
-                Err(tungstenite::Error::Io(ref e)) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                Err(tungstenite::Error::Io(ref e))
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
                     std::thread::sleep(Duration::from_millis(50));
                 }
                 Err(e) => {
-                    return Err(AgentError::Transport(format!("Error reading welcome frame: {}", e)));
+                    return Err(AgentError::Transport(format!(
+                        "Error reading welcome frame: {}",
+                        e
+                    )));
                 }
                 _ => {}
             }
@@ -191,7 +222,8 @@ impl WsTransport {
         let envelope = Envelope::new("report", &self.instance_id, seq, now_ms, report);
         let json_str = serde_json::to_string(&envelope)?;
 
-        self.socket.send(Message::Text(json_str))
+        self.socket
+            .send(Message::Text(json_str))
             .map_err(|e| AgentError::Transport(format!("Failed to send report frame: {}", e)))?;
 
         Ok(())
@@ -212,7 +244,8 @@ impl WsTransport {
         let envelope = Envelope::new("config_ack", &self.instance_id, seq, now_ms, ack_data);
         let json_str = serde_json::to_string(&envelope)?;
 
-        self.socket.send(Message::Text(json_str))
+        self.socket
+            .send(Message::Text(json_str))
             .map_err(|e| AgentError::Transport(format!("Failed to send config_ack: {}", e)))?;
 
         info!("[WSS] Confirmed config revision {}", config_rev);
@@ -225,14 +258,19 @@ impl WsTransport {
         // 1. Check Pong Timeout if ping was sent
         if let Some(ping_time) = self.last_ping_sent {
             if now.duration_since(ping_time) >= Duration::from_secs(10) {
-                return Err(AgentError::Transport("Pong timeout: no keepalive response from server".to_string()));
+                return Err(AgentError::Transport(
+                    "Pong timeout: no keepalive response from server".to_string(),
+                ));
             }
         }
 
         // 2. Send 30s RFC6455 Ping
-        if now.duration_since(self.last_activity) >= Duration::from_secs(30) && self.last_ping_sent.is_none() {
-            self.socket.send(Message::Ping(vec![]))
-                .map_err(|e| AgentError::Transport(format!("Failed to send RFC6455 Ping: {}", e)))?;
+        if now.duration_since(self.last_activity) >= Duration::from_secs(30)
+            && self.last_ping_sent.is_none()
+        {
+            self.socket.send(Message::Ping(vec![])).map_err(|e| {
+                AgentError::Transport(format!("Failed to send RFC6455 Ping: {}", e))
+            })?;
             self.last_ping_sent = Some(now);
             debug!("[WSS] Sent RFC6455 Ping");
         }
@@ -249,17 +287,33 @@ impl WsTransport {
                     let msg_type = env.get("type").and_then(|t| t.as_str()).unwrap_or("");
                     match msg_type {
                         "config" => {
-                            if let Ok(config_env) = serde_json::from_value::<Envelope<ConfigData>>(env) {
-                                info!("[WSS] Server pushed new config rev {}", config_env.data.config_rev);
-                                return Some(WsEvent::ConfigPushed(config_env.data.config, config_env.data.config_rev));
+                            if let Ok(config_env) =
+                                serde_json::from_value::<Envelope<ConfigData>>(env)
+                            {
+                                info!(
+                                    "[WSS] Server pushed new config rev {}",
+                                    config_env.data.config_rev
+                                );
+                                return Some(WsEvent::ConfigPushed(
+                                    config_env.data.config,
+                                    config_env.data.config_rev,
+                                ));
                             }
                         }
                         "ack" => {
-                            let rev = env.get("data").and_then(|d| d.get("config_rev")).and_then(|r| r.as_u64()).unwrap_or(0);
+                            let rev = env
+                                .get("data")
+                                .and_then(|d| d.get("config_rev"))
+                                .and_then(|r| r.as_u64())
+                                .unwrap_or(0);
                             return Some(WsEvent::AckReceived(rev));
                         }
                         "error" => {
-                            let msg = env.get("data").and_then(|d| d.get("message")).and_then(|m| m.as_str()).unwrap_or("");
+                            let msg = env
+                                .get("data")
+                                .and_then(|d| d.get("message"))
+                                .and_then(|m| m.as_str())
+                                .unwrap_or("");
                             warn!("[WSS] Server error notice: {}", msg);
                         }
                         _ => {}
@@ -283,14 +337,20 @@ impl WsTransport {
                     let code: u16 = f.code.into();
                     let reason = f.reason.to_string();
                     if code == 4003 || code == 4004 {
-                        error!("[WSS] Fatal auth/policy close from server ({}: {}). Terminating.", code, reason);
+                        error!(
+                            "[WSS] Fatal auth/policy close from server ({}: {}). Terminating.",
+                            code, reason
+                        );
                         return Some(WsEvent::FatalClose(code, reason));
                     }
                     return Some(WsEvent::Disconnected(format!("Close {}: {}", code, reason)));
                 }
                 Some(WsEvent::Disconnected("Close frame received".to_string()))
             }
-            Err(tungstenite::Error::Io(ref e)) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+            Err(tungstenite::Error::Io(ref e))
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
                 None
             }
             Err(e) => {

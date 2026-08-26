@@ -1,8 +1,8 @@
-use std::fs;
-use std::time::Instant;
 use crate::env::cgroup::CgroupContext;
 use crate::env::scope::ResourceScope;
 use crate::protocol::DiskIoMetrics;
+use std::fs;
+use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct IoCounters {
@@ -34,7 +34,11 @@ impl IoCollector {
         };
 
         let now = Instant::now();
-        let (read_bps, write_bps) = if let (Some(prev), Some(curr), Some(last_inst)) = (self.last_counters, current_counters, self.last_sample_instant) {
+        let (read_bps, write_bps) = if let (Some(prev), Some(curr), Some(last_inst)) = (
+            self.last_counters,
+            current_counters,
+            self.last_sample_instant,
+        ) {
             let elapsed_sec = now.duration_since(last_inst).as_secs_f64();
             if elapsed_sec > 0.0 {
                 let r_delta = curr.read_bytes.saturating_sub(prev.read_bytes) as f64;
@@ -125,8 +129,11 @@ fn read_host_diskstats() -> Option<IoCounters> {
 }
 
 fn is_primary_disk(dev: &str) -> bool {
-    (dev.starts_with("sd") || dev.starts_with("vd") || dev.starts_with("xvd") || dev.starts_with("hd"))
-        && dev.chars().last().map_or(false, |c| c.is_ascii_alphabetic())
+    (dev.starts_with("sd")
+        || dev.starts_with("vd")
+        || dev.starts_with("xvd")
+        || dev.starts_with("hd"))
+        && dev.chars().last().is_some_and(|c| c.is_ascii_alphabetic())
         || (dev.starts_with("nvme") && dev.ends_with("n1"))
         || (dev.starts_with("mmcblk") && dev.ends_with("p0"))
 }

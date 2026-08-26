@@ -1,9 +1,9 @@
+use crate::env::detect::EnvType;
+use crate::protocol::RootfsMetrics;
 #[cfg(unix)]
 use std::ffi::CString;
 #[cfg(unix)]
 use std::mem::MaybeUninit;
-use crate::env::detect::EnvType;
-use crate::protocol::RootfsMetrics;
 
 pub struct DiskCollector {
     env_type: EnvType,
@@ -48,14 +48,16 @@ struct StatvfsResult {
 fn get_rootfs_stats() -> Option<StatvfsResult> {
     #[cfg(windows)]
     {
-        use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
         use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
         unsafe {
             let drive: Vec<u16> = std::ffi::OsStr::new("C:\\\0").encode_wide().collect();
             let mut free_avail = 0u64;
             let mut total = 0u64;
             let mut total_free = 0u64;
-            if GetDiskFreeSpaceExW(drive.as_ptr(), &mut free_avail, &mut total, &mut total_free) != 0 {
+            if GetDiskFreeSpaceExW(drive.as_ptr(), &mut free_avail, &mut total, &mut total_free)
+                != 0
+            {
                 let used = total.saturating_sub(total_free);
                 return Some(StatvfsResult {
                     total_bytes: total,

@@ -28,7 +28,9 @@ pub fn resolve_cgroup_context(is_container: bool) -> Option<CgroupContext> {
     let v2_marker = Path::new("/sys/fs/cgroup/cgroup.controllers");
     let version = if v2_marker.exists() {
         CgroupVersion::V2
-    } else if Path::new("/sys/fs/cgroup/memory").exists() || Path::new("/sys/fs/cgroup/cpu").exists() {
+    } else if Path::new("/sys/fs/cgroup/memory").exists()
+        || Path::new("/sys/fs/cgroup/cpu").exists()
+    {
         CgroupVersion::V1
     } else {
         return None;
@@ -68,10 +70,12 @@ fn resolve_cgroup_v2(is_container: bool) -> Option<CgroupContext> {
         if let Ok(content) = fs::read_to_string(d.join("cpu.max")) {
             let parts: Vec<&str> = content.split_whitespace().collect();
             if parts.len() >= 2 && parts[0] != "max" {
-                if let (Ok(quota), Ok(period)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>()) {
+                if let (Ok(quota), Ok(period)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>())
+                {
                     if period > 0.0 && quota > 0.0 {
                         let cores = quota / period;
-                        min_cpu_quota_cores = Some(min_cpu_quota_cores.map_or(cores, |m| m.min(cores)));
+                        min_cpu_quota_cores =
+                            Some(min_cpu_quota_cores.map_or(cores, |m| m.min(cores)));
                     }
                 }
             }
@@ -174,8 +178,14 @@ fn resolve_cgroup_v1(is_container: bool) -> Option<CgroupContext> {
 }
 
 fn get_cgroup_v2_path(is_container: bool) -> Option<String> {
-    let path_file = if is_container { "/proc/1/cgroup" } else { "/proc/self/cgroup" };
-    let content = fs::read_to_string(path_file).or_else(|_| fs::read_to_string("/proc/self/cgroup")).ok()?;
+    let path_file = if is_container {
+        "/proc/1/cgroup"
+    } else {
+        "/proc/self/cgroup"
+    };
+    let content = fs::read_to_string(path_file)
+        .or_else(|_| fs::read_to_string("/proc/self/cgroup"))
+        .ok()?;
 
     for line in content.lines() {
         let parts: Vec<&str> = line.split(':').collect();
@@ -187,8 +197,14 @@ fn get_cgroup_v2_path(is_container: bool) -> Option<String> {
 }
 
 fn get_cgroup_v1_path(is_container: bool) -> Option<String> {
-    let path_file = if is_container { "/proc/1/cgroup" } else { "/proc/self/cgroup" };
-    let content = fs::read_to_string(path_file).or_else(|_| fs::read_to_string("/proc/self/cgroup")).ok()?;
+    let path_file = if is_container {
+        "/proc/1/cgroup"
+    } else {
+        "/proc/self/cgroup"
+    };
+    let content = fs::read_to_string(path_file)
+        .or_else(|_| fs::read_to_string("/proc/self/cgroup"))
+        .ok()?;
 
     for line in content.lines() {
         let parts: Vec<&str> = line.split(':').collect();
@@ -209,15 +225,22 @@ pub fn parse_cpuset_count(cpuset_str: &str) -> Option<usize> {
     for part in trimmed.split(',') {
         let range: Vec<&str> = part.split('-').collect();
         if range.len() == 2 {
-            if let (Ok(start), Ok(end)) = (range[0].trim().parse::<usize>(), range[1].trim().parse::<usize>()) {
+            if let (Ok(start), Ok(end)) = (
+                range[0].trim().parse::<usize>(),
+                range[1].trim().parse::<usize>(),
+            ) {
                 if end >= start {
                     count += end - start + 1;
                 }
             }
-        } else if let Ok(_) = part.trim().parse::<usize>() {
+        } else if part.trim().parse::<usize>().is_ok() {
             count += 1;
         }
     }
 
-    if count > 0 { Some(count) } else { None }
+    if count > 0 {
+        Some(count)
+    } else {
+        None
+    }
 }

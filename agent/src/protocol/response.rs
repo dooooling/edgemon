@@ -14,10 +14,18 @@ pub struct ServerConfig {
     pub probes: Vec<ProbeTargetConfig>,
 }
 
-fn default_sample_interval() -> u64 { 2 }
-fn default_stream_interval() -> u64 { 2 }
-fn default_probe_interval() -> u64 { 60 }
-fn default_network_interface() -> String { "auto".to_string() }
+fn default_sample_interval() -> u64 {
+    2
+}
+fn default_stream_interval() -> u64 {
+    2
+}
+fn default_probe_interval() -> u64 {
+    60
+}
+fn default_network_interface() -> String {
+    "auto".to_string()
+}
 
 impl Default for ServerConfig {
     fn default() -> Self {

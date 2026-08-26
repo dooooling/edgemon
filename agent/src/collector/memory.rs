@@ -1,7 +1,7 @@
-use std::fs;
 use crate::env::cgroup::CgroupContext;
 use crate::env::scope::ResourceScope;
 use crate::protocol::MemoryMetrics;
+use std::fs;
 
 pub struct MemoryCollector {
     scope: ResourceScope,
@@ -86,7 +86,8 @@ impl MemoryCollector {
             let used_bytes = if let Some(avail) = info.available_bytes {
                 info.total_bytes.saturating_sub(avail)
             } else {
-                info.total_bytes.saturating_sub(info.free_bytes + info.buffers_bytes + info.cached_bytes)
+                info.total_bytes
+                    .saturating_sub(info.free_bytes + info.buffers_bytes + info.cached_bytes)
             };
 
             let swap_used_bytes = info.swap_total_bytes.saturating_sub(info.swap_free_bytes);
@@ -124,7 +125,9 @@ impl MemoryCollector {
 
                 let working_set_bytes = current_bytes.saturating_sub(inactive_file_bytes);
 
-                let swap_used_bytes = if let Ok(swap_content) = fs::read_to_string(ctx.base_path.join("memory.swap.current")) {
+                let swap_used_bytes = if let Ok(swap_content) =
+                    fs::read_to_string(ctx.base_path.join("memory.swap.current"))
+                {
                     swap_content.trim().parse::<u64>().ok()
                 } else {
                     None

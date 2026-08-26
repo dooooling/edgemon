@@ -1,8 +1,8 @@
+use crate::error::{EdgeMonError, Result};
+use crate::protocol::ProbeTargetConfig;
 use clap::Parser;
 use std::fs;
 use std::path::PathBuf;
-use crate::error::{EdgeMonError, Result};
-use crate::protocol::ProbeTargetConfig;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about = "EdgeMon Agent - Lightweight Linux & Windows Telemetry Daemon", long_about = None)]
@@ -57,7 +57,10 @@ pub struct AgentConfig {
 impl AgentConfig {
     pub fn from_cli(cli: CliArgs) -> Result<Self> {
         // Enforce HTTPS unless explicitly permitted
-        if !cli.allow_http && !cli.server.starts_with("https://") && !cli.server.starts_with("wss://") {
+        if !cli.allow_http
+            && !cli.server.starts_with("https://")
+            && !cli.server.starts_with("wss://")
+        {
             return Err(EdgeMonError::Config(
                 "Production server URL must use HTTPS / WSS. Pass --allow-http for local testing only.".into(),
             ));

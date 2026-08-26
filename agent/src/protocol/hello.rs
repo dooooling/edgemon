@@ -33,7 +33,7 @@ pub struct EnvironmentInfo {
     pub runtime: Option<String>, // docker | podman | lxc | openvz | unknown
     pub host_virtualization_hint: Option<String>, // kvm | qemu | xen | vmware | hyperv
     pub cgroup_version: Option<u8>, // 1 | 2
-    pub resource_scope: String, // container | machine | unknown
+    pub resource_scope: String,  // container | machine | unknown
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

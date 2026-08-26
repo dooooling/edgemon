@@ -66,7 +66,7 @@ export async function evaluateAlerts(
     .prepare('SELECT * FROM alert_rules WHERE enabled = 1')
     .all<AlertRuleRow>();
 
-  // Helper to transition state and emit events only on state changes
+  // Helper to transition state and emit events only on state changes (with duration_sec pending support)
   async function checkTransition(
     stateKey: string,
     ruleId: number | null,
@@ -79,7 +79,8 @@ export async function evaluateAlerts(
     resolvedTitle: string,
     resolvedMessage: string,
     value: number | null = null,
-    threshold: number | null = null
+    threshold: number | null = null,
+    durationSec = 0
   ) {
     const existingState = await db
       .prepare('SELECT * FROM alert_states WHERE state_key = ?')
@@ -90,13 +91,39 @@ export async function evaluateAlerts(
 
     if (isConditionMet) {
       if (!wasActive) {
-        // Transition: RESOLVED -> FIRING
+        // Pending check for duration_sec
+        const durationMs = (durationSec || 0) * 1000;
+        if (durationMs > 0) {
+          const pendingSince = existingState?.pending_since_ms;
+          if (!pendingSince) {
+            // First time condition met: transition to PENDING
+            await db
+              .prepare(
+                `INSERT INTO alert_states (state_key, rule_id, node_id, active, pending_since_ms, updated_at_ms)
+                 VALUES (?, ?, ?, 0, ?, ?)
+                 ON CONFLICT(state_key) DO UPDATE SET
+                   pending_since_ms = excluded.pending_since_ms,
+                   updated_at_ms = excluded.updated_at_ms`
+              )
+              .bind(stateKey, ruleId, nodeId, now, now)
+              .run();
+            return;
+          }
+
+          if (now - pendingSince < durationMs) {
+            // Still in PENDING window
+            return;
+          }
+        }
+
+        // Transition: PENDING / NORMAL -> FIRING
         await db
           .prepare(
-            `INSERT INTO alert_states (state_key, rule_id, node_id, active, active_since_ms, last_notified_at_ms, updated_at_ms)
-             VALUES (?, ?, ?, 1, ?, ?, ?)
+            `INSERT INTO alert_states (state_key, rule_id, node_id, active, pending_since_ms, active_since_ms, last_notified_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, 1, NULL, ?, ?, ?)
              ON CONFLICT(state_key) DO UPDATE SET
                active = 1,
+               pending_since_ms = NULL,
                active_since_ms = excluded.active_since_ms,
                last_notified_at_ms = excluded.last_notified_at_ms,
                updated_at_ms = excluded.updated_at_ms`
@@ -137,10 +164,18 @@ export async function evaluateAlerts(
         }
       }
     } else {
+      // Condition no longer met
+      if (existingState?.pending_since_ms) {
+        await db
+          .prepare('UPDATE alert_states SET pending_since_ms = NULL, updated_at_ms = ? WHERE state_key = ?')
+          .bind(now, stateKey)
+          .run();
+      }
+
       if (wasActive) {
         // Transition: FIRING -> RESOLVED
         await db
-          .prepare('UPDATE alert_states SET active = 0, updated_at_ms = ? WHERE state_key = ?')
+          .prepare('UPDATE alert_states SET active = 0, pending_since_ms = NULL, updated_at_ms = ? WHERE state_key = ?')
           .bind(now, stateKey)
           .run();
 
@@ -215,7 +250,8 @@ export async function evaluateAlerts(
           `CPU Usage Normal: ${node.name}`,
           `CPU usage on ${node.name} has returned below threshold.`,
           val,
-          rule.threshold
+          rule.threshold,
+          rule.duration_sec || 0
         );
       } else if (rule.type === 'memory' && rule.threshold !== null && node.memory_used_bytes && node.memory_limit_bytes) {
         val = (node.memory_used_bytes / node.memory_limit_bytes) * 100;
@@ -232,7 +268,8 @@ export async function evaluateAlerts(
           `Memory Usage Normal: ${node.name}`,
           `Memory usage on ${node.name} has returned below threshold.`,
           val,
-          rule.threshold
+          rule.threshold,
+          rule.duration_sec || 0
         );
       } else if (rule.type === 'disk' && rule.threshold !== null && node.rootfs_used_bytes && node.rootfs_limit_bytes) {
         val = (node.rootfs_used_bytes / node.rootfs_limit_bytes) * 100;
@@ -249,7 +286,8 @@ export async function evaluateAlerts(
           `Disk Usage Normal: ${node.name}`,
           `Disk usage on ${node.name} has returned below threshold.`,
           val,
-          rule.threshold
+          rule.threshold,
+          rule.duration_sec || 0
         );
       }
     }

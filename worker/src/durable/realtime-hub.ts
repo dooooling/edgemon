@@ -19,7 +19,7 @@ import {
   createDefaultAttachment,
   ingestReportCore,
 } from '../services/ingest';
-import { trackTrafficDelta } from '../db/traffic';
+import { trackTrafficDelta, finalizeActiveTrafficSegment } from '../db/traffic';
 import { verifyAdminSession } from '../services/session';
 
 export interface Env {
@@ -351,12 +351,9 @@ export class RealtimeHub extends DurableObject<Env> {
           attachment.last_rx_total_bytes !== null &&
           attachment.last_tx_total_bytes !== null
         ) {
-          await trackTrafficDelta(
+          await finalizeActiveTrafficSegment(
             this.env.DB,
             attachment.node_id,
-            attachment.last_rx_total_bytes,
-            attachment.last_tx_total_bytes,
-            attachment.last_counter_id,
             attachment.traffic_reset_day,
             attachment.last_rx_total_bytes,
             attachment.last_tx_total_bytes

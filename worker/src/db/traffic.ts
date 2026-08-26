@@ -189,3 +189,42 @@ export async function trackTrafficDelta(
     periodTxBytes: period.finalized_tx_bytes + activeTx,
   };
 }
+
+export async function finalizeActiveTrafficSegment(
+  db: D1Database,
+  nodeId: string,
+  resetDay = 1,
+  lastRxTotal: number | null,
+  lastTxTotal: number | null
+): Promise<void> {
+  if (lastRxTotal === null || lastTxTotal === null) return;
+  const now = Date.now();
+  const periodStartMs = computeBillingPeriodStart(now, resetDay);
+
+  const period = await db
+    .prepare('SELECT * FROM traffic_periods WHERE node_id = ? AND period_start_ms = ?')
+    .bind(nodeId, periodStartMs)
+    .first<TrafficPeriodRow>();
+
+  if (!period || period.active_rx_base_bytes === null || period.active_tx_base_bytes === null) {
+    return;
+  }
+
+  const activeRxDelta = Math.max(0, lastRxTotal - period.active_rx_base_bytes);
+  const activeTxDelta = Math.max(0, lastTxTotal - period.active_tx_base_bytes);
+
+  if (activeRxDelta === 0 && activeTxDelta === 0) return;
+
+  await db
+    .prepare(
+      `UPDATE traffic_periods SET
+        finalized_rx_bytes = finalized_rx_bytes + ?,
+        finalized_tx_bytes = finalized_tx_bytes + ?,
+        active_rx_base_bytes = ?,
+        active_tx_base_bytes = ?,
+        updated_at_ms = ?
+      WHERE node_id = ? AND period_start_ms = ?`
+    )
+    .bind(activeRxDelta, activeTxDelta, lastRxTotal, lastTxTotal, now, nodeId, periodStartMs)
+    .run();
+}

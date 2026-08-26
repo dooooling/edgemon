@@ -104,7 +104,10 @@ export const NodeDetailPage: React.FC = () => {
           </div>
           <div className="spec-entry">
             <span className="spec-entry-label">{t('cpu_capacity')}</span>
-            <span className="spec-entry-val">{node.resources?.cpu_capacity_cores || 1} {t('node_cores')}</span>
+            <span className="spec-entry-val">
+              {node.resources?.cpu_capacity_cores || 1} {t('node_cores')}
+              {node.resources?.cpu_model_visible ? ` (${node.resources.cpu_model_visible})` : ''}
+            </span>
           </div>
           <div className="spec-entry">
             <span className="spec-entry-label">{t('memory_limit')}</span>

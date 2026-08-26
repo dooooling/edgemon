@@ -200,6 +200,53 @@ impl CpuCollector {
 pub fn get_cpu_model() -> Option<String> {
     #[cfg(windows)]
     {
+        use windows_sys::Win32::System::Registry::{
+            RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_LOCAL_MACHINE, KEY_READ, REG_SZ,
+        };
+
+        let key_path: Vec<u16> = "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0\0"
+            .encode_utf16()
+            .collect();
+        let mut hkey = 0isize;
+
+        unsafe {
+            if RegOpenKeyExW(
+                HKEY_LOCAL_MACHINE,
+                key_path.as_ptr(),
+                0,
+                KEY_READ,
+                &mut hkey,
+            ) == 0
+            {
+                let name_utf16: Vec<u16> = "ProcessorNameString\0".encode_utf16().collect();
+                let mut buf_size = 512u32;
+                let mut buf = vec![0u8; 512];
+                let mut val_type = 0u32;
+                if RegQueryValueExW(
+                    hkey,
+                    name_utf16.as_ptr(),
+                    std::ptr::null_mut(),
+                    &mut val_type,
+                    buf.as_mut_ptr(),
+                    &mut buf_size,
+                ) == 0
+                    && val_type == REG_SZ
+                {
+                    let wide_slice = std::slice::from_raw_parts(
+                        buf.as_ptr() as *const u16,
+                        (buf_size as usize) / 2,
+                    );
+                    let s = String::from_utf16_lossy(wide_slice);
+                    let trimmed = s.trim_matches('\0').trim().to_string();
+                    RegCloseKey(hkey);
+                    if !trimmed.is_empty() {
+                        return Some(trimmed);
+                    }
+                }
+                RegCloseKey(hkey);
+            }
+        }
+
         if let Ok(val) = std::env::var("PROCESSOR_IDENTIFIER") {
             return Some(val);
         }

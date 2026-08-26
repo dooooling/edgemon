@@ -38,10 +38,11 @@ fn get_system_hostname() -> String {
         }
     }
     #[cfg(unix)]
-    unsafe {
+    {
         let mut buf = [0u8; 256];
-        if libc::gethostname(buf.as_mut_ptr() as *mut _, buf.len()) == 0 {
-            if let Ok(s) = std::ffi::CStr::from_ptr(buf.as_ptr() as *const _).to_str() {
+        let res = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut _, buf.len()) };
+        if res == 0 {
+            if let Ok(s) = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr() as *const _) }.to_str() {
                 return s.to_string();
             }
         }
@@ -55,11 +56,13 @@ fn get_kernel_version() -> String {
         "Windows NT (x86_64)".to_string()
     }
     #[cfg(unix)]
-    unsafe {
+    {
         let mut uname_buf = std::mem::MaybeUninit::<libc::utsname>::uninit();
-        if libc::uname(uname_buf.as_mut_ptr()) == 0 {
-            let uname = uname_buf.assume_init();
-            let release = std::ffi::CStr::from_ptr(uname.release.as_ptr()).to_string_lossy();
+        let res = unsafe { libc::uname(uname_buf.as_mut_ptr()) };
+        if res == 0 {
+            let uname = unsafe { uname_buf.assume_init() };
+            let release = unsafe { std::ffi::CStr::from_ptr(uname.release.as_ptr() as *const _) }
+                .to_string_lossy();
             return release.into_owned();
         }
         "unknown-kernel".to_string()

@@ -68,11 +68,12 @@ fn get_rootfs_stats() -> Option<StatvfsResult> {
     }
 
     #[cfg(unix)]
-    unsafe {
+    {
         let path = CString::new("/").ok()?;
         let mut stat = MaybeUninit::<libc::statvfs>::uninit();
-        if libc::statvfs(path.as_ptr(), stat.as_mut_ptr()) == 0 {
-            let stat = stat.assume_init();
+        let res = unsafe { libc::statvfs(path.as_ptr(), stat.as_mut_ptr()) };
+        if res == 0 {
+            let stat = unsafe { stat.assume_init() };
             let bsize = stat.f_frsize as u64;
             let total = stat.f_blocks as u64 * bsize;
             let free = stat.f_bfree as u64 * bsize;

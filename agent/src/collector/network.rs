@@ -244,7 +244,7 @@ pub fn read_proc_net_dev_counters(target_iface: &str) -> Option<NetCounters> {
 
 pub fn get_netns_inode() -> Option<u64> {
     #[cfg(unix)]
-    unsafe {
+    {
         use std::os::unix::fs::MetadataExt;
         if let Ok(meta) = fs::metadata("/proc/self/ns/net") {
             return Some(meta.ino());

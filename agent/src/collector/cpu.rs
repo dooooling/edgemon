@@ -256,8 +256,8 @@ fn resolve_effective_capacity(scope: &ResourceScope, cgroup_ctx: Option<&CgroupC
 
 fn num_cpus() -> usize {
     #[cfg(unix)]
-    unsafe {
-        let count = libc::sysconf(libc::_SC_NPROCESSORS_ONLN);
+    {
+        let count = unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) };
         if count > 0 {
             return count as usize;
         }

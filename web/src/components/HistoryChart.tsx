@@ -26,6 +26,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const uplotInstance = useRef<uPlot | null>(null);
+  const prevConfigRef = useRef<{ range: string; metricKey: string }>({ range, metricKey });
   const { t } = useTranslation();
 
   const { data, isLoading } = useNodeHistoryQuery(nodeId, range);
@@ -41,17 +42,21 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
 
     let mergedPoints: Array<{ ts_ms: number; value: number | null }> = [];
 
-    if (range === '10m' && realtimeSeries.length > 0) {
-      const livePoints = realtimeSeries.map((rt) => ({
-        ts_ms: rt.ts_ms,
-        value: (rt as any)[metricKey] != null ? Number((rt as any)[metricKey]) : null,
-      }));
+    if (range === '10m') {
+      const cutoff = Date.now() - 10 * 60_000;
+      const filteredHistory = historyPoints.filter((p) => p.ts_ms >= cutoff);
+      const filteredLive = realtimeSeries
+        .map((rt) => ({
+          ts_ms: rt.ts_ms,
+          value: (rt as any)[metricKey] != null ? Number((rt as any)[metricKey]) : null,
+        }))
+        .filter((p) => p.ts_ms >= cutoff);
 
       const map = new Map<number, number | null>();
-      for (const p of historyPoints) {
+      for (const p of filteredHistory) {
         map.set(p.ts_ms, p.value);
       }
-      for (const p of livePoints) {
+      for (const p of filteredLive) {
         map.set(p.ts_ms, p.value);
       }
 
@@ -81,43 +86,53 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
     const alignedData: uPlot.AlignedData = [timestamps, values];
     const width = chartRef.current.clientWidth || 600;
 
-    if (uplotInstance.current) {
-      uplotInstance.current.destroy();
-      uplotInstance.current = null;
+    const isSameConfig =
+      prevConfigRef.current.range === range &&
+      prevConfigRef.current.metricKey === metricKey;
+
+    if (uplotInstance.current && isSameConfig) {
+      // Direct high-performance data update without DOM destruction/flicker
+      uplotInstance.current.setData(alignedData);
+    } else {
+      if (uplotInstance.current) {
+        uplotInstance.current.destroy();
+        uplotInstance.current = null;
+      }
+
+      const opts: uPlot.Options = {
+        width,
+        height: 190,
+        scales: {
+          x: { time: true },
+          y: { auto: true },
+        },
+        axes: [
+          {
+            stroke: '#a0a0a8',
+            grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
+            ticks: { stroke: 'transparent' },
+          },
+          {
+            stroke: '#a0a0a8',
+            grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
+            ticks: { stroke: 'transparent' },
+            values: (_u, vals) => vals.map((v) => `${v}${unit}`),
+          },
+        ],
+        series: [
+          {},
+          {
+            label: title,
+            stroke: strokeColor,
+            width: 1.5,
+            fill: 'rgba(255, 255, 255, 0.05)',
+          },
+        ],
+      };
+
+      uplotInstance.current = new uPlot(opts, alignedData, chartRef.current);
+      prevConfigRef.current = { range, metricKey };
     }
-
-    const opts: uPlot.Options = {
-      width,
-      height: 190,
-      scales: {
-        x: { time: true },
-        y: { auto: true },
-      },
-      axes: [
-        {
-          stroke: '#a0a0a8',
-          grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
-          ticks: { stroke: 'transparent' },
-        },
-        {
-          stroke: '#a0a0a8',
-          grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
-          ticks: { stroke: 'transparent' },
-          values: (_u, vals) => vals.map((v) => `${v}${unit}`),
-        },
-      ],
-      series: [
-        {},
-        {
-          label: title,
-          stroke: strokeColor,
-          width: 1.5,
-          fill: 'rgba(255, 255, 255, 0.05)',
-        },
-      ],
-    };
-
-    uplotInstance.current = new uPlot(opts, alignedData, chartRef.current);
   }, [data, realtimeSeries, range, title, metricKey, unit, strokeColor]);
 
   // Automatic container resize observer

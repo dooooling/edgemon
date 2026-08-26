@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useNodeHistoryQuery } from '../queries/nodes';
-import { useRealtimeStore } from '../realtime/store';
+import { useRealtimeStore, RealtimePoint } from '../realtime/store';
 
 interface HistoryChartProps {
   nodeId: string;
@@ -12,6 +12,8 @@ interface HistoryChartProps {
   range?: string;
   strokeColor?: string;
 }
+
+const EMPTY_SERIES: RealtimePoint[] = [];
 
 export const HistoryChart: React.FC<HistoryChartProps> = ({
   nodeId,
@@ -25,7 +27,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
   const uplotInstance = useRef<uPlot | null>(null);
 
   const { data, isLoading } = useNodeHistoryQuery(nodeId, range);
-  const realtimeSeries = useRealtimeStore((s) => s.realtimeSeries[nodeId] || []);
+  const realtimeSeries = useRealtimeStore((s) => s.realtimeSeries[nodeId] ?? EMPTY_SERIES);
 
   useEffect(() => {
     if (!chartRef.current) return;

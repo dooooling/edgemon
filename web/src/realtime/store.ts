@@ -47,7 +47,7 @@ interface RealtimeState {
 
 let activeSocket: WebSocket | null = null;
 
-export const useRealtimeStore = create<RealtimeState>((set) => ({
+export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   overlays: {},
   realtimeSeries: {},
   wsConnected: false,
@@ -55,20 +55,32 @@ export const useRealtimeStore = create<RealtimeState>((set) => ({
   activeNodeId: null,
 
   connectRealtime: (scope = 'overview', nodeId) => {
+    const targetNodeId = nodeId || null;
+    const currentState = get();
+
+    if (
+      activeSocket &&
+      (activeSocket.readyState === WebSocket.OPEN || activeSocket.readyState === WebSocket.CONNECTING) &&
+      currentState.activeScope === scope &&
+      currentState.activeNodeId === targetNodeId
+    ) {
+      return;
+    }
+
     if (activeSocket) {
       activeSocket.close();
       activeSocket = null;
     }
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const query = scope === 'node' && nodeId ? `scope=node&id=${nodeId}` : 'scope=overview';
+    const query = scope === 'node' && targetNodeId ? `scope=node&id=${targetNodeId}` : 'scope=overview';
     const wsUrl = `${proto}//${window.location.host}/api/realtime?${query}`;
 
     try {
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        set({ wsConnected: true, activeScope: scope, activeNodeId: nodeId || null });
+        set({ wsConnected: true, activeScope: scope, activeNodeId: targetNodeId });
       };
 
       ws.onmessage = (event) => {

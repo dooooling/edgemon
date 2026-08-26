@@ -59,6 +59,47 @@ export const NodeDetailPage: React.FC = () => {
   const isOnline = lastSeen ? Date.now() - lastSeen < 90 * 1000 : false;
   const probes = overlay?.probes ?? node.state?.probes ?? [];
 
+  const cpuUsagePct = overlay?.cpu_usage_pct ?? node.state?.cpu_usage_pct;
+  const memoryUsedBytes = overlay?.memory_used_bytes ?? node.state?.memory_used_bytes;
+  const rootfsUsedBytes = overlay?.rootfs_used_bytes ?? node.state?.rootfs_used_bytes;
+  const rxBps = overlay?.rx_bps ?? node.state?.rx_bps;
+  const txBps = overlay?.tx_bps ?? node.state?.tx_bps;
+  const edgeRttMs = overlay?.edge_rtt_ms ?? node.state?.edge_rtt_ms;
+
+  const cpuText = !isOnline || cpuUsagePct == null ? 'N/A' : `${cpuUsagePct}%`;
+  const cpuBarWidth = !isOnline || cpuUsagePct == null ? 0 : Math.min(100, Math.max(0, cpuUsagePct));
+
+  const limitBytes = node.resources?.memory_limit_bytes;
+  const memoryPct = !memoryUsedBytes || !limitBytes || limitBytes === 0
+    ? null
+    : Number(((memoryUsedBytes / limitBytes) * 100).toFixed(1));
+
+  const memoryText = !memoryUsedBytes
+    ? (limitBytes ? formatBytes(limitBytes) : 'N/A')
+    : memoryPct !== null && limitBytes && limitBytes > 0
+    ? `${memoryPct}% (${formatBytes(memoryUsedBytes)} / ${formatBytes(limitBytes)})`
+    : `${formatBytes(memoryUsedBytes)}`;
+
+  const memoryBarWidth = isOnline && memoryPct !== null
+    ? Math.min(100, Math.max(0, memoryPct))
+    : 0;
+
+  const rootfsLimitBytes = node.resources?.rootfs_limit_bytes;
+  const diskText = !isOnline
+    ? 'N/A'
+    : !rootfsLimitBytes || rootfsLimitBytes === 0
+    ? t('container_na')
+    : rootfsUsedBytes
+    ? `${(rootfsUsedBytes / (1024 * 1024 * 1024)).toFixed(1)} / ${(rootfsLimitBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+    : `${(rootfsLimitBytes / (1024 * 1024 * 1024)).toFixed(1)} GB TOTAL`;
+
+  const traffic = node.traffic;
+  const trafficUsed = traffic?.period_total_bytes || 0;
+  const trafficQuota = traffic?.quota_bytes;
+  const trafficBarWidth = trafficQuota && trafficQuota > 0
+    ? Math.min(100, Math.round((trafficUsed / trafficQuota) * 100))
+    : 0;
+
   return (
     <div className="page-container">
       {/* Top Navigation Row */}
@@ -73,90 +114,144 @@ export const NodeDetailPage: React.FC = () => {
       </div>
 
       {/* Instance Chassis Band */}
-      <div className="detail-chassis-band" style={{ padding: 0, overflow: 'hidden' }}>
+      <div className="detail-chassis-band" style={{ padding: 0, overflow: 'hidden', marginBottom: '24px' }}>
         <div className="m-stripe-divider"></div>
         <div style={{ padding: '32px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <span className="eyebrow-cap">{t('spec_title')}</span>
-            <h1 className="display-xl" style={{ marginTop: '6px' }}>{node.name}</h1>
-            <span className="eyebrow-cap" style={{ fontSize: '11px', marginTop: '8px', display: 'block' }}>
-              UUID: {node.id}
-            </span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+            <div>
+              <span className="eyebrow-cap">{t('spec_title')}</span>
+              <h1 className="display-xl" style={{ marginTop: '6px' }}>{node.name}</h1>
+              <span className="eyebrow-cap" style={{ fontSize: '11px', marginTop: '8px', display: 'block' }}>
+                UUID: {node.id}
+              </span>
+            </div>
+            <div className="status-indicator-beacon">
+              <span className={`beacon-dot ${isOnline ? 'beacon-live' : 'beacon-idle'}`}></span>
+              <span>{isOnline ? t('node_online') : t('node_offline')}</span>
+            </div>
           </div>
-          <div className="status-indicator-beacon">
-            <span className={`beacon-dot ${isOnline ? 'beacon-live' : 'beacon-idle'}`}></span>
-            <span>{isOnline ? t('node_online') : t('node_offline')}</span>
-          </div>
-        </div>
 
-        {/* Specs Grid */}
-        <div className="specs-data-grid">
-          <div className="spec-entry">
-            <span className="spec-entry-label">{t('env_type')}</span>
-            <span className="spec-entry-val">
-              {(node.environment?.type || 'MACHINE').toUpperCase()} // {(node.environment?.runtime || 'NATIVE').toUpperCase()}
-            </span>
+          {/* Live Telemetry Stack on Detail Page */}
+          <div className="telemetry-stack" style={{ marginTop: '24px', padding: '20px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+            {/* CPU */}
+            <div className="telemetry-row">
+              <div className="telemetry-header-row">
+                <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('cpu_usage')}</span>
+                <span style={{ fontWeight: 600 }}>{cpuText}</span>
+              </div>
+              <div className="telemetry-bar-track">
+                <div className="telemetry-bar-fill" style={{ width: `${cpuBarWidth}%` }}></div>
+              </div>
+            </div>
+
+            {/* Memory */}
+            <div className="telemetry-row">
+              <div className="telemetry-header-row">
+                <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('memory_allocation')}</span>
+                <span style={{ fontWeight: 600 }}>{memoryText}</span>
+              </div>
+              <div className="telemetry-bar-track">
+                <div className="telemetry-bar-fill" style={{ width: `${memoryBarWidth}%` }}></div>
+              </div>
+            </div>
+
+            {/* Storage */}
+            <div className="telemetry-row">
+              <div className="telemetry-header-row">
+                <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('root_storage')}</span>
+                <span style={{ fontWeight: 600 }}>{diskText}</span>
+              </div>
+            </div>
+
+            {/* Traffic Billing Cycle */}
+            {traffic && (
+              <div className="telemetry-row">
+                <div className="telemetry-header-row">
+                  <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('cycle_traffic')} (DAY {traffic.reset_day})</span>
+                  <span style={{ fontWeight: 600 }}>
+                    {formatBytes(trafficUsed)}
+                    {trafficQuota ? ` / ${formatBytes(trafficQuota)}` : ''}
+                  </span>
+                </div>
+                {trafficQuota ? (
+                  <div className="telemetry-bar-track">
+                    <div className="telemetry-bar-fill" style={{ width: `${trafficBarWidth}%` }}></div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {/* Rates & Chips */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', flexWrap: 'wrap', gap: '12px' }}>
+              <div className="traffic-rates-block" style={{ marginTop: 0 }}>
+                <span>↓ {formatBps(rxBps)}</span>
+                <span>↑ {formatBps(txBps)}</span>
+              </div>
+              {edgeRttMs && (
+                <span className="spacex-chip" style={{ color: '#ffffff', borderColor: '#ffffff' }}>
+                  CF EDGE · {edgeRttMs} MS
+                </span>
+              )}
+            </div>
           </div>
-          <div className="spec-entry">
-            <span className="spec-entry-label">{t('resource_boundary')}</span>
-            <span className="spec-entry-val">{(node.environment?.resource_scope || 'MACHINE').toUpperCase()}</span>
-          </div>
-          <div className="spec-entry">
-            <span className="spec-entry-label">{t('cpu_capacity')}</span>
-            <span className="spec-entry-val">
-              {node.resources?.cpu_capacity_cores || 1} {t('node_cores')}
-              {node.resources?.cpu_model_visible ? ` (${node.resources.cpu_model_visible})` : ''}
-            </span>
-          </div>
-          <div className="spec-entry">
-            <span className="spec-entry-label">{t('memory_limit')}</span>
-            <span className="spec-entry-val">
-              {(() => {
-                const limit = node.resources?.memory_limit_bytes;
-                const used = overlay?.memory_used_bytes ?? node.state?.memory_used_bytes;
-                if (isOnline && used && limit && limit > 0) {
-                  const pct = ((used / limit) * 100).toFixed(1);
-                  return `${pct}% (${formatBytes(used)} / ${formatBytes(limit)})`;
-                }
-                return formatBytes(limit);
-              })()}
-            </span>
-          </div>
-          <div className="spec-entry">
-            <span className="spec-entry-label">{t('disk_limit')}</span>
-            <span className="spec-entry-val">
-              {node.resources?.rootfs_limit_bytes ? formatBytes(node.resources.rootfs_limit_bytes) : t('container_na')}
-            </span>
-          </div>
-          <div className="spec-entry">
-            <span className="spec-entry-label">{t('system_kernel')}</span>
-            <span className="spec-entry-val">
-              {(() => {
-                const osVer = node.system?.os_version;
-                const kernel = node.system?.kernel;
-                if (osVer && kernel && osVer !== kernel) {
-                  return `${osVer} (${kernel})`;
-                }
-                return osVer || kernel || 'UNKNOWN';
-              })()}
-            </span>
-          </div>
-          <div className="spec-entry">
-            <span className="spec-entry-label">{t('location_colo')}</span>
-            <span className="spec-entry-val">
-              {node.geo?.city || node.geo?.country || 'COLO'} ({node.geo?.colo || 'EDGE'})
-            </span>
-          </div>
-          <div className="spec-entry">
-            <span className="spec-entry-label">{t('asn_info')}</span>
-            <span className="spec-entry-val">
-              {node.geo?.asn ? `AS${node.geo.asn} ${node.geo.as_org || ''}` : 'UNKNOWN'}
-            </span>
+
+          {/* Specs Grid */}
+          <div className="specs-data-grid" style={{ marginTop: '24px' }}>
+            <div className="spec-entry">
+              <span className="spec-entry-label">{t('env_type')}</span>
+              <span className="spec-entry-val">
+                {(node.environment?.type || 'MACHINE').toUpperCase()} // {(node.environment?.runtime || 'NATIVE').toUpperCase()}
+              </span>
+            </div>
+            <div className="spec-entry">
+              <span className="spec-entry-label">{t('resource_boundary')}</span>
+              <span className="spec-entry-val">{(node.environment?.resource_scope || 'MACHINE').toUpperCase()}</span>
+            </div>
+            <div className="spec-entry">
+              <span className="spec-entry-label">{t('cpu_capacity')}</span>
+              <span className="spec-entry-val">
+                {node.resources?.cpu_capacity_cores || 1} {t('node_cores')}
+                {node.resources?.cpu_model_visible ? ` (${node.resources.cpu_model_visible})` : ''}
+              </span>
+            </div>
+            <div className="spec-entry">
+              <span className="spec-entry-label">{t('memory_limit')}</span>
+              <span className="spec-entry-val">{memoryText}</span>
+            </div>
+            <div className="spec-entry">
+              <span className="spec-entry-label">{t('disk_limit')}</span>
+              <span className="spec-entry-val">
+                {node.resources?.rootfs_limit_bytes ? formatBytes(node.resources.rootfs_limit_bytes) : t('container_na')}
+              </span>
+            </div>
+            <div className="spec-entry">
+              <span className="spec-entry-label">{t('system_kernel')}</span>
+              <span className="spec-entry-val">
+                {(() => {
+                  const osVer = node.system?.os_version;
+                  const kernel = node.system?.kernel;
+                  if (osVer && kernel && osVer !== kernel) {
+                    return `${osVer} (${kernel})`;
+                  }
+                  return osVer || kernel || 'UNKNOWN';
+                })()}
+              </span>
+            </div>
+            <div className="spec-entry">
+              <span className="spec-entry-label">{t('location_colo')}</span>
+              <span className="spec-entry-val">
+                {node.geo?.city || node.geo?.country || 'COLO'} ({node.geo?.colo || 'EDGE'})
+              </span>
+            </div>
+            <div className="spec-entry">
+              <span className="spec-entry-label">{t('asn_info')}</span>
+              <span className="spec-entry-val">
+                {node.geo?.asn ? `AS${node.geo.asn} ${node.geo.as_org || ''}` : 'UNKNOWN'}
+              </span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
       {/* Probes Results Table */}
       {probes.length > 0 && (
@@ -181,7 +276,7 @@ export const NodeDetailPage: React.FC = () => {
                       <span>{p.status.toUpperCase()}</span>
                     </span>
                   </td>
-                  <td>{p.latency_ms != null ? `${p.latency_ms.toFixed(1)} MS` : 'N/A'}</td>
+                  <td>{p.latency_ms != null ? `${p.latency_ms} MS` : 'N/A'}</td>
                   <td>{Math.round(p.loss_ratio * 100)}%</td>
                 </tr>
               ))}
@@ -226,7 +321,16 @@ export const NodeDetailPage: React.FC = () => {
 };
 
 function formatBytes(bytes?: number | null): string {
-  if (!bytes) return 'N/A';
+  if (!bytes || bytes === 0) return '0 B';
+  if (bytes >= 1024 * 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2) + ' TB';
   if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
-  return Math.round(bytes / (1024 * 1024)) + ' MB';
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return (bytes / 1024).toFixed(0) + ' KB';
+}
+
+function formatBps(bps?: number | null): string {
+  if (!bps || bps === 0) return '0 B/S';
+  if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(1) + ' MB/S';
+  if (bps >= 1024) return (bps / 1024).toFixed(0) + ' KB/S';
+  return bps + ' B/S';
 }

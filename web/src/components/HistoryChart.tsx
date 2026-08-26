@@ -116,7 +116,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
             stroke: '#a0a0a8',
             grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
             ticks: { stroke: 'transparent' },
-            values: (_u, vals) => vals.map((v) => `${v}${unit}`),
+            values: (_u, vals) => vals.map((v) => formatValue(v, unit)),
           },
         ],
         series: [
@@ -140,20 +140,18 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
     if (!chartRef.current) return;
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        if (entry.contentRect.width > 0 && uplotInstance.current) {
-          uplotInstance.current.setSize({
-            width: entry.contentRect.width,
-            height: 190,
-          });
+        const newWidth = entry.contentRect.width;
+        if (newWidth > 0 && uplotInstance.current) {
+          uplotInstance.current.setSize({ width: newWidth, height: 190 });
         }
       }
     });
+
     ro.observe(chartRef.current);
-    return () => {
-      ro.disconnect();
-    };
+    return () => ro.disconnect();
   }, []);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (uplotInstance.current) {
@@ -187,3 +185,24 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
     </div>
   );
 };
+
+function formatValue(v: number | null | undefined, unit: string): string {
+  if (v == null) return '';
+  if (unit === 'B') {
+    if (v >= 1024 * 1024 * 1024) return (v / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+    if (v >= 1024 * 1024) return (v / (1024 * 1024)).toFixed(1) + ' MB';
+    return (v / 1024).toFixed(0) + ' KB';
+  }
+  if (unit === 'B/S') {
+    if (v >= 1024 * 1024) return (v / (1024 * 1024)).toFixed(1) + ' MB/S';
+    if (v >= 1024) return (v / 1024).toFixed(0) + ' KB/S';
+    return v + ' B/S';
+  }
+  if (unit === '%') {
+    return `${Number(v).toFixed(1)}%`;
+  }
+  if (unit === 'MS') {
+    return `${Number(v).toFixed(1)} MS`;
+  }
+  return `${v}${unit}`;
+}

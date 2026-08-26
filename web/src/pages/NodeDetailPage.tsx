@@ -4,6 +4,8 @@ import { usePublicNodesQuery } from '../queries/nodes';
 import { useRealtimeStore } from '../realtime/store';
 import { HistoryChart } from '../components/HistoryChart';
 import { useTranslation } from '../i18n/I18nContext';
+import { OsIcon } from '../components/OsIcon';
+import { CountryFlag } from '../components/CountryFlag';
 
 export const NodeDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -119,8 +121,14 @@ export const NodeDetailPage: React.FC = () => {
         <div style={{ padding: '32px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
             <div>
-              <span className="eyebrow-cap">{t('spec_title')}</span>
-              <h1 className="display-xl" style={{ marginTop: '6px' }}>{node.name}</h1>
+              <span className="eyebrow-cap" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={14} />
+                <span>{t('spec_title')} // {node.system?.os_version || (node.environment?.type || 'INSTANCE').toUpperCase()}</span>
+              </span>
+              <h1 className="display-xl" style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <CountryFlag countryCode={node.geo?.country} />
+                <span>{node.name}</span>
+              </h1>
               <span className="eyebrow-cap" style={{ fontSize: '11px', marginTop: '8px', display: 'block' }}>
                 UUID: {node.id}
               </span>
@@ -226,21 +234,25 @@ export const NodeDetailPage: React.FC = () => {
             </div>
             <div className="spec-entry">
               <span className="spec-entry-label">{t('system_kernel')}</span>
-              <span className="spec-entry-val">
-                {(() => {
-                  const osVer = node.system?.os_version;
-                  const kernel = node.system?.kernel;
-                  if (osVer && kernel && osVer !== kernel) {
-                    return `${osVer} (${kernel})`;
-                  }
-                  return osVer || kernel || 'UNKNOWN';
-                })()}
+              <span className="spec-entry-val" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={15} />
+                <span>
+                  {(() => {
+                    const osVer = node.system?.os_version;
+                    const kernel = node.system?.kernel;
+                    if (osVer && kernel && osVer !== kernel) {
+                      return `${osVer} (${kernel})`;
+                    }
+                    return osVer || kernel || 'UNKNOWN';
+                  })()}
+                </span>
               </span>
             </div>
             <div className="spec-entry">
               <span className="spec-entry-label">{t('location_colo')}</span>
-              <span className="spec-entry-val">
-                {node.geo?.city || node.geo?.country || 'COLO'} ({node.geo?.colo || 'EDGE'})
+              <span className="spec-entry-val" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                <CountryFlag countryCode={node.geo?.country} />
+                <span>{node.geo?.city || node.geo?.country || 'COLO'} ({node.geo?.colo || 'EDGE'})</span>
               </span>
             </div>
             <div className="spec-entry">

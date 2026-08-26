@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { NodeItem } from '../api/client';
 import { useRealtimeStore } from '../realtime/store';
 import { useTranslation } from '../i18n/I18nContext';
+import { OsIcon } from './OsIcon';
+import { CountryFlag } from './CountryFlag';
 
 interface NodeCardProps {
   node: NodeItem;
@@ -63,10 +65,16 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
         {/* Header */}
         <div className="node-card-header">
           <div className="node-title-group">
-            <span className="eyebrow-cap">
-              {(node.environment?.type || 'INSTANCE').toUpperCase()} // {node.resources?.cpu_capacity_cores || 1} {t('node_cores')}
+            <span className="eyebrow-cap" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={13} />
+              <span>
+                {node.system?.os_version || (node.environment?.type || 'INSTANCE').toUpperCase()} · {node.resources?.cpu_capacity_cores || 1} {t('node_cores')}
+              </span>
             </span>
-            <h3 className="node-name-text">{node.name}</h3>
+            <h3 className="node-name-text" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+              <CountryFlag countryCode={node.geo?.country} />
+              <span>{node.name}</span>
+            </h3>
           </div>
 
           <div className="status-indicator-beacon">
@@ -151,8 +159,9 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
 
       {/* Footer Actions */}
       <div className="node-card-footer">
-        <span className="eyebrow-cap" style={{ fontSize: '11px' }}>
-          {node.geo?.city || node.geo?.country || 'COLO'} · {node.geo?.colo || 'EDGE'}
+        <span className="eyebrow-cap" style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <CountryFlag countryCode={node.geo?.country} />
+          <span>{node.geo?.city || node.geo?.country || 'COLO'} · {node.geo?.colo || 'EDGE'}</span>
         </span>
         <Link to={`/node/${node.id}`} className="button-ghost-on-dark button-ghost-sm">
           {t('inspect_node')}

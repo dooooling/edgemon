@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { NodeItem } from '../api/client';
 import { useRealtimeStore } from '../realtime/store';
 import { useTranslation } from '../i18n/I18nContext';
+import { CountryFlag } from './CountryFlag';
+import { OsIcon } from './OsIcon';
 
 interface Globe3DProps {
   nodes: NodeItem[];
@@ -509,11 +511,13 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
             zIndex: 10,
           }}
         >
-          <span className="button-cap" style={{ fontWeight: 700, fontSize: '14px', color: '#ffffff' }}>
-            {selectedNode.name}
+          <span className="button-cap" style={{ fontWeight: 700, fontSize: '14px', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <CountryFlag countryCode={selectedNode.geo.country} />
+            <span>{selectedNode.name}</span>
           </span>
-          <span className="caption" style={{ color: 'var(--colors-body)' }}>
-            LOC: {selectedNode.geo.city || selectedNode.geo.country || 'UNKNOWN'} // COLO: {selectedNode.geo.colo || 'CF'}
+          <span className="caption" style={{ color: 'var(--colors-body)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <OsIcon os={selectedNode.system?.os} osVersion={selectedNode.system?.os_version} size={13} />
+            <span>LOC: {selectedNode.geo.city || selectedNode.geo.country || 'UNKNOWN'} // COLO: {selectedNode.geo.colo || 'CF'}</span>
           </span>
           {selectedNode.state?.edge_rtt_ms && (
             <span className="caption" style={{ color: 'var(--colors-status-live)', fontWeight: 700 }}>

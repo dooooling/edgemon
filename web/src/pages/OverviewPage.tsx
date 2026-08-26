@@ -69,25 +69,25 @@ export const OverviewPage: React.FC = () => {
         <div>
           <span className="eyebrow-cap">{t('fleet_nodes_title')}</span>
           <h2 className="display-lg" style={{ fontSize: '24px', marginTop: '4px' }}>
-            REGISTERED INSTANCES ({nodes.length})
+            {t('registered_instances')} ({nodes.length})
           </h2>
         </div>
         <button className="button-ghost-on-dark button-ghost-sm" onClick={() => refetch()}>
-          REFRESH FLEET
+          {t('refresh_fleet')}
         </button>
       </div>
 
       {isLoading && nodes.length === 0 ? (
         <div className="node-card-tile" style={{ textAlign: 'center', padding: '60px' }}>
-          <span className="eyebrow-cap">CONNECTING TO ORBITAL TELEMETRY PIPELINE...</span>
+          <span className="eyebrow-cap">{t('connecting_pipeline')}</span>
         </div>
       ) : nodes.length === 0 ? (
         <div className="node-card-tile" style={{ textAlign: 'center', padding: '60px', gap: '20px' }}>
-          <h3 className="display-lg" style={{ fontSize: '24px' }}>NO ACTIVE INSTANCES</h3>
-          <p className="caption">Deploy your lightweight Linux/Windows agent daemon or provision security tokens.</p>
+          <h3 className="display-lg" style={{ fontSize: '24px' }}>{t('no_instances')}</h3>
+          <p className="caption">{t('deploy_notice')}</p>
           <div>
             <Link to="/admin" className="button-ghost-on-dark">
-              OPEN MISSION CONSOLE
+              {t('open_console')}
             </Link>
           </div>
         </div>

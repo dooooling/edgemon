@@ -9,7 +9,9 @@ export interface AlertRuleRow {
 }
 
 export interface AlertStateRow {
-  rule_id: number;
+  state_key: string;
+  rule_id: number | null;
+  node_id: string;
   active: number;
   pending_since_ms: number | null;
   active_since_ms: number | null;
@@ -36,28 +38,27 @@ export async function evaluateAlerts(
   const offlineCutoff = now - offlineThresholdSec * 1000;
   const transitions: AlertTransition[] = [];
 
-  // Query all active nodes with their states & limits
+  // Query all active nodes directly with state & limits (no non-existent node_resources join!)
   const nodes = await db
     .prepare(
       `SELECT
         n.id, n.name, n.hidden, n.expires_at_ms,
-        s.last_seen_at_ms, s.cpu_usage_pct, s.memory_used_bytes, s.rootfs_used_bytes,
-        r.memory_limit_bytes, r.rootfs_limit_bytes
+        n.memory_limit_bytes, n.rootfs_limit_bytes,
+        s.last_seen_at_ms, s.cpu_usage_pct, s.memory_used_bytes, s.rootfs_used_bytes
        FROM nodes n
-       LEFT JOIN node_state s ON n.id = s.node_id
-       LEFT JOIN node_resources r ON n.id = r.node_id`
+       LEFT JOIN node_state s ON n.id = s.node_id`
     )
     .all<{
       id: string;
       name: string;
       hidden: number;
       expires_at_ms: number | null;
+      memory_limit_bytes: number | null;
+      rootfs_limit_bytes: number | null;
       last_seen_at_ms: number | null;
       cpu_usage_pct: number | null;
       memory_used_bytes: number | null;
       rootfs_used_bytes: number | null;
-      memory_limit_bytes: number | null;
-      rootfs_limit_bytes: number | null;
     }>();
 
   // Load custom rules if any
@@ -65,9 +66,10 @@ export async function evaluateAlerts(
     .prepare('SELECT * FROM alert_rules WHERE enabled = 1')
     .all<AlertRuleRow>();
 
-  // Helper to transition state and emit events only on changes
+  // Helper to transition state and emit events only on state changes
   async function checkTransition(
-    ruleKey: number, // Use deterministic hash or rule ID
+    stateKey: string,
+    ruleId: number | null,
     nodeId: string,
     nodeName: string,
     type: 'offline' | 'cpu' | 'memory' | 'disk' | 'expiry',
@@ -80,8 +82,8 @@ export async function evaluateAlerts(
     threshold: number | null = null
   ) {
     const existingState = await db
-      .prepare('SELECT * FROM alert_states WHERE rule_id = ?')
-      .bind(ruleKey)
+      .prepare('SELECT * FROM alert_states WHERE state_key = ?')
+      .bind(stateKey)
       .first<AlertStateRow>();
 
     const wasActive = existingState ? Boolean(existingState.active) : false;
@@ -91,15 +93,15 @@ export async function evaluateAlerts(
         // Transition: RESOLVED -> FIRING
         await db
           .prepare(
-            `INSERT INTO alert_states (rule_id, active, active_since_ms, last_notified_at_ms, updated_at_ms)
-             VALUES (?, 1, ?, ?, ?)
-             ON CONFLICT(rule_id) DO UPDATE SET
+            `INSERT INTO alert_states (state_key, rule_id, node_id, active, active_since_ms, last_notified_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, 1, ?, ?, ?)
+             ON CONFLICT(state_key) DO UPDATE SET
                active = 1,
                active_since_ms = excluded.active_since_ms,
                last_notified_at_ms = excluded.last_notified_at_ms,
                updated_at_ms = excluded.updated_at_ms`
           )
-          .bind(ruleKey, now, now, now)
+          .bind(stateKey, ruleId, nodeId, now, now, now)
           .run();
 
         transitions.push({
@@ -113,13 +115,13 @@ export async function evaluateAlerts(
           threshold,
         });
       } else {
-        // Already active: Check 4-hour renotification interval (avoid spamming every minute)
+        // Already active: Check 4-hour renotification interval to avoid spamming
         const lastNotified = existingState?.last_notified_at_ms || 0;
         const renotifyIntervalMs = 4 * 3600 * 1000;
         if (now - lastNotified >= renotifyIntervalMs) {
           await db
-            .prepare('UPDATE alert_states SET last_notified_at_ms = ?, updated_at_ms = ? WHERE rule_id = ?')
-            .bind(now, now, ruleKey)
+            .prepare('UPDATE alert_states SET last_notified_at_ms = ?, updated_at_ms = ? WHERE state_key = ?')
+            .bind(now, now, stateKey)
             .run();
 
           transitions.push({
@@ -138,8 +140,8 @@ export async function evaluateAlerts(
       if (wasActive) {
         // Transition: FIRING -> RESOLVED
         await db
-          .prepare('UPDATE alert_states SET active = 0, updated_at_ms = ? WHERE rule_id = ?')
-          .bind(now, ruleKey)
+          .prepare('UPDATE alert_states SET active = 0, updated_at_ms = ? WHERE state_key = ?')
+          .bind(now, stateKey)
           .run();
 
         transitions.push({
@@ -156,23 +158,13 @@ export async function evaluateAlerts(
     }
   }
 
-  // Deterministic numeric ID generator for default rules: hash(nodeId + type)
-  function syntheticRuleId(nodeId: string, type: string): number {
-    let hash = 0;
-    const str = `${nodeId}:${type}`;
-    for (let i = 0; i < str.length; i++) {
-      hash = (hash << 5) - hash + str.charCodeAt(i);
-      hash |= 0;
-    }
-    return Math.abs(hash);
-  }
-
   for (const node of nodes.results || []) {
     // 1. Built-in Offline Check (Threshold: 90s)
     const isOffline = !node.last_seen_at_ms || node.last_seen_at_ms < offlineCutoff;
     const elapsedSec = node.last_seen_at_ms ? Math.round((now - node.last_seen_at_ms) / 1000) : 9999;
     await checkTransition(
-      syntheticRuleId(node.id, 'offline'),
+      `builtin:offline:${node.id}`,
+      null,
       node.id,
       node.name,
       'offline',
@@ -188,7 +180,8 @@ export async function evaluateAlerts(
       const isExpiring = node.expires_at_ms <= now + 3 * 86400 * 1000;
       const daysLeft = Math.max(0, Math.round((node.expires_at_ms - now) / 86400000));
       await checkTransition(
-        syntheticRuleId(node.id, 'expiry'),
+        `builtin:expiry:${node.id}`,
+        null,
         node.id,
         node.name,
         'expiry',
@@ -200,16 +193,18 @@ export async function evaluateAlerts(
       );
     }
 
-    // 3. Custom Alert Rules (CPU / RAM / Disk)
+    // 3. Custom Alert Rules (CPU / RAM / Disk) - isolated per (rule, node) pair!
     const nodeRules = (customRules.results || []).filter((r) => !r.node_id || r.node_id === node.id);
     for (const rule of nodeRules) {
       let isMet = false;
       let val: number | null = null;
+      const stateKey = `rule:${rule.id}:${node.id}`;
 
       if (rule.type === 'cpu' && rule.threshold !== null && node.cpu_usage_pct !== null) {
         val = node.cpu_usage_pct;
         isMet = val >= rule.threshold;
         await checkTransition(
+          stateKey,
           rule.id,
           node.id,
           node.name,
@@ -226,6 +221,7 @@ export async function evaluateAlerts(
         val = (node.memory_used_bytes / node.memory_limit_bytes) * 100;
         isMet = val >= rule.threshold;
         await checkTransition(
+          stateKey,
           rule.id,
           node.id,
           node.name,
@@ -242,6 +238,7 @@ export async function evaluateAlerts(
         val = (node.rootfs_used_bytes / node.rootfs_limit_bytes) * 100;
         isMet = val >= rule.threshold;
         await checkTransition(
+          stateKey,
           rule.id,
           node.id,
           node.name,

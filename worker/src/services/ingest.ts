@@ -91,7 +91,22 @@ export async function ingestReportCore(
     (currentRx < currentAttachment.last_rx_total_bytes || currentTx < (currentAttachment.last_tx_total_bytes ?? 0));
 
   if (isCounterChanged || isCounterReset) {
-    // Settle accumulated delta on the previous counter segment before reset
+    // Immediately settle the previous counter segment into D1 using last_rx_total_bytes before updating attachment
+    try {
+      await trackTrafficDelta(
+        db,
+        nodeId,
+        currentRx,
+        currentTx,
+        currentCounterId,
+        currentAttachment.traffic_reset_day,
+        currentAttachment.last_rx_total_bytes,
+        currentAttachment.last_tx_total_bytes
+      );
+    } catch (err) {
+      console.error(`[Ingest] Immediate traffic reset settlement failed for node ${nodeId}:`, err);
+    }
+
     if (
       currentAttachment.bucket_start_rx_bytes !== null &&
       currentAttachment.last_rx_total_bytes !== null

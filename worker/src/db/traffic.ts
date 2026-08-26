@@ -98,11 +98,12 @@ export async function trackTrafficDelta(
       .bind(nodeId, periodStartMs)
       .first<TrafficPeriodRow>();
 
+    const newBaseRx = previousRxTotal ?? currentRxTotal;
+    const newBaseTx = previousTxTotal ?? currentTxTotal;
+
     if (prevPeriod && prevPeriod.active_rx_base_bytes !== null && prevPeriod.active_tx_base_bytes !== null) {
-      const prevEndRx = previousRxTotal ?? currentRxTotal;
-      const prevEndTx = previousTxTotal ?? currentTxTotal;
-      const oldSegRx = Math.max(0, prevEndRx - prevPeriod.active_rx_base_bytes);
-      const oldSegTx = Math.max(0, prevEndTx - prevPeriod.active_tx_base_bytes);
+      const oldSegRx = Math.max(0, newBaseRx - prevPeriod.active_rx_base_bytes);
+      const oldSegTx = Math.max(0, newBaseTx - prevPeriod.active_tx_base_bytes);
 
       await db
         .prepare(
@@ -118,7 +119,7 @@ export async function trackTrafficDelta(
         .run();
     }
 
-    // 2. Initialize new billing period
+    // 2. Initialize new billing period with newBaseRx/Tx so boundary delta is captured in the new period
     await db
       .prepare(
         `INSERT INTO traffic_periods (
@@ -126,12 +127,15 @@ export async function trackTrafficDelta(
           active_counter_id, active_rx_base_bytes, active_tx_base_bytes, updated_at_ms
         ) VALUES (?, ?, 0, 0, ?, ?, ?, ?)`
       )
-      .bind(nodeId, periodStartMs, counterId, currentRxTotal, currentTxTotal, now)
+      .bind(nodeId, periodStartMs, counterId, newBaseRx, newBaseTx, now)
       .run();
 
+    const activeBoundaryRx = Math.max(0, currentRxTotal - newBaseRx);
+    const activeBoundaryTx = Math.max(0, currentTxTotal - newBaseTx);
+
     return {
-      periodRxBytes: 0,
-      periodTxBytes: 0,
+      periodRxBytes: activeBoundaryRx,
+      periodTxBytes: activeBoundaryTx,
     };
   }
 

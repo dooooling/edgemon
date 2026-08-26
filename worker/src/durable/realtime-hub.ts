@@ -462,12 +462,13 @@ export class RealtimeHub extends DurableObject<Env> {
 
     // Hydrate previous state from D1 node_state
     const stateRow = await this.env.DB
-      .prepare('SELECT rx_total_bytes, tx_total_bytes, network_counter_id, persisted_at_ms, last_seq FROM node_state WHERE node_id = ?')
+      .prepare('SELECT agent_instance_id, rx_total_bytes, tx_total_bytes, network_counter_id, persisted_at_ms, last_seq FROM node_state WHERE node_id = ?')
       .bind(nodeId)
-      .first<{ rx_total_bytes: number; tx_total_bytes: number; network_counter_id: string | null; persisted_at_ms: number; last_seq: number }>();
+      .first<{ agent_instance_id: string | null; rx_total_bytes: number; tx_total_bytes: number; network_counter_id: string | null; persisted_at_ms: number; last_seq: number }>();
 
     if (stateRow) {
-      syntheticAttachment.last_seq = stateRow.last_seq || 0;
+      // Only restore last_seq if instance ID matches (prevent new instance restart from failing monotonic seq check)
+      syntheticAttachment.last_seq = stateRow.agent_instance_id === instanceId ? (stateRow.last_seq || 0) : 0;
       syntheticAttachment.last_rx_total_bytes = stateRow.rx_total_bytes;
       syntheticAttachment.last_tx_total_bytes = stateRow.tx_total_bytes;
       syntheticAttachment.bucket_start_rx_bytes = stateRow.rx_total_bytes;

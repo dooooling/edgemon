@@ -40,8 +40,8 @@ fn get_system_hostname() -> String {
     #[cfg(unix)]
     unsafe {
         let mut buf = [0u8; 256];
-        if libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) == 0 {
-            if let Ok(s) = std::ffi::CStr::from_ptr(buf.as_ptr() as *const libc::c_char).to_str() {
+        if libc::gethostname(buf.as_mut_ptr() as *mut _, buf.len()) == 0 {
+            if let Ok(s) = std::ffi::CStr::from_ptr(buf.as_ptr() as *const _).to_str() {
                 return s.to_string();
             }
         }

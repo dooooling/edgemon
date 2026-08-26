@@ -219,14 +219,17 @@ CREATE TABLE IF NOT EXISTS alert_rules (
 
 -- 10. Alert states
 CREATE TABLE IF NOT EXISTS alert_states (
-    rule_id              INTEGER PRIMARY KEY,
+    state_key            TEXT PRIMARY KEY,
+    rule_id              INTEGER,
+    node_id              TEXT NOT NULL,
     active               INTEGER NOT NULL DEFAULT 0,
     pending_since_ms     INTEGER,
     active_since_ms      INTEGER,
     last_notified_at_ms  INTEGER,
     updated_at_ms        INTEGER NOT NULL,
 
-    FOREIGN KEY(rule_id) REFERENCES alert_rules(id) ON DELETE CASCADE
+    FOREIGN KEY(rule_id) REFERENCES alert_rules(id) ON DELETE CASCADE,
+    FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE
 );
 
 -- 11. Event audit log

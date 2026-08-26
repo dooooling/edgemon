@@ -472,13 +472,23 @@ export class RealtimeHub extends DurableObject<Env> {
 
     // Hydrate previous state from D1 node_state
     const stateRow = await this.env.DB
-      .prepare('SELECT agent_instance_id, rx_total_bytes, tx_total_bytes, network_counter_id, persisted_at_ms, last_seq FROM node_state WHERE node_id = ?')
+      .prepare('SELECT agent_instance_id, rx_total_bytes, tx_total_bytes, network_counter_id, persisted_at_ms, last_seq, persisted_instance_id, persisted_sample_seq FROM node_state WHERE node_id = ?')
       .bind(nodeId)
-      .first<{ agent_instance_id: string | null; rx_total_bytes: number; tx_total_bytes: number; network_counter_id: string | null; persisted_at_ms: number; last_seq: number }>();
+      .first<{
+        agent_instance_id: string | null;
+        rx_total_bytes: number;
+        tx_total_bytes: number;
+        network_counter_id: string | null;
+        persisted_at_ms: number;
+        last_seq: number;
+        persisted_instance_id: string | null;
+        persisted_sample_seq: number;
+      }>();
 
     if (stateRow) {
-      // Only restore last_seq if instance ID matches (prevent new instance restart from failing monotonic seq check)
+      // Only restore last_seq and persisted_sample_seq if instance ID matches (prevent new instance restart from failing monotonic seq check)
       syntheticAttachment.last_seq = stateRow.agent_instance_id === instanceId ? (stateRow.last_seq || 0) : 0;
+      syntheticAttachment.persisted_sample_seq = stateRow.persisted_instance_id === instanceId ? (stateRow.persisted_sample_seq || 0) : 0;
       syntheticAttachment.last_rx_total_bytes = stateRow.rx_total_bytes;
       syntheticAttachment.last_tx_total_bytes = stateRow.tx_total_bytes;
       syntheticAttachment.bucket_start_rx_bytes = stateRow.rx_total_bytes;

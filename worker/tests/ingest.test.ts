@@ -50,16 +50,20 @@ function createMockDb(persistedInstanceId: string | null = null, persistedSample
   let updateCalled = false;
   let updatedRx = 0;
   let updatedTx = 0;
-  const batchStatements: string[] = [];
+  const batchStatements: any[] = [];
+  const insertedBuckets: any[] = [];
 
   return {
     get updateCalled() { return updateCalled; },
     get updatedRx() { return updatedRx; },
     get updatedTx() { return updatedTx; },
     get batchStatements() { return batchStatements; },
+    get insertedBuckets() { return insertedBuckets; },
     prepare(sql: string) {
+      let boundArgs: any[] = [];
       return {
         bind(...args: any[]) {
+          boundArgs = args;
           if (sql.includes('UPDATE traffic_periods SET')) {
             updateCalled = true;
             updatedRx = args[0];
@@ -79,10 +83,25 @@ function createMockDb(persistedInstanceId: string | null = null, persistedSample
         async run() {
           return { success: true };
         },
+        toString() {
+          return `SQL: ${sql} [${boundArgs.join(', ')}]`;
+        },
+        get sql() { return sql; },
+        get args() { return boundArgs; },
       };
     },
     async batch(stmts: any[]) {
-      batchStatements.push(...stmts.map((s: any) => s.toString()));
+      batchStatements.push(...stmts);
+      for (const s of stmts) {
+        if (s.sql && s.sql.includes('INSERT INTO metrics_raw')) {
+          insertedBuckets.push({
+            bucketStartMs: s.args[1],
+            cpuUsagePct: s.args[2],
+            rxDelta: s.args[12],
+            txDelta: s.args[13],
+          });
+        }
+      }
       return stmts.map(() => ({ success: true }));
     },
   } as any;
@@ -209,15 +228,71 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     expect(res.updatedAttachment.persisted_sample_seq).toBe(1);
   });
 
+  it('P0: normal 2s reports accumulate into MinuteAccumulator and finalize on rollover with strict watermark', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    let attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+
+    const t1200 = Math.floor(1700000000000 / 60000) * 60000; // 12:00:00 aligned
+    const t1201 = t1200 + 60000; // 12:01:00 aligned
+
+    // Report 1 at 12:00:02 (sample_seq=1, cpu=10%)
+    const r1 = await ingestReportCore(
+      mockDb, 'node-1', 'Node 1', 'instance-1', 1,
+      { samples: [{ sample_seq: 1, sampled_at_ms: t1200 + 2000, metrics: { ...baseMetrics, cpu: { usage_pct: 10.0 } } }] },
+      mockGeo, attachment
+    );
+    attachment = r1.updatedAttachment;
+    expect(r1.result.accepted).toBe(true);
+    expect(r1.result.persisted).toBe(false);
+    expect(r1.result.persisted_sample_seq).toBe(0); // NOT advanced yet!
+
+    // Report 2 at 12:00:04 (sample_seq=2, cpu=20%)
+    const r2 = await ingestReportCore(
+      mockDb, 'node-1', 'Node 1', 'instance-1', 2,
+      { samples: [{ sample_seq: 2, sampled_at_ms: t1200 + 4000, metrics: { ...baseMetrics, cpu: { usage_pct: 20.0 } } }] },
+      mockGeo, attachment
+    );
+    attachment = r2.updatedAttachment;
+    expect(r2.result.persisted).toBe(false);
+    expect(r2.result.persisted_sample_seq).toBe(0);
+
+    // Report 3 at 12:00:58 (sample_seq=3, cpu=30%)
+    const r3 = await ingestReportCore(
+      mockDb, 'node-1', 'Node 1', 'instance-1', 3,
+      { samples: [{ sample_seq: 3, sampled_at_ms: t1200 + 58000, metrics: { ...baseMetrics, cpu: { usage_pct: 30.0 } } }] },
+      mockGeo, attachment
+    );
+    attachment = r3.updatedAttachment;
+    expect(r3.result.persisted).toBe(false);
+    expect(r3.result.persisted_sample_seq).toBe(0);
+
+    // Report 4 at 12:01:00 (sample_seq=4, cpu=40%) -> Minute Rollover to 12:01!
+    const r4 = await ingestReportCore(
+      mockDb, 'node-1', 'Node 1', 'instance-1', 4,
+      { samples: [{ sample_seq: 4, sampled_at_ms: t1201, metrics: { ...baseMetrics, cpu: { usage_pct: 40.0 } } }] },
+      mockGeo, attachment
+    );
+    attachment = r4.updatedAttachment;
+
+    // Report 4 closes 12:00 bucket!
+    expect(r4.result.persisted).toBe(true);
+    // Crucial invariant: Watermark advances to 3 (NOT 4, since 4 is in 12:01 pending accumulator!)
+    expect(r4.result.persisted_sample_seq).toBe(3);
+    expect(attachment.persisted_sample_seq).toBe(3);
+
+    // Verify persisted bucket aggregate: avg CPU = (10 + 20 + 30) / 3 = 20.0%
+    expect(mockDb.insertedBuckets.length).toBe(1);
+    expect(mockDb.insertedBuckets[0].bucketStartMs).toBe(t1200);
+    expect(mockDb.insertedBuckets[0].cpuUsagePct).toBe(20.0);
+  });
+
   it('P0-2: multi-minute sample replay correctly aggregates into separate historical buckets', async () => {
     const mockDb = createMockDb('instance-1', 0);
     const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
-    attachment.last_persist_bucket_ms = 0;
 
-    // 3 samples across 3 different minutes (14:00, 14:01, 14:02)
-    const t0 = 1700000000000; // 14:00 bucket
-    const t1 = 1700000060000; // 14:01 bucket
-    const t2 = 1700000120000; // 14:02 bucket
+    const t0 = Math.floor(1700000000000 / 60000) * 60000; // 14:00 bucket aligned
+    const t1 = t0 + 60000; // 14:01 bucket aligned
+    const t2 = t0 + 120000; // 14:02 bucket aligned
 
     const samples: MetricSample[] = [
       { sample_seq: 1, sampled_at_ms: t0 + 2000, metrics: { ...baseMetrics, cpu: { usage_pct: 10.0, throttled_pct: 0 } } },
@@ -239,7 +314,12 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
 
     expect(res.result.accepted).toBe(true);
     expect(res.result.persisted).toBe(true);
-    expect(res.result.persisted_sample_seq).toBe(4);
-    expect(mockDb.batchStatements.length).toBeGreaterThanOrEqual(1);
+    // Closed buckets up to t1 (sample 3) are durable
+    expect(res.result.persisted_sample_seq).toBe(3);
+    expect(mockDb.insertedBuckets.length).toBe(2);
+    expect(mockDb.insertedBuckets[0].bucketStartMs).toBe(t0);
+    expect(mockDb.insertedBuckets[0].cpuUsagePct).toBe(15.0); // (10 + 20) / 2
+    expect(mockDb.insertedBuckets[1].bucketStartMs).toBe(t1);
+    expect(mockDb.insertedBuckets[1].cpuUsagePct).toBe(30.0);
   });
 });

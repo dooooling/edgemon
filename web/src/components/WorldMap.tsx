@@ -25,23 +25,15 @@ export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
           </h2>
         </div>
 
-        {/* 3D Sphere / 2D Morph Capsule Toggle */}
+        {/* Single Dynamic Morph Action Button */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <span className="eyebrow-cap">{geoNodes.length} {t('nav_active_count')}</span>
-          <div className="range-capsules">
-            <button
-              className={`range-capsule-btn ${mapMode === '3d' ? 'active' : ''}`}
-              onClick={() => setMapMode('3d')}
-            >
-              3D GLOBE
-            </button>
-            <button
-              className={`range-capsule-btn ${mapMode === '2d' ? 'active' : ''}`}
-              onClick={() => setMapMode('2d')}
-            >
-              UNFOLD 2D
-            </button>
-          </div>
+          <button
+            className="button-ghost-on-dark button-ghost-sm"
+            onClick={() => setMapMode((prev) => (prev === '3d' ? '2d' : '3d'))}
+          >
+            {mapMode === '3d' ? t('unfold_map_btn') : t('fold_globe_btn')}
+          </button>
         </div>
       </div>
 

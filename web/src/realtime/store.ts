@@ -25,8 +25,18 @@ export interface RealtimeMetricsOverlay {
   }>;
 }
 
+export interface RealtimePoint {
+  ts_ms: number;
+  cpu_usage_pct: number | null;
+  memory_used_bytes: number | null;
+  rx_bps: number | null;
+  tx_bps: number | null;
+  edge_rtt_ms: number | null;
+}
+
 interface RealtimeState {
   overlays: Record<string, RealtimeMetricsOverlay>;
+  realtimeSeries: Record<string, RealtimePoint[]>;
   wsConnected: boolean;
   activeScope: string;
   activeNodeId: string | null;
@@ -39,6 +49,7 @@ let activeSocket: WebSocket | null = null;
 
 export const useRealtimeStore = create<RealtimeState>((set) => ({
   overlays: {},
+  realtimeSeries: {},
   wsConnected: false,
   activeScope: 'overview',
   activeNodeId: null,
@@ -64,8 +75,9 @@ export const useRealtimeStore = create<RealtimeState>((set) => ({
         try {
           const data = JSON.parse(event.data);
           if (data.node_id && data.metrics) {
+            const ts = data.ts_ms || Date.now();
             const overlay: RealtimeMetricsOverlay = {
-              last_seen_at_ms: data.ts_ms || Date.now(),
+              last_seen_at_ms: ts,
               cpu_usage_pct: data.metrics.cpu?.usage_pct,
               cpu_throttled_pct: data.metrics.cpu?.throttled_pct,
               memory_used_bytes: data.metrics.memory?.used_bytes,
@@ -84,12 +96,33 @@ export const useRealtimeStore = create<RealtimeState>((set) => ({
               probes: data.metrics.probes || [],
             };
 
-            set((state) => ({
-              overlays: {
-                ...state.overlays,
-                [data.node_id]: overlay,
-              },
-            }));
+            const point: RealtimePoint = {
+              ts_ms: ts,
+              cpu_usage_pct: data.metrics.cpu?.usage_pct ?? null,
+              memory_used_bytes: data.metrics.memory?.used_bytes ?? null,
+              rx_bps: data.metrics.network?.rx_bps ?? null,
+              tx_bps: data.metrics.network?.tx_bps ?? null,
+              edge_rtt_ms: data.geo?.edge_rtt_ms ?? null,
+            };
+
+            set((state) => {
+              const cutoff = Date.now() - 10 * 60_000;
+              const existingSeries = state.realtimeSeries[data.node_id] || [];
+              const nextSeries = [...existingSeries, point]
+                .filter((p) => p.ts_ms >= cutoff)
+                .slice(-300);
+
+              return {
+                overlays: {
+                  ...state.overlays,
+                  [data.node_id]: overlay,
+                },
+                realtimeSeries: {
+                  ...state.realtimeSeries,
+                  [data.node_id]: nextSeries,
+                },
+              };
+            });
           }
         } catch {
           // ignore
@@ -116,9 +149,11 @@ export const useRealtimeStore = create<RealtimeState>((set) => ({
 
   clearOverlay: (nodeId: string) => {
     set((state) => {
-      const next = { ...state.overlays };
-      delete next[nodeId];
-      return { overlays: next };
+      const nextOverlays = { ...state.overlays };
+      delete nextOverlays[nodeId];
+      const nextSeries = { ...state.realtimeSeries };
+      delete nextSeries[nodeId];
+      return { overlays: nextOverlays, realtimeSeries: nextSeries };
     });
   },
 }));

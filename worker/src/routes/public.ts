@@ -151,6 +151,9 @@ publicRoutes.get('/api/public/nodes/:id/history', async (c) => {
   let resolutionSec = 60;
 
   switch (range) {
+    case '10m':
+      fromMs = nowMs - 10 * 60000;
+      break;
     case '1h':
       fromMs = nowMs - 3600000;
       break;

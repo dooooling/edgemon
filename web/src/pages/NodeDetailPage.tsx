@@ -168,13 +168,13 @@ export const NodeDetailPage: React.FC = () => {
         <div className="section-title-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span className="eyebrow-cap">HISTORICAL FLIGHT TELEMETRY TRENDS</span>
           <div className="range-capsules">
-            {['1h', '6h', '24h', '7d', '30d'].map((r) => (
+            {['10m', '1h', '6h', '24h', '7d', '30d'].map((r) => (
               <button
                 key={r}
                 className={`range-capsule-btn ${range === r ? 'active' : ''}`}
                 onClick={() => setRange(r)}
               >
-                {r.toUpperCase()}
+                {r === '10m' ? '10M LIVE' : r.toUpperCase()}
               </button>
             ))}
           </div>

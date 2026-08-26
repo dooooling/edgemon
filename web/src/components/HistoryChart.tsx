@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useNodeHistoryQuery } from '../queries/nodes';
+import { useRealtimeStore } from '../realtime/store';
 
 interface HistoryChartProps {
   nodeId: string;
@@ -24,84 +25,123 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
   const uplotInstance = useRef<uPlot | null>(null);
 
   const { data, isLoading } = useNodeHistoryQuery(nodeId, range);
+  const realtimeSeries = useRealtimeStore((s) => s.realtimeSeries[nodeId] || []);
 
   useEffect(() => {
     if (!chartRef.current) return;
 
-    if (uplotInstance.current) {
-      uplotInstance.current.destroy();
-      uplotInstance.current = null;
+    const historyPoints = (data?.points || []).map((pt: any) => ({
+      ts_ms: pt.bucket_start_ms,
+      value: pt[metricKey] != null ? Number(pt[metricKey]) : null,
+    }));
+
+    let mergedPoints: Array<{ ts_ms: number; value: number | null }> = [];
+
+    if (range === '10m' && realtimeSeries.length > 0) {
+      const livePoints = realtimeSeries.map((rt) => ({
+        ts_ms: rt.ts_ms,
+        value: (rt as any)[metricKey] != null ? Number((rt as any)[metricKey]) : null,
+      }));
+
+      const map = new Map<number, number | null>();
+      for (const p of historyPoints) {
+        map.set(p.ts_ms, p.value);
+      }
+      for (const p of livePoints) {
+        map.set(p.ts_ms, p.value);
+      }
+
+      mergedPoints = Array.from(map.entries())
+        .map(([ts_ms, value]) => ({ ts_ms, value }))
+        .sort((a, b) => a.ts_ms - b.ts_ms);
+    } else {
+      mergedPoints = historyPoints;
     }
 
-    const points = data?.points || [];
-    if (points.length === 0) return;
+    if (mergedPoints.length === 0) {
+      if (uplotInstance.current) {
+        uplotInstance.current.destroy();
+        uplotInstance.current = null;
+      }
+      return;
+    }
 
     const timestamps: number[] = [];
     const values: (number | null)[] = [];
 
-    for (const pt of points) {
-      timestamps.push(Math.floor(pt.bucket_start_ms / 1000));
-      const val = pt[metricKey];
-      values.push(val != null ? Number(val) : null);
+    for (const pt of mergedPoints) {
+      timestamps.push(Math.floor(pt.ts_ms / 1000));
+      values.push(pt.value);
     }
 
     const alignedData: uPlot.AlignedData = [timestamps, values];
     const width = chartRef.current.clientWidth || 600;
 
-    const opts: uPlot.Options = {
-      width,
-      height: 190,
-      scales: {
-        x: { time: true },
-        y: { auto: true },
-      },
-      axes: [
-        {
-          stroke: '#a0a0a8',
-          grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
-          ticks: { stroke: 'transparent' },
+    if (uplotInstance.current) {
+      uplotInstance.current.setData(alignedData);
+    } else {
+      const opts: uPlot.Options = {
+        width,
+        height: 190,
+        scales: {
+          x: { time: true },
+          y: { auto: true },
         },
-        {
-          stroke: '#a0a0a8',
-          grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
-          ticks: { stroke: 'transparent' },
-          values: (_u, vals) => vals.map((v) => `${v}${unit}`),
-        },
-      ],
-      series: [
-        {},
-        {
-          label: title,
-          stroke: strokeColor,
-          width: 1.5,
-          fill: 'rgba(255, 255, 255, 0.05)',
-        },
-      ],
-    };
+        axes: [
+          {
+            stroke: '#a0a0a8',
+            grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
+            ticks: { stroke: 'transparent' },
+          },
+          {
+            stroke: '#a0a0a8',
+            grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
+            ticks: { stroke: 'transparent' },
+            values: (_u, vals) => vals.map((v) => `${v}${unit}`),
+          },
+        ],
+        series: [
+          {},
+          {
+            label: title,
+            stroke: strokeColor,
+            width: 1.5,
+            fill: 'rgba(255, 255, 255, 0.05)',
+          },
+        ],
+      };
 
-    uplotInstance.current = new uPlot(opts, alignedData, chartRef.current);
+      uplotInstance.current = new uPlot(opts, alignedData, chartRef.current);
+    }
+  }, [data, realtimeSeries, range, title, metricKey, unit, strokeColor]);
 
+  useEffect(() => {
     return () => {
       if (uplotInstance.current) {
         uplotInstance.current.destroy();
         uplotInstance.current = null;
       }
     };
-  }, [data, title, metricKey, unit, strokeColor]);
+  }, []);
 
   return (
     <div className="chart-band">
-      <div style={{ marginBottom: '12px' }}>
+      <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span className="eyebrow-cap" style={{ color: '#ffffff' }}>
           {title}
         </span>
+        {range === '10m' && (
+          <span className="spacex-chip" style={{ color: '#00e676', borderColor: '#00e676' }}>
+            2-SEC LIVE STREAM
+          </span>
+        )}
       </div>
 
       <div style={{ minHeight: '190px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} ref={chartRef}>
         {isLoading && (
           <span className="eyebrow-cap">ACQUIRING TELEMETRY BUFFER...</span>
         )}
-        {!isLoading && (!data?.points || data.points.length === 0) && (
+        {!isLoading && (!data?.points || data.points.length === 0) && realtimeSeries.length === 0 && (
           <span className="eyebrow-cap">NO TELEMETRY BUFFER IN TIMEFRAME</span>
         )}
       </div>

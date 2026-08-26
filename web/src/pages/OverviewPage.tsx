@@ -37,14 +37,7 @@ export const OverviewPage: React.FC = () => {
 
   return (
     <div className="page-container">
-      {/* 1. Hero Band */}
-      <section className="hero-band">
-        <span className="eyebrow-cap">MISSION ARCHITECTURE // EDGE MONITORING</span>
-        <h1 className="display-xxl">{t('hero_title')}</h1>
-        <p className="hero-subline">{t('hero_sub')}</p>
-      </section>
-
-      {/* 2. Mission Statistics Grid */}
+      {/* 1. Mission Statistics Grid */}
       <div className="mission-stats-grid">
         <div className="stat-tile">
           <span className="eyebrow-cap">{t('stat_total_nodes')}</span>

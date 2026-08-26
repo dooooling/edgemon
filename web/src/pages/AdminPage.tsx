@@ -156,11 +156,11 @@ export const AdminPage: React.FC = () => {
             <table className="spacex-table">
               <thead>
                 <tr>
-                  <th>NODE IDENTIFIER</th>
-                  <th>NODE UUID</th>
-                  <th>BILLING RESET</th>
-                  <th>PROVISION DATE</th>
-                  <th>ACTIONS</th>
+                  <th>{t('th_node_identifier')}</th>
+                  <th>{t('th_node_uuid')}</th>
+                  <th>{t('th_billing_reset')}</th>
+                  <th>{t('th_provision_date')}</th>
+                  <th>{t('th_actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -174,7 +174,7 @@ export const AdminPage: React.FC = () => {
                         {n.id}
                       </span>
                     </td>
-                    <td>DAY {n.traffic_reset_day}</td>
+                    <td>{t('day_prefix')}{n.traffic_reset_day}{t('day_suffix')}</td>
                     <td>{new Date(n.created_at_ms).toISOString().split('T')[0]}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '8px' }}>
@@ -182,13 +182,13 @@ export const AdminPage: React.FC = () => {
                           className="button-ghost-on-dark button-ghost-sm"
                           onClick={() => handleRotateToken(n.id)}
                         >
-                          ROTATE
+                          {t('btn_rotate')}
                         </button>
                         <button
                           className="button-ghost-on-dark button-ghost-sm button-ghost-danger"
                           onClick={() => handleDeleteNode(n.id)}
                         >
-                          DELETE
+                          {t('btn_delete')}
                         </button>
                       </div>
                     </td>
@@ -203,7 +203,7 @@ export const AdminPage: React.FC = () => {
             <div className="modal-backdrop-dark">
               <div className="modal-box-dark">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                  <span className="eyebrow-cap">PROVISION INSTANCE</span>
+                  <span className="eyebrow-cap">{t('create_node_title')}</span>
                   <button
                     style={{ background: 'none', border: 'none', color: '#ffffff', fontSize: '18px', cursor: 'pointer' }}
                     onClick={() => setShowAddModal(false)}
@@ -214,7 +214,7 @@ export const AdminPage: React.FC = () => {
 
                 <form onSubmit={handleCreateNode}>
                   <div style={{ marginBottom: '16px' }}>
-                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>NODE NAME</span>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('node_name_label')}</span>
                     <input
                       value={newNodeName}
                       onChange={(e) => setNewNodeName(e.target.value)}
@@ -225,7 +225,7 @@ export const AdminPage: React.FC = () => {
                   </div>
 
                   <div style={{ marginBottom: '24px' }}>
-                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>MONTHLY RESET DAY (1-31)</span>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('reset_day_label')}</span>
                     <input
                       value={newNodeResetDay}
                       onChange={(e) => setNewNodeResetDay(parseInt(e.target.value) || 1)}
@@ -238,10 +238,10 @@ export const AdminPage: React.FC = () => {
 
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                     <button type="button" className="button-ghost-on-dark button-ghost-sm" onClick={() => setShowAddModal(false)}>
-                      CANCEL
+                      {t('cancel_btn')}
                     </button>
                     <button type="submit" className="button-ghost-on-dark button-ghost-sm" style={{ backgroundColor: '#ffffff', color: '#000000' }}>
-                      PROVISION INSTANCE
+                      {t('save_node_btn')}
                     </button>
                   </div>
                 </form>
@@ -254,13 +254,13 @@ export const AdminPage: React.FC = () => {
             <div className="modal-backdrop-dark">
               <div className="modal-box-dark">
                 <span className="eyebrow-cap" style={{ color: 'var(--colors-status-live)' }}>
-                  CREDENTIALS GENERATED
+                  {t('token_modal_title')}
                 </span>
                 <h3 className="display-lg" style={{ fontSize: '20px', margin: '8px 0' }}>
-                  ONE-TIME AUTHENTICATION TOKEN
+                  {t('token_modal_title')}
                 </h3>
                 <p className="caption" style={{ color: 'var(--colors-status-alert)' }}>
-                  COPY THIS TOKEN IMMEDIATELY. IT IS HASHED WITH SHA-256 AND WILL NEVER BE SHOWN AGAIN.
+                  {t('token_notice')}
                 </p>
 
                 <div className="token-view-chassis">
@@ -273,7 +273,7 @@ export const AdminPage: React.FC = () => {
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
                   <button className="button-ghost-on-dark" onClick={() => setOneTimeTokenModal(null)}>
-                    I HAVE SAVED CREDENTIALS
+                    {t('save_node_btn')}
                   </button>
                 </div>
               </div>

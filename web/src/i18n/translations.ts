@@ -80,6 +80,17 @@ export const translations = {
     token_modal_title: '节点 Token（仅展示一次）',
     token_notice: '请妥善保存以下节点 Token 与 Agent 启动命令。',
 
+    // Table Headers & Actions
+    th_node_identifier: '节点标识名称',
+    th_node_uuid: '节点 UUID',
+    th_billing_reset: '流量重置日',
+    th_provision_date: '创建日期',
+    th_actions: '管理操作',
+    btn_rotate: '轮转 Token',
+    btn_delete: '删除节点',
+    day_prefix: '每月 ',
+    day_suffix: ' 日',
+
     // Footer
     footer_copy: 'EDGEMON TELEMETRY © 2026 // CLOUDFLARE NATIVE',
     footer_accuracy: '真实准确',
@@ -164,6 +175,17 @@ export const translations = {
     cancel_btn: 'CANCEL',
     token_modal_title: 'NODE TOKEN (DISPLAYED ONCE)',
     token_notice: 'Save the following node token and agent execution command securely.',
+
+    // Table Headers & Actions
+    th_node_identifier: 'NODE IDENTIFIER',
+    th_node_uuid: 'NODE UUID',
+    th_billing_reset: 'BILLING RESET',
+    th_provision_date: 'PROVISION DATE',
+    th_actions: 'ACTIONS',
+    btn_rotate: 'ROTATE',
+    btn_delete: 'DELETE',
+    day_prefix: 'DAY ',
+    day_suffix: '',
 
     // Footer
     footer_copy: 'EDGEMON TELEMETRY © 2026 // CLOUDFLARE NATIVE',

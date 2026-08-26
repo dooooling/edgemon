@@ -22,11 +22,15 @@ export const HeaderNav: React.FC = () => {
 
   return (
     <header className="nav-bar-overlay">
+      {/* Signature BMW M Tricolor Accent Stripe */}
+      <div className="m-stripe-divider"></div>
+
       <div className="nav-container">
-        {/* Brand Wordmark (Uppercase D-DIN) */}
+        {/* Brand Wordmark (Uppercase + M Tricolor Pill Accent) */}
         <Link to="/" className="nav-brand-wordmark">
+          <span className="m-stripe-pill"></span>
           <span>EDGEMON</span>
-          <span style={{ color: 'var(--colors-on-primary-mute)', fontWeight: 400 }}>{t('nav_brand_sub')}</span>
+          <span style={{ color: 'var(--colors-muted)', fontWeight: 300 }}>{t('nav_brand_sub')}</span>
         </Link>
 
         {/* Center All-Caps Links */}

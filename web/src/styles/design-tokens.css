@@ -1,45 +1,52 @@
 /* ==========================================================================
-   EdgeMon Design System — SpaceX Aerospace & Mission Control Architecture
-   Strictly aligned with DESIGN.md (Pure Black / D-DIN / Ghost Pill / Uppercase)
+   EdgeMon Design System — BMW M Motorsport & Performance Engineering Architecture
+   Strictly aligned with DESIGN.md (Pure Black / 0px Radius / M-Stripe / Heavy-Light Contrast)
    ========================================================================== */
 
 :root {
   /* Surfaces */
-  --colors-canvas-night: #000000;
-  --colors-canvas-night-soft: #0a0a0a;
-  --colors-canvas-light: #ffffff;
-  --colors-canvas-cool: #f0f0fa;
+  --colors-canvas: #000000;
+  --colors-surface-soft: #0d0d0d;
+  --colors-surface-card: #1a1a1a;
+  --colors-surface-elevated: #262626;
+  --colors-carbon-gray: #2b2b2b;
+
+  /* BMW M Tricolor Brand Identity Stops */
+  --colors-m-blue-light: #0066b1;
+  --colors-m-blue-dark: #1c69d4;
+  --colors-m-red: #e22718;
+  --colors-electric-blue: #0653b6;
 
   /* Hairlines & Borders */
-  --colors-hairline-on-dark: #3a3a3f;
+  --colors-hairline: #3c3c3c;
+  --colors-hairline-strong: #262626;
   --colors-hairline-subtle: #222226;
-  --colors-hairline-on-light: #e0e0e8;
 
   /* Text & Ink */
-  --colors-on-primary: #ffffff;
-  --colors-on-primary-mute: #a0a0a8;
-  --colors-ink: #000000;
-  --colors-ink-mute: #5a5a5f;
+  --colors-on-dark: #ffffff;
+  --colors-body-strong: #e6e6e6;
+  --colors-body: #bbbbbb;
+  --colors-muted: #7e7e7e;
 
-  /* Status Colors */
+  /* Semantic Status */
   --colors-status-live: #00e676;
-  --colors-status-alert: #ff3b30;
+  --colors-status-alert: #e22718;
+  --colors-status-warning: #f4b400;
 
   /* Spacing */
   --spacing-xxs: 4px;
   --spacing-xs: 8px;
   --spacing-sm: 12px;
   --spacing-md: 16px;
-  --spacing-lg: 18px;
-  --spacing-xl: 24px;
-  --spacing-xxl: 32px;
-  --spacing-huge: 48px;
+  --spacing-lg: 24px;
+  --spacing-xl: 40px;
+  --spacing-xxl: 64px;
+  --spacing-section: 96px;
 
-  /* Border Radii */
-  --rounded-xs: 4px;
-  --rounded-sm: 8px;
-  --rounded-md: 16px;
-  --rounded-pill: 32px;
+  /* Border Radii (Strictly 0px Sharp Silhouette per DESIGN.md) */
+  --rounded-none: 0px;
+  --rounded-xs: 2px;
+  --rounded-sm: 4px;
   --rounded-full: 9999px;
 }
 
@@ -52,263 +59,298 @@
 body {
   margin: 0;
   padding: 0;
-  background-color: var(--colors-canvas-night);
-  color: var(--colors-on-primary);
-  font-family: "D-DIN", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--colors-canvas);
+  color: var(--colors-on-dark);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-weight: 300; /* BMW Type Light (300) for engineered body copy */
   font-size: 15px;
   line-height: 1.5;
-  letter-spacing: 0.32px;
+  letter-spacing: 0.2px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
 }
 
 /* ==========================================================================
-   Typography Scale (DESIGN.md Section 3)
+   BMW M Tricolor Accent Stripe (.m-stripe-divider)
+   ========================================================================== */
+
+.m-stripe-divider {
+  height: 4px;
+  width: 100%;
+  background: linear-gradient(
+    90deg,
+    var(--colors-m-blue-light) 0%,
+    var(--colors-m-blue-light) 33.33%,
+    var(--colors-m-blue-dark) 33.33%,
+    var(--colors-m-blue-dark) 66.66%,
+    var(--colors-m-red) 66.66%,
+    var(--colors-m-red) 100%
+  );
+  display: block;
+}
+
+.m-stripe-pill {
+  display: inline-block;
+  height: 3px;
+  width: 32px;
+  background: linear-gradient(
+    90deg,
+    var(--colors-m-blue-light) 0%,
+    var(--colors-m-blue-light) 33.33%,
+    var(--colors-m-blue-dark) 33.33%,
+    var(--colors-m-blue-dark) 66.66%,
+    var(--colors-m-red) 66.66%,
+    var(--colors-m-red) 100%
+  );
+  vertical-align: middle;
+}
+
+/* ==========================================================================
+   Typography Scale (DESIGN.md Section 3 - Heavy 700 vs Light 300)
    ========================================================================== */
 
 .display-xxl {
   font-size: clamp(38px, 6vw, 76px);
   font-weight: 700;
-  line-height: 0.95;
-  letter-spacing: 1.6px;
+  line-height: 1.0;
+  letter-spacing: 0px;
   text-transform: uppercase;
-  color: var(--colors-on-primary);
+  color: var(--colors-on-dark);
 }
 
 .display-xl {
-  font-size: clamp(28px, 4.5vw, 52px);
+  font-size: clamp(28px, 4.5vw, 56px);
   font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: 1.2px;
+  line-height: 1.05;
+  letter-spacing: 0px;
   text-transform: uppercase;
-  color: var(--colors-on-primary);
+  color: var(--colors-on-dark);
 }
 
 .display-lg {
-  font-size: clamp(22px, 3vw, 36px);
+  font-size: clamp(22px, 3vw, 40px);
   font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: 0.96px;
+  line-height: 1.1;
+  letter-spacing: 0px;
   text-transform: uppercase;
-  color: var(--colors-on-primary);
+  color: var(--colors-on-dark);
 }
 
 .eyebrow-cap {
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.5;
-  letter-spacing: 1.4px;
-  text-transform: uppercase;
-  color: var(--colors-on-primary-mute);
-}
-
-.button-cap {
   font-size: 13px;
   font-weight: 700;
-  line-height: 0.94;
-  letter-spacing: 1.17px;
+  line-height: 1.3;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
+  color: var(--colors-body);
+  display: inline-block;
 }
 
 .caption {
   font-size: 13px;
-  font-weight: 400;
-  line-height: 1.5;
-  color: var(--colors-on-primary-mute);
+  font-weight: 300;
+  color: var(--colors-muted);
 }
 
 /* ==========================================================================
-   Buttons & CTAs (DESIGN.md Section 6.1)
-   ========================================================================== */
-
-.button-ghost-on-dark {
-  background-color: transparent;
-  color: var(--colors-on-primary);
-  border: 1px solid var(--colors-on-primary);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 0.94;
-  letter-spacing: 1.17px;
-  text-transform: uppercase;
-  padding: 14px 28px;
-  border-radius: var(--rounded-pill);
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  user-select: none;
-}
-
-.button-ghost-on-dark:hover {
-  background-color: var(--colors-on-primary);
-  color: var(--colors-canvas-night);
-}
-
-.button-ghost-on-dark:active {
-  transform: scale(0.97);
-}
-
-.button-ghost-sm {
-  padding: 8px 18px;
-  font-size: 11px;
-  letter-spacing: 1px;
-}
-
-.button-ghost-danger {
-  border-color: var(--colors-status-alert);
-  color: var(--colors-status-alert);
-}
-
-.button-ghost-danger:hover {
-  background-color: var(--colors-status-alert);
-  color: #ffffff;
-}
-
-/* ==========================================================================
-   Navigation (Fixed Top Nav Overlay)
-   ========================================================================== */
-
-.nav-bar-overlay {
-  background-color: rgba(0, 0, 0, 0.9);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--colors-hairline-subtle);
-  position: sticky;
-  top: 0;
-  z-index: 1000;
-  width: 100%;
-}
-
-.nav-container {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 16px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.nav-brand-wordmark {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  color: var(--colors-on-primary);
-  text-decoration: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.nav-menu-cluster {
-  display: flex;
-  align-items: center;
-  gap: 32px;
-}
-
-.nav-menu-link {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 1.4px;
-  text-transform: uppercase;
-  color: var(--colors-on-primary-mute);
-  text-decoration: none;
-  transition: color 0.15s ease;
-}
-
-.nav-menu-link:hover, .nav-menu-link.active {
-  color: var(--colors-on-primary);
-}
-
-.status-indicator-beacon {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--colors-on-primary-mute);
-}
-
-.beacon-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.beacon-live {
-  background-color: var(--colors-status-live);
-  box-shadow: 0 0 10px rgba(0, 230, 118, 0.8);
-}
-
-.beacon-idle {
-  background-color: var(--colors-on-primary-mute);
-}
-
-/* ==========================================================================
-   Page Layout & Sections (Full-Bleed Dark Aerospace Bands)
+   Layout Containers
    ========================================================================== */
 
 .app-wrapper {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background-color: var(--colors-canvas-night);
+  background-color: var(--colors-canvas);
 }
 
 .page-container {
-  max-width: 1280px;
+  max-width: 1440px;
   margin: 0 auto;
-  padding: 40px 24px 80px;
+  padding: 40px 32px 80px;
   width: 100%;
 }
 
-/* Hero Section */
-.hero-band {
-  padding: 48px 0 40px;
+/* ==========================================================================
+   Navigation Bar (Pinned 64px Black Header with M Tricolor Accent)
+   ========================================================================== */
+
+.nav-bar-overlay {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background-color: var(--colors-canvas);
+  border-bottom: 1px solid var(--colors-hairline);
+}
+
+.nav-container {
+  max-width: 1440px;
+  margin: 0 auto;
+  height: 64px;
+  padding: 0 32px;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 16px;
-  border-bottom: 1px solid var(--colors-hairline-subtle);
-  margin-bottom: 40px;
+  align-items: center;
+  justify-content: space-between;
 }
 
-.hero-subline {
-  font-size: 16px;
-  color: var(--colors-on-primary-mute);
-  max-width: 680px;
-  line-height: 1.6;
+.nav-brand-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--colors-on-dark);
+  text-transform: uppercase;
 }
 
-/* Mission Control Stats Strip */
+.nav-brand-wordmark:hover {
+  opacity: 0.9;
+}
+
+.nav-menu-cluster {
+  display: flex;
+  gap: 32px;
+}
+
+.nav-menu-link {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--colors-body);
+  text-decoration: none;
+  padding: 20px 0;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.nav-menu-link:hover,
+.nav-menu-link.active {
+  color: var(--colors-on-dark);
+  border-bottom-color: var(--colors-on-dark);
+}
+
+/* ==========================================================================
+   Buttons (Sharp 0px Silhouette + 1.5px Tracking)
+   ========================================================================== */
+
+.button-ghost-on-dark,
+.button-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  padding: 0 24px;
+  background-color: transparent;
+  color: var(--colors-on-dark);
+  border: 1px solid var(--colors-on-dark);
+  border-radius: var(--rounded-none); /* 0px Sharp Corner */
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.button-ghost-on-dark:hover,
+.button-primary:hover {
+  background-color: var(--colors-on-dark);
+  color: var(--colors-canvas);
+}
+
+.button-ghost-sm {
+  height: 36px;
+  padding: 0 16px;
+  font-size: 12px;
+}
+
+.button-ghost-danger {
+  border-color: var(--colors-m-red);
+  color: var(--colors-m-red);
+}
+
+.button-ghost-danger:hover {
+  background-color: var(--colors-m-red);
+  color: var(--colors-on-dark);
+}
+
+/* Range Selector Capsules (Rectangular Sharp Toggle) */
+.range-capsules {
+  display: flex;
+  gap: 1px;
+  background-color: var(--colors-hairline);
+  padding: 1px;
+}
+
+.range-capsule-btn {
+  background-color: var(--colors-surface-soft);
+  color: var(--colors-body);
+  border: none;
+  border-radius: var(--rounded-none);
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.range-capsule-btn:hover {
+  color: var(--colors-on-dark);
+  background-color: var(--colors-surface-card);
+}
+
+.range-capsule-btn.active {
+  background-color: var(--colors-on-dark);
+  color: var(--colors-canvas);
+}
+
+/* ==========================================================================
+   Mission Statistics Grid
+   ========================================================================== */
+
 .mission-stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
   margin-bottom: 40px;
+}
+
+@media (max-width: 1024px) {
+  .mission-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .mission-stats-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .stat-tile {
-  background-color: var(--colors-canvas-night-soft);
-  border: 1px solid var(--colors-hairline-on-dark);
-  border-radius: var(--rounded-sm);
-  padding: 20px;
+  background-color: var(--colors-surface-soft); /* #0d0d0d Spec Cell */
+  border: 1px solid var(--colors-hairline);
+  border-radius: var(--rounded-none);
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  justify-content: space-between;
 }
 
 .stat-val-large {
-  font-size: 32px;
+  font-size: 36px;
   font-weight: 700;
-  letter-spacing: 1px;
-  color: var(--colors-on-primary);
+  line-height: 1.1;
+  letter-spacing: 0px;
+  margin-top: 12px;
+  color: var(--colors-on-dark);
 }
 
 .stat-val-live {
@@ -316,318 +358,268 @@ body {
 }
 
 .stat-val-alert {
-  color: var(--colors-status-alert);
+  color: var(--colors-m-red);
 }
 
 /* ==========================================================================
-   Node Card Component (Aerospace Mission Tile)
+   Node Cards Grid (3-Up Engineering Surface)
    ========================================================================== */
-
-.section-title-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  margin-bottom: 24px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--colors-hairline-subtle);
-}
 
 .nodes-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+@media (max-width: 1100px) {
+  .nodes-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .nodes-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .node-card-tile {
-  background-color: var(--colors-canvas-night-soft);
-  border: 1px solid var(--colors-hairline-on-dark);
-  border-radius: var(--rounded-sm);
+  background-color: var(--colors-surface-card); /* #1a1a1a */
+  border: 1px solid var(--colors-hairline);
+  border-radius: var(--rounded-none); /* Sharp Rectangular Silhouette */
   padding: 24px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 20px;
-  transition: border-color 0.2s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease;
 }
 
 .node-card-tile:hover {
-  border-color: var(--colors-on-primary);
+  border-color: var(--colors-body);
 }
 
 .node-card-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-}
-
-.node-title-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--colors-hairline-subtle);
 }
 
 .node-name-text {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
-  letter-spacing: 0.8px;
+  letter-spacing: 0px;
   text-transform: uppercase;
-  color: var(--colors-on-primary);
+  margin-top: 4px;
+  color: var(--colors-on-dark);
 }
 
 .telemetry-stack {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-}
-
-.telemetry-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  gap: 16px;
 }
 
 .telemetry-header-row {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .telemetry-bar-track {
-  height: 2px;
-  background-color: #222226;
-  width: 100%;
+  height: 4px;
+  background-color: var(--colors-surface-elevated);
+  border-radius: var(--rounded-none);
   overflow: hidden;
+  margin-top: 6px;
 }
 
 .telemetry-bar-fill {
   height: 100%;
-  background-color: var(--colors-on-primary);
+  background-color: var(--colors-on-dark);
   transition: width 0.3s ease;
 }
 
 .traffic-rates-block {
   display: flex;
-  justify-content: space-between;
-  font-size: 13px;
+  gap: 20px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.5px;
-  padding: 8px 0;
-  border-top: 1px solid var(--colors-hairline-subtle);
-  border-bottom: 1px solid var(--colors-hairline-subtle);
+  letter-spacing: 1px;
+  color: var(--colors-status-live);
+  margin-top: 4px;
 }
 
 .tag-chips-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .spacex-chip {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.8px;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
-  padding: 3px 8px;
-  border: 1px solid var(--colors-hairline-on-dark);
-  border-radius: var(--rounded-xs);
-  color: var(--colors-on-primary-mute);
+  padding: 4px 10px;
+  background-color: var(--colors-surface-soft);
+  border: 1px solid var(--colors-hairline);
+  border-radius: var(--rounded-none);
+  color: var(--colors-body);
 }
 
 .node-card-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-top: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--colors-hairline-subtle);
 }
 
 /* ==========================================================================
-   World Map Component (Dark Orbital Radar)
+   Map & Detail Chassis Bands
    ========================================================================== */
 
-.map-band {
-  background-color: var(--colors-canvas-night-soft);
-  border: 1px solid var(--colors-hairline-on-dark);
-  border-radius: var(--rounded-sm);
-  padding: 24px;
-  margin-bottom: 40px;
-}
-
-.map-viewport {
-  position: relative;
-  border-radius: var(--rounded-xs);
-  overflow: hidden;
-  background-color: #050505;
-  border: 1px solid var(--colors-hairline-subtle);
-}
-
-.orbital-svg {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-
-.orbital-node-dot {
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.orbital-node-dot:hover {
-  r: 6;
-  fill: #ffffff;
-}
-
-.orbital-pulse {
-  animation: orbital-expand 2.4s infinite cubic-bezier(0.1, 0.8, 0.3, 1);
-  pointer-events: none;
-}
-
-@keyframes orbital-expand {
-  0% { r: 3; opacity: 1; stroke-width: 1; }
-  100% { r: 18; opacity: 0; stroke-width: 0.5; }
-}
-
-.radar-tooltip {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  background-color: rgba(10, 10, 10, 0.95);
-  border: 1px solid var(--colors-on-primary);
-  border-radius: var(--rounded-xs);
-  padding: 14px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-/* ==========================================================================
-   Detail View
-   ========================================================================== */
-
-.detail-chassis-band {
-  background-color: var(--colors-canvas-night-soft);
-  border: 1px solid var(--colors-hairline-on-dark);
-  border-radius: var(--rounded-sm);
+.map-band,
+.detail-chassis-band,
+.admin-card-chassis,
+.chart-band {
+  background-color: var(--colors-surface-card);
+  border: 1px solid var(--colors-hairline);
+  border-radius: var(--rounded-none);
   padding: 32px;
   margin-bottom: 32px;
 }
 
 .specs-data-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
   margin-top: 24px;
-  padding-top: 24px;
-  border-top: 1px solid var(--colors-hairline-subtle);
+}
+
+@media (max-width: 1024px) {
+  .specs-data-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .specs-data-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .spec-entry {
+  background-color: var(--colors-surface-soft);
+  border: 1px solid var(--colors-hairline-subtle);
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
 }
 
 .spec-entry-label {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 1.2px;
+  letter-spacing: 1.5px;
+  color: var(--colors-muted);
   text-transform: uppercase;
-  color: var(--colors-on-primary-mute);
+  margin-bottom: 8px;
 }
 
 .spec-entry-val {
   font-size: 16px;
   font-weight: 700;
-  color: var(--colors-on-primary);
+  color: var(--colors-on-dark);
+  word-break: break-all;
 }
 
-/* Charts Band */
-.chart-band {
-  background-color: var(--colors-canvas-night-soft);
-  border: 1px solid var(--colors-hairline-on-dark);
-  border-radius: var(--rounded-sm);
-  padding: 24px;
-  margin-bottom: 24px;
-}
-
-.range-capsules {
+/* Section Title Bar */
+.section-title-bar {
   display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--colors-hairline);
+}
+
+/* Status Indicator Beacon */
+.status-indicator-beacon {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-}
-
-.range-capsule-btn {
-  background-color: transparent;
-  color: var(--colors-on-primary-mute);
-  border: 1px solid var(--colors-hairline-on-dark);
-  border-radius: var(--rounded-pill);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
-  padding: 4px 12px;
-  cursor: pointer;
-  transition: all 0.15s ease;
 }
 
-.range-capsule-btn.active, .range-capsule-btn:hover {
-  border-color: var(--colors-on-primary);
-  color: var(--colors-on-primary);
+.beacon-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--rounded-full);
 }
 
-/* ==========================================================================
-   Admin Console & Forms
-   ========================================================================== */
-
-.admin-card-chassis {
-  max-width: 440px;
-  margin: 60px auto;
-  background-color: var(--colors-canvas-night-soft);
-  border: 1px solid var(--colors-hairline-on-dark);
-  border-radius: var(--rounded-sm);
-  padding: 32px;
+.beacon-live {
+  background-color: var(--colors-status-live);
+  box-shadow: 0 0 8px var(--colors-status-live);
 }
 
-.spacex-input {
-  background-color: #000000;
-  border: 1px solid var(--colors-hairline-on-dark);
-  border-radius: var(--rounded-xs);
-  padding: 12px 16px;
-  font-size: 14px;
-  color: #ffffff;
-  outline: none;
-  width: 100%;
-  letter-spacing: 0.5px;
-  transition: border-color 0.15s ease;
+.beacon-idle {
+  background-color: var(--colors-m-red);
 }
 
-.spacex-input:focus {
-  border-color: #ffffff;
-}
-
+/* Tables */
 .spacex-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  text-align: left;
 }
 
 .spacex-table th {
-  text-align: left;
-  padding: 14px 16px;
-  color: var(--colors-on-primary-mute);
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
-  border-bottom: 1px solid var(--colors-hairline-on-dark);
+  color: var(--colors-muted);
+  padding: 16px;
+  border-bottom: 1px solid var(--colors-hairline);
 }
 
 .spacex-table td {
   padding: 16px;
+  font-size: 14px;
   border-bottom: 1px solid var(--colors-hairline-subtle);
-  color: var(--colors-on-primary);
+  color: var(--colors-on-dark);
 }
 
+/* Inputs */
+.spacex-input {
+  width: 100%;
+  height: 48px;
+  background-color: var(--colors-surface-soft);
+  border: 1px solid var(--colors-hairline);
+  border-radius: var(--rounded-none);
+  padding: 0 16px;
+  color: var(--colors-on-dark);
+  font-size: 14px;
+  font-weight: 300;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.spacex-input:focus {
+  border-color: var(--colors-on-dark);
+}
+
+/* Modals */
 .modal-backdrop-dark {
   position: fixed;
   top: 0;
@@ -642,38 +634,39 @@ body {
 }
 
 .modal-box-dark {
-  background-color: #0a0a0a;
-  border: 1px solid #ffffff;
-  border-radius: var(--rounded-sm);
-  padding: 32px;
-  max-width: 480px;
-  width: 90%;
+  background-color: var(--colors-surface-card);
+  border: 1px solid var(--colors-hairline);
+  border-radius: var(--rounded-none);
+  padding: 40px;
+  width: 100%;
+  max-width: 560px;
 }
 
 .token-view-chassis {
-  background-color: #000000;
-  border: 1px solid var(--colors-hairline-on-dark);
-  padding: 14px;
+  background-color: var(--colors-surface-soft);
+  border: 1px dashed var(--colors-m-red);
+  padding: 16px;
   font-family: monospace;
-  font-size: 13px;
+  font-size: 14px;
   word-break: break-all;
   color: var(--colors-status-live);
   margin: 16px 0;
 }
 
-/* Global Footer */
+/* Footer */
 .global-footer-dark {
-  background-color: var(--colors-canvas-night);
-  border-top: 1px solid var(--colors-hairline-subtle);
-  padding: 40px 0;
+  border-top: 1px solid var(--colors-hairline);
+  background-color: var(--colors-canvas);
+  padding: 32px 0;
   margin-top: auto;
 }
 
 .footer-inner-dark {
-  max-width: 1280px;
+  max-width: 1440px;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 32px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  color: var(--colors-muted);
 }

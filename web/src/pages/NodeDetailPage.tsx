@@ -73,8 +73,10 @@ export const NodeDetailPage: React.FC = () => {
       </div>
 
       {/* Instance Chassis Band */}
-      <div className="detail-chassis-band">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div className="detail-chassis-band" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="m-stripe-divider"></div>
+        <div style={{ padding: '32px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <span className="eyebrow-cap">{t('spec_title')}</span>
             <h1 className="display-xl" style={{ marginTop: '6px' }}>{node.name}</h1>
@@ -132,6 +134,7 @@ export const NodeDetailPage: React.FC = () => {
           </div>
         </div>
       </div>
+    </div>
 
       {/* Probes Results Table */}
       {probes.length > 0 && (

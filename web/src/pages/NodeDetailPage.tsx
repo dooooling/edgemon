@@ -6,6 +6,7 @@ import { HistoryChart } from '../components/HistoryChart';
 
 export const NodeDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const [range, setRange] = React.useState('24h');
   const { data, isLoading } = usePublicNodesQuery();
   const connectRealtime = useRealtimeStore((s) => s.connectRealtime);
   const clearOverlay = useRealtimeStore((s) => s.clearOverlay);
@@ -164,13 +165,24 @@ export const NodeDetailPage: React.FC = () => {
 
       {/* Historical Telemetry Charts */}
       <div>
-        <div className="section-title-bar">
+        <div className="section-title-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span className="eyebrow-cap">HISTORICAL FLIGHT TELEMETRY TRENDS</span>
+          <div className="range-capsules">
+            {['1h', '6h', '24h', '7d', '30d'].map((r) => (
+              <button
+                key={r}
+                className={`range-capsule-btn ${range === r ? 'active' : ''}`}
+                onClick={() => setRange(r)}
+              >
+                {r.toUpperCase()}
+              </button>
+            ))}
+          </div>
         </div>
-        <HistoryChart nodeId={node.id} title="CPU CORE USAGE (%)" metricKey="cpu_usage_pct" unit="%" strokeColor="#ffffff" />
-        <HistoryChart nodeId={node.id} title="MEMORY ALLOCATION (BYTES)" metricKey="memory_used_bytes" unit="B" strokeColor="#ffffff" />
-        <HistoryChart nodeId={node.id} title="NETWORK INBOUND THROUGHPUT (BPS)" metricKey="rx_bps" unit="B/S" strokeColor="#00e676" />
-        <HistoryChart nodeId={node.id} title="CLOUDFLARE EDGE SMOOTHED RTT (MS)" metricKey="edge_rtt_ms" unit="MS" strokeColor="#ffffff" />
+        <HistoryChart nodeId={node.id} range={range} title="CPU CORE USAGE (%)" metricKey="cpu_usage_pct" unit="%" strokeColor="#ffffff" />
+        <HistoryChart nodeId={node.id} range={range} title="MEMORY ALLOCATION (BYTES)" metricKey="memory_used_bytes" unit="B" strokeColor="#ffffff" />
+        <HistoryChart nodeId={node.id} range={range} title="NETWORK INBOUND THROUGHPUT (BPS)" metricKey="rx_bps" unit="B/S" strokeColor="#00e676" />
+        <HistoryChart nodeId={node.id} range={range} title="CLOUDFLARE EDGE SMOOTHED RTT (MS)" metricKey="edge_rtt_ms" unit="MS" strokeColor="#ffffff" />
       </div>
     </div>
   );

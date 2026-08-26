@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useNodeHistoryQuery } from '../queries/nodes';
@@ -8,6 +8,7 @@ interface HistoryChartProps {
   title: string;
   metricKey: string;
   unit: string;
+  range?: string;
   strokeColor?: string;
 }
 
@@ -16,9 +17,9 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
   title,
   metricKey,
   unit,
+  range = '24h',
   strokeColor = '#ffffff',
 }) => {
-  const [range, setRange] = useState('24h');
   const chartRef = useRef<HTMLDivElement>(null);
   const uplotInstance = useRef<uPlot | null>(null);
 
@@ -90,21 +91,10 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
 
   return (
     <div className="chart-band">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+      <div style={{ marginBottom: '12px' }}>
         <span className="eyebrow-cap" style={{ color: '#ffffff' }}>
           {title}
         </span>
-        <div className="range-capsules">
-          {['1h', '6h', '24h', '7d', '30d'].map((r) => (
-            <button
-              key={r}
-              className={`range-capsule-btn ${range === r ? 'active' : ''}`}
-              onClick={() => setRange(r)}
-            >
-              {r.toUpperCase()}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div style={{ minHeight: '190px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} ref={chartRef}>

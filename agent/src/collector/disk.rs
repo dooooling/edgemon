@@ -45,6 +45,7 @@ struct StatvfsResult {
     used_bytes: u64,
 }
 
+#[allow(clippy::unnecessary_cast, clippy::useless_conversion)]
 fn get_rootfs_stats() -> Option<StatvfsResult> {
     #[cfg(windows)]
     {
@@ -74,9 +75,9 @@ fn get_rootfs_stats() -> Option<StatvfsResult> {
         let res = unsafe { libc::statvfs(path.as_ptr(), stat.as_mut_ptr()) };
         if res == 0 {
             let stat = unsafe { stat.assume_init() };
-            let bsize = u64::from(stat.f_frsize);
-            let total = u64::from(stat.f_blocks) * bsize;
-            let free = u64::from(stat.f_bfree) * bsize;
+            let bsize = stat.f_frsize as u64;
+            let total = stat.f_blocks as u64 * bsize;
+            let free = stat.f_bfree as u64 * bsize;
             let used = total.saturating_sub(free);
             return Some(StatvfsResult {
                 total_bytes: total,

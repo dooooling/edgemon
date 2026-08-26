@@ -12,6 +12,7 @@ interface HistoryChartProps {
   unit: string;
   range?: string;
   strokeColor?: string;
+  limitBytes?: number | null;
 }
 
 const EMPTY_SERIES: RealtimePoint[] = [];
@@ -23,6 +24,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
   unit,
   range = '24h',
   strokeColor = '#ffffff',
+  limitBytes,
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const uplotInstance = useRef<uPlot | null>(null);
@@ -35,9 +37,20 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
   useEffect(() => {
     if (!chartRef.current) return;
 
+    const extractVal = (item: any): number | null => {
+      if (metricKey === 'memory_usage_pct') {
+        const used = item.memory_used_bytes != null ? Number(item.memory_used_bytes) : null;
+        if (used !== null && limitBytes && limitBytes > 0) {
+          return Number(((used / limitBytes) * 100).toFixed(1));
+        }
+        return null;
+      }
+      return item[metricKey] != null ? Number(item[metricKey]) : null;
+    };
+
     const historyPoints = (data?.points || []).map((pt: any) => ({
       ts_ms: pt.bucket_start_ms,
-      value: pt[metricKey] != null ? Number(pt[metricKey]) : null,
+      value: extractVal(pt),
     }));
 
     let mergedPoints: Array<{ ts_ms: number; value: number | null }> = [];
@@ -48,7 +61,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
       const filteredLive = realtimeSeries
         .map((rt) => ({
           ts_ms: rt.ts_ms,
-          value: (rt as any)[metricKey] != null ? Number((rt as any)[metricKey]) : null,
+          value: extractVal(rt),
         }))
         .filter((p) => p.ts_ms >= cutoff);
 

@@ -65,7 +65,7 @@ export const translations = {
     charts_title: '历史与实时时序变化趋势',
     chart_live_badge: '2秒高频实时流',
     chart_cpu_title: 'CPU 核心使用率 (%)',
-    chart_memory_title: '已用内存趋势 (BYTES)',
+    chart_memory_title: '内存使用率 (%)',
     chart_rx_title: '网络入站实时吞吐速率 (BPS)',
     chart_rtt_title: 'CLOUDFLARE 边缘平滑 RTT (MS)',
     chart_loading: '正在获取采样数据...',

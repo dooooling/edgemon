@@ -309,8 +309,9 @@ export const NodeDetailPage: React.FC = () => {
           nodeId={node.id}
           range={range}
           title={`${t('chart_memory_title')}${node.resources?.memory_limit_bytes ? ` // ${t('memory_limit')}: ${formatBytes(node.resources.memory_limit_bytes)}` : ''}`}
-          metricKey="memory_used_bytes"
-          unit="B"
+          metricKey="memory_usage_pct"
+          unit="%"
+          limitBytes={node.resources?.memory_limit_bytes}
           strokeColor="#ffffff"
         />
         <HistoryChart nodeId={node.id} range={range} title={t('chart_rx_title')} metricKey="rx_bps" unit="B/S" strokeColor="#00e676" />

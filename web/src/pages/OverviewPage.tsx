@@ -4,11 +4,13 @@ import { usePublicNodesQuery } from '../queries/nodes';
 import { useRealtimeStore } from '../realtime/store';
 import { WorldMap } from '../components/WorldMap';
 import { NodeCard } from '../components/NodeCard';
+import { useTranslation } from '../i18n/I18nContext';
 
 export const OverviewPage: React.FC = () => {
   const { data, isLoading, refetch } = usePublicNodesQuery();
   const connectRealtime = useRealtimeStore((s) => s.connectRealtime);
   const overlays = useRealtimeStore((s) => s.overlays);
+  const { t } = useTranslation();
 
   useEffect(() => {
     connectRealtime('overview');
@@ -38,30 +40,28 @@ export const OverviewPage: React.FC = () => {
       {/* 1. Hero Band */}
       <section className="hero-band">
         <span className="eyebrow-cap">MISSION ARCHITECTURE // EDGE MONITORING</span>
-        <h1 className="display-xxl">GLOBAL TELEMETRY STREAM</h1>
-        <p className="hero-subline">
-          Zero-RCE, low-overhead distributed Linux & Windows daemon architecture. Real-time telemetry routed across Cloudflare edge workers.
-        </p>
+        <h1 className="display-xxl">{t('hero_title')}</h1>
+        <p className="hero-subline">{t('hero_sub')}</p>
       </section>
 
       {/* 2. Mission Statistics Grid */}
       <div className="mission-stats-grid">
         <div className="stat-tile">
-          <span className="eyebrow-cap">TOTAL FLEET NODES</span>
+          <span className="eyebrow-cap">{t('stat_total_nodes')}</span>
           <div className="stat-val-large">{nodes.length}</div>
         </div>
         <div className="stat-tile">
-          <span className="eyebrow-cap">ACTIVE ORBITAL BEACONS</span>
+          <span className="eyebrow-cap">{t('stat_active_beacons')}</span>
           <div className="stat-val-large stat-val-live">{onlineNodes.length}</div>
         </div>
         <div className="stat-tile">
-          <span className="eyebrow-cap">OFFLINE / SILENT</span>
+          <span className="eyebrow-cap">{t('stat_offline')}</span>
           <div className={`stat-val-large ${offlineCount > 0 ? 'stat-val-alert' : ''}`}>
             {offlineCount}
           </div>
         </div>
         <div className="stat-tile">
-          <span className="eyebrow-cap">AGGREGATE BANDWIDTH</span>
+          <span className="eyebrow-cap">{t('stat_rx_rate')} / {t('stat_tx_rate')}</span>
           <div className="stat-val-large" style={{ fontSize: '22px' }}>
             ↓ {formatBps(totalRxBps)} · ↑ {formatBps(totalTxBps)}
           </div>
@@ -74,7 +74,7 @@ export const OverviewPage: React.FC = () => {
       {/* 4. Fleet Nodes Grid Section */}
       <div className="section-title-bar">
         <div>
-          <span className="eyebrow-cap">FLEET INVENTORY</span>
+          <span className="eyebrow-cap">{t('fleet_nodes_title')}</span>
           <h2 className="display-lg" style={{ fontSize: '24px', marginTop: '4px' }}>
             REGISTERED INSTANCES ({nodes.length})
           </h2>

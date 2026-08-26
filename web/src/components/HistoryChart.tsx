@@ -3,6 +3,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useNodeHistoryQuery } from '../queries/nodes';
 import { useRealtimeStore, RealtimePoint } from '../realtime/store';
+import { useTranslation } from '../i18n/I18nContext';
 
 interface HistoryChartProps {
   nodeId: string;
@@ -25,6 +26,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const uplotInstance = useRef<uPlot | null>(null);
+  const { t } = useTranslation();
 
   const { data, isLoading } = useNodeHistoryQuery(nodeId, range);
   const realtimeSeries = useRealtimeStore((s) => s.realtimeSeries[nodeId] ?? EMPTY_SERIES);
@@ -161,10 +163,10 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
 
       <div style={{ minHeight: '190px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }} ref={chartRef}>
         {isLoading && (
-          <span className="eyebrow-cap">ACQUIRING TELEMETRY BUFFER...</span>
+          <span className="eyebrow-cap">{t('chart_loading')}</span>
         )}
         {!isLoading && (!data?.points || data.points.length === 0) && realtimeSeries.length === 0 && (
-          <span className="eyebrow-cap">NO TELEMETRY BUFFER IN TIMEFRAME</span>
+          <span className="eyebrow-cap">{t('chart_no_data')}</span>
         )}
       </div>
     </div>

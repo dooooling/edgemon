@@ -1,8 +1,11 @@
 import React from 'react';
 import { HeaderNav } from './components/HeaderNav';
 import { AppRoutes } from './router';
+import { useTranslation } from './i18n/I18nContext';
 
 export const App: React.FC = () => {
+  const { t } = useTranslation();
+
   return (
     <div className="app-wrapper">
       <HeaderNav />
@@ -14,14 +17,14 @@ export const App: React.FC = () => {
       <footer className="global-footer-dark">
         <div className="footer-inner-dark">
           <span className="eyebrow-cap" style={{ fontSize: '11px' }}>
-            EDGEMON TELEMETRY © {new Date().getFullYear()} // CLOUDFLARE NATIVE
+            {t('footer_copy')}
           </span>
           <div className="eyebrow-cap" style={{ display: 'flex', gap: '20px', fontSize: '11px' }}>
-            <span>ACCURACY FIRST</span>
+            <span>{t('footer_accuracy')}</span>
             <span>//</span>
-            <span>ZERO RCE</span>
+            <span>{t('footer_zero_rce')}</span>
             <span>//</span>
-            <span>LOW OVERHEAD</span>
+            <span>{t('footer_minimal')}</span>
           </div>
         </div>
       </footer>

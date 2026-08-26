@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { NodeItem } from '../api/client';
 import { useRealtimeStore } from '../realtime/store';
+import { useTranslation } from '../i18n/I18nContext';
 
 interface NodeCardProps {
   node: NodeItem;
@@ -9,6 +10,7 @@ interface NodeCardProps {
 
 export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
   const overlay = useRealtimeStore((s) => s.overlays[node.id]);
+  const { t } = useTranslation();
 
   const lastSeenAtMs = overlay?.last_seen_at_ms ?? node.state?.last_seen_at_ms;
   const isOnline = lastSeenAtMs ? Date.now() - lastSeenAtMs < 90 * 1000 : false;
@@ -39,7 +41,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
   const diskText = !isOnline
     ? 'N/A'
     : !rootfsLimitBytes || rootfsLimitBytes === 0
-    ? 'N/A (CONTAINER)'
+    ? t('container_na')
     : rootfsUsedBytes
     ? `${(rootfsUsedBytes / (1024 * 1024 * 1024)).toFixed(1)} / ${(rootfsLimitBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
     : `${(rootfsLimitBytes / (1024 * 1024 * 1024)).toFixed(1)} GB TOTAL`;
@@ -58,14 +60,14 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
         <div className="node-card-header">
           <div className="node-title-group">
             <span className="eyebrow-cap">
-              {(node.environment?.type || 'INSTANCE').toUpperCase()} // {node.resources?.cpu_capacity_cores || 1} CORES
+              {(node.environment?.type || 'INSTANCE').toUpperCase()} // {node.resources?.cpu_capacity_cores || 1} {t('node_cores')}
             </span>
             <h3 className="node-name-text">{node.name}</h3>
           </div>
 
           <div className="status-indicator-beacon">
             <span className={`beacon-dot ${isOnline ? 'beacon-live' : 'beacon-idle'}`}></span>
-            <span style={{ fontSize: '10px' }}>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+            <span style={{ fontSize: '10px' }}>{isOnline ? t('node_online') : t('node_offline')}</span>
           </div>
         </div>
 
@@ -74,7 +76,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           {/* CPU */}
           <div className="telemetry-row">
             <div className="telemetry-header-row">
-              <span style={{ color: 'var(--colors-on-primary-mute)' }}>CPU CORE USAGE</span>
+              <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('cpu_usage')}</span>
               <span>{cpuText}</span>
             </div>
             <div className="telemetry-bar-track">
@@ -85,7 +87,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           {/* Memory */}
           <div className="telemetry-row">
             <div className="telemetry-header-row">
-              <span style={{ color: 'var(--colors-on-primary-mute)' }}>MEMORY ALLOCATION</span>
+              <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('memory_allocation')}</span>
               <span>{memoryText}</span>
             </div>
             <div className="telemetry-bar-track">
@@ -96,7 +98,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           {/* Storage */}
           <div className="telemetry-row">
             <div className="telemetry-header-row">
-              <span style={{ color: 'var(--colors-on-primary-mute)' }}>ROOT STORAGE</span>
+              <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('root_storage')}</span>
               <span>{diskText}</span>
             </div>
           </div>
@@ -105,7 +107,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           {traffic && (
             <div className="telemetry-row">
               <div className="telemetry-header-row">
-                <span style={{ color: 'var(--colors-on-primary-mute)' }}>CYCLE TRAFFIC (DAY {traffic.reset_day})</span>
+                <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('cycle_traffic')} (DAY {traffic.reset_day})</span>
                 <span>
                   {formatBytes(trafficUsed)}
                   {trafficQuota ? ` / ${formatBytes(trafficQuota)}` : ''}
@@ -149,7 +151,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           {node.geo?.city || node.geo?.country || 'COLO'} · {node.geo?.colo || 'EDGE'}
         </span>
         <Link to={`/node/${node.id}`} className="button-ghost-on-dark button-ghost-sm">
-          INSPECT NODE ➔
+          {t('inspect_node')}
         </Link>
       </div>
     </div>

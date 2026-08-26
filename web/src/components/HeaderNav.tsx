@@ -2,12 +2,14 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { usePublicNodesQuery } from '../queries/nodes';
 import { useRealtimeStore } from '../realtime/store';
+import { useTranslation } from '../i18n/I18nContext';
 
 export const HeaderNav: React.FC = () => {
   const location = useLocation();
   const { data } = usePublicNodesQuery();
   const wsConnected = useRealtimeStore((s) => s.wsConnected);
   const overlays = useRealtimeStore((s) => s.overlays);
+  const { lang, setLang, t } = useTranslation();
 
   const nodes = data?.nodes || [];
   const now = Date.now();
@@ -24,7 +26,7 @@ export const HeaderNav: React.FC = () => {
         {/* Brand Wordmark (Uppercase D-DIN) */}
         <Link to="/" className="nav-brand-wordmark">
           <span>EDGEMON</span>
-          <span style={{ color: 'var(--colors-on-primary-mute)', fontWeight: 400 }}>// TELEMETRY</span>
+          <span style={{ color: 'var(--colors-on-primary-mute)', fontWeight: 400 }}>{t('nav_brand_sub')}</span>
         </Link>
 
         {/* Center All-Caps Links */}
@@ -33,28 +35,48 @@ export const HeaderNav: React.FC = () => {
             to="/"
             className={`nav-menu-link ${location.pathname === '/' ? 'active' : ''}`}
           >
-            FLEET OVERVIEW
+            {t('nav_overview')}
           </Link>
           <Link
             to="/admin"
             className={`nav-menu-link ${location.pathname === '/admin' ? 'active' : ''}`}
           >
-            MISSION CONSOLE
+            {t('nav_console')}
           </Link>
         </nav>
 
-        {/* Status Beacon & Ghost Pill */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+        {/* Status Beacon & Language Switcher Pill */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <div className="status-indicator-beacon">
             <span className={`beacon-dot ${wsConnected ? 'beacon-live' : 'beacon-idle'}`}></span>
-            <span>{wsConnected ? `ORBITAL STREAM (${onlineNodes.length} ACTIVE)` : 'OFFLINE SYNC'}</span>
+            <span>
+              {wsConnected
+                ? `${t('nav_active_stream')} (${onlineNodes.length} ${t('nav_active_count')})`
+                : t('nav_offline_sync')}
+            </span>
           </div>
 
           {location.pathname !== '/admin' && (
             <Link to="/admin" className="button-ghost-on-dark button-ghost-sm">
-              PROVISION NODE
+              {t('nav_provision')}
             </Link>
           )}
+
+          {/* Top-Right i18n Switcher Pill */}
+          <div className="range-capsules">
+            <button
+              className={`range-capsule-btn ${lang === 'zh' ? 'active' : ''}`}
+              onClick={() => setLang('zh')}
+            >
+              中文
+            </button>
+            <button
+              className={`range-capsule-btn ${lang === 'en' ? 'active' : ''}`}
+              onClick={() => setLang('en')}
+            >
+              EN
+            </button>
+          </div>
         </div>
       </div>
     </header>

@@ -7,10 +7,12 @@ import {
   rotateAdminNodeToken,
 } from '../api/client';
 import { useAdminSessionQuery, useAdminNodesQuery } from '../queries/nodes';
+import { useTranslation } from '../i18n/I18nContext';
 
 export const AdminPage: React.FC = () => {
   const { data: sessionData, refetch: refetchSession } = useAdminSessionQuery();
   const authenticated = sessionData?.authenticated || false;
+  const { t } = useTranslation();
 
   const { data: nodesData, refetch: refetchNodes } = useAdminNodesQuery(authenticated);
 
@@ -97,22 +99,22 @@ export const AdminPage: React.FC = () => {
     <div className="page-container">
       {!authenticated ? (
         <div className="admin-card-chassis">
-          <span className="eyebrow-cap">AUTHENTICATION REQUIRED</span>
+          <span className="eyebrow-cap">{t('admin_title')}</span>
           <h2 className="display-lg" style={{ fontSize: '24px', margin: '8px 0 16px' }}>
-            MISSION CONTROL ACCESS
+            {t('nav_console')}
           </h2>
           <p className="caption" style={{ marginBottom: '24px' }}>
-            Enter your root administrative key to configure constellation nodes and access credentials.
+            {t('admin_login_sub')}
           </p>
 
           <form onSubmit={handleLogin}>
             <div style={{ marginBottom: '20px' }}>
-              <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>ADMIN KEY</span>
+              <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('admin_key_label')}</span>
               <input
                 value={adminKey}
                 onChange={(e) => setAdminKey(e.target.value)}
                 type="password"
-                placeholder="ENTER ADMIN_KEY..."
+                placeholder="ADMIN_KEY..."
                 className="spacex-input"
                 required
               />
@@ -125,7 +127,7 @@ export const AdminPage: React.FC = () => {
             )}
 
             <button type="submit" className="button-ghost-on-dark" style={{ width: '100%' }} disabled={loggingIn}>
-              {loggingIn ? 'VERIFYING...' : 'SIGN IN ➔'}
+              {loggingIn ? '...' : t('admin_login_btn')}
             </button>
           </form>
         </div>
@@ -134,17 +136,17 @@ export const AdminPage: React.FC = () => {
           {/* Admin Header */}
           <div className="section-title-bar">
             <div>
-              <span className="eyebrow-cap">FLEET ADMINISTRATION</span>
+              <span className="eyebrow-cap">{t('admin_nodes_title')}</span>
               <h2 className="display-lg" style={{ fontSize: '24px', marginTop: '4px' }}>
-                CONSTELLATION NODES
+                {t('fleet_nodes_title')}
               </h2>
             </div>
             <div style={{ display: 'flex', gap: '12px' }}>
               <button className="button-ghost-on-dark button-ghost-sm" onClick={() => setShowAddModal(true)}>
-                + PROVISION NODE
+                {t('create_node_btn')}
               </button>
               <button className="button-ghost-on-dark button-ghost-sm" onClick={handleLogout}>
-                DISCONNECT
+                {t('admin_logout_btn')}
               </button>
             </div>
           </div>

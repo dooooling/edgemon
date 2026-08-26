@@ -78,42 +78,62 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
     const width = chartRef.current.clientWidth || 600;
 
     if (uplotInstance.current) {
-      uplotInstance.current.setData(alignedData);
-    } else {
-      const opts: uPlot.Options = {
-        width,
-        height: 190,
-        scales: {
-          x: { time: true },
-          y: { auto: true },
-        },
-        axes: [
-          {
-            stroke: '#a0a0a8',
-            grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
-            ticks: { stroke: 'transparent' },
-          },
-          {
-            stroke: '#a0a0a8',
-            grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
-            ticks: { stroke: 'transparent' },
-            values: (_u, vals) => vals.map((v) => `${v}${unit}`),
-          },
-        ],
-        series: [
-          {},
-          {
-            label: title,
-            stroke: strokeColor,
-            width: 1.5,
-            fill: 'rgba(255, 255, 255, 0.05)',
-          },
-        ],
-      };
-
-      uplotInstance.current = new uPlot(opts, alignedData, chartRef.current);
+      uplotInstance.current.destroy();
+      uplotInstance.current = null;
     }
+
+    const opts: uPlot.Options = {
+      width,
+      height: 190,
+      scales: {
+        x: { time: true },
+        y: { auto: true },
+      },
+      axes: [
+        {
+          stroke: '#a0a0a8',
+          grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
+          ticks: { stroke: 'transparent' },
+        },
+        {
+          stroke: '#a0a0a8',
+          grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
+          ticks: { stroke: 'transparent' },
+          values: (_u, vals) => vals.map((v) => `${v}${unit}`),
+        },
+      ],
+      series: [
+        {},
+        {
+          label: title,
+          stroke: strokeColor,
+          width: 1.5,
+          fill: 'rgba(255, 255, 255, 0.05)',
+        },
+      ],
+    };
+
+    uplotInstance.current = new uPlot(opts, alignedData, chartRef.current);
   }, [data, realtimeSeries, range, title, metricKey, unit, strokeColor]);
+
+  // Automatic container resize observer
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0 && uplotInstance.current) {
+          uplotInstance.current.setSize({
+            width: entry.contentRect.width,
+            height: 190,
+          });
+        }
+      }
+    });
+    ro.observe(chartRef.current);
+    return () => {
+      ro.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -137,7 +157,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
         )}
       </div>
 
-      <div style={{ minHeight: '190px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} ref={chartRef}>
+      <div style={{ minHeight: '190px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }} ref={chartRef}>
         {isLoading && (
           <span className="eyebrow-cap">ACQUIRING TELEMETRY BUFFER...</span>
         )}

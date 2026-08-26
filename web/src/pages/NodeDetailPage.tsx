@@ -54,7 +54,7 @@ export const NodeDetailPage: React.FC = () => {
   }
 
   const lastSeen = overlay?.last_seen_at_ms ?? node.state?.last_seen_at_ms;
-  const isOnline = lastSeen ? Date.now() - lastSeen < 180 * 1000 : false;
+  const isOnline = lastSeen ? Date.now() - lastSeen < 90 * 1000 : false;
   const probes = overlay?.probes ?? node.state?.probes ?? [];
 
   return (

@@ -11,7 +11,7 @@ export const HeaderNav: React.FC = () => {
 
   const nodes = data?.nodes || [];
   const now = Date.now();
-  const onlineCutoffMs = 180 * 1000;
+  const onlineCutoffMs = 90 * 1000;
 
   const onlineNodes = nodes.filter((n) => {
     const lastSeen = overlays[n.id]?.last_seen_at_ms ?? n.state?.last_seen_at_ms;

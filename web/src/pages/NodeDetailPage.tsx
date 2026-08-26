@@ -111,7 +111,17 @@ export const NodeDetailPage: React.FC = () => {
           </div>
           <div className="spec-entry">
             <span className="spec-entry-label">{t('memory_limit')}</span>
-            <span className="spec-entry-val">{formatBytes(node.resources?.memory_limit_bytes)}</span>
+            <span className="spec-entry-val">
+              {(() => {
+                const limit = node.resources?.memory_limit_bytes;
+                const used = overlay?.memory_used_bytes ?? node.state?.memory_used_bytes;
+                if (isOnline && used && limit && limit > 0) {
+                  const pct = ((used / limit) * 100).toFixed(1);
+                  return `${pct}% (${formatBytes(used)} / ${formatBytes(limit)})`;
+                }
+                return formatBytes(limit);
+              })()}
+            </span>
           </div>
           <div className="spec-entry">
             <span className="spec-entry-label">{t('disk_limit')}</span>
@@ -171,7 +181,7 @@ export const NodeDetailPage: React.FC = () => {
                       <span>{p.status.toUpperCase()}</span>
                     </span>
                   </td>
-                  <td>{p.latency_ms != null ? `${p.latency_ms} MS` : 'N/A'}</td>
+                  <td>{p.latency_ms != null ? `${p.latency_ms.toFixed(1)} MS` : 'N/A'}</td>
                   <td>{Math.round(p.loss_ratio * 100)}%</td>
                 </tr>
               ))}
@@ -180,12 +190,15 @@ export const NodeDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* Historical Telemetry Charts */}
-      <div>
-        <div className="section-title-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span className="eyebrow-cap">{t('charts_title')}</span>
-          <div className="range-capsules">
-            {['10m', '1h', '6h', '24h', '7d', '30d'].map((r) => (
+      {/* History Telemetry Charts */}
+      <div className="detail-chassis-band">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <span className="eyebrow-cap">{t('charts_title')}</span>
+            <h3 className="section-title" style={{ marginTop: '4px' }}>{t('chart_live_badge')}</h3>
+          </div>
+          <div className="range-selector-capsule">
+            {(['10m', '1h', '24h', '7d', '30d'] as const).map((r) => (
               <button
                 key={r}
                 className={`range-capsule-btn ${range === r ? 'active' : ''}`}
@@ -197,7 +210,14 @@ export const NodeDetailPage: React.FC = () => {
           </div>
         </div>
         <HistoryChart nodeId={node.id} range={range} title={t('chart_cpu_title')} metricKey="cpu_usage_pct" unit="%" strokeColor="#ffffff" />
-        <HistoryChart nodeId={node.id} range={range} title={t('chart_memory_title')} metricKey="memory_used_bytes" unit="B" strokeColor="#ffffff" />
+        <HistoryChart
+          nodeId={node.id}
+          range={range}
+          title={`${t('chart_memory_title')}${node.resources?.memory_limit_bytes ? ` // ${t('memory_limit')}: ${formatBytes(node.resources.memory_limit_bytes)}` : ''}`}
+          metricKey="memory_used_bytes"
+          unit="B"
+          strokeColor="#ffffff"
+        />
         <HistoryChart nodeId={node.id} range={range} title={t('chart_rx_title')} metricKey="rx_bps" unit="B/S" strokeColor="#00e676" />
         <HistoryChart nodeId={node.id} range={range} title={t('chart_rtt_title')} metricKey="edge_rtt_ms" unit="MS" strokeColor="#ffffff" />
       </div>

@@ -27,15 +27,19 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
   const cpuBarWidth = !isOnline || cpuUsagePct == null ? 0 : Math.min(100, Math.max(0, cpuUsagePct));
 
   const limitBytes = node.resources?.memory_limit_bytes;
+  const memoryPct = !isOnline || !memoryUsedBytes || !limitBytes || limitBytes === 0
+    ? null
+    : Number(((memoryUsedBytes / limitBytes) * 100).toFixed(1));
+
   const memoryText = !isOnline || !memoryUsedBytes
     ? 'N/A'
-    : limitBytes && limitBytes > 0
-    ? `${Math.round(memoryUsedBytes / (1024 * 1024))} / ${Math.round(limitBytes / (1024 * 1024))} MB`
-    : `${Math.round(memoryUsedBytes / (1024 * 1024))} MB`;
+    : memoryPct !== null && limitBytes && limitBytes > 0
+    ? `${memoryPct}% (${formatBytes(memoryUsedBytes)} / ${formatBytes(limitBytes)})`
+    : `${formatBytes(memoryUsedBytes)}`;
 
-  const memoryBarWidth = !isOnline || !memoryUsedBytes || !limitBytes || limitBytes === 0
-    ? 0
-    : Math.min(100, Math.round((memoryUsedBytes / limitBytes) * 100));
+  const memoryBarWidth = memoryPct !== null
+    ? Math.min(100, Math.max(0, memoryPct))
+    : 0;
 
   const rootfsLimitBytes = node.resources?.rootfs_limit_bytes;
   const diskText = !isOnline

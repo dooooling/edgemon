@@ -85,6 +85,7 @@ agentRoutes.post('/api/agent/v1/hello', async (c) => {
     .bind(creds.nodeId)
     .first<{ persisted_instance_id: string | null; persisted_sample_seq: number }>();
 
+  const isSameInstance = stateRow?.persisted_instance_id === body.instance_id;
   const welcomeEnvelope: ServerEnvelope<WelcomeData> = {
     v: 1,
     type: 'welcome',
@@ -95,7 +96,7 @@ agentRoutes.post('/api/agent/v1/hello', async (c) => {
       config_rev: configRow?.revision || 1,
       config: serverConfig,
       persisted_instance_id: stateRow?.persisted_instance_id || null,
-      persisted_sample_seq: stateRow?.persisted_sample_seq || 0,
+      persisted_sample_seq: isSameInstance ? (stateRow?.persisted_sample_seq || 0) : 0,
     },
   };
 

@@ -160,6 +160,8 @@ fn read_windows_os_version() -> Option<String> {
     }
     Some("Windows 11".to_string())
 }
+
+#[cfg(windows)]
 fn read_windows_kernel_version() -> String {
     use windows_sys::Win32::System::Registry::{
         RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_LOCAL_MACHINE, KEY_READ, REG_SZ,
@@ -840,8 +842,11 @@ fn main() -> Result<()> {
                                 warn!("[HTTP Fallback] Report failed: {}", e);
                                 if e.to_string().contains("HELLO_REQUIRED")
                                     || e.to_string().contains("INSTANCE_MISMATCH")
+                                    || e.to_string().contains("STALE_OR_DUPLICATE_SEQ")
+                                    || e.to_string().contains("NON_MONOTONIC_SEQ")
                                 {
                                     http_registered = false;
+                                    seq += 1;
                                 }
                             }
                         }

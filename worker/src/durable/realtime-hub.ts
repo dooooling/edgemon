@@ -131,9 +131,9 @@ export class RealtimeHub extends DurableObject<Env> {
       ? new TextEncoder().encode(message).byteLength
       : (message instanceof ArrayBuffer ? message.byteLength : 0);
 
-    // Frame size guard (max 16KB for control frames)
-    if (byteLength > 16384) {
-      ws.close(CloseCodes.MESSAGE_TOO_BIG, 'Frame exceeds 16KB limit');
+    // Frame size guard (max 64KB for batch report and control frames)
+    if (byteLength > 65536) {
+      ws.close(CloseCodes.MESSAGE_TOO_BIG, 'Frame exceeds 64KB limit');
       return;
     }
 
@@ -148,12 +148,6 @@ export class RealtimeHub extends DurableObject<Env> {
       }
     } catch {
       this.sendError(ws, 'INVALID_JSON', 'Failed to parse JSON envelope');
-      return;
-    }
-
-    // Byte size guard for report payload (max 8KB)
-    if (envelope.type === 'report' && byteLength > 8192) {
-      ws.close(CloseCodes.MESSAGE_TOO_BIG, 'Report frame exceeds 8KB limit');
       return;
     }
 
@@ -240,8 +234,11 @@ export class RealtimeHub extends DurableObject<Env> {
         attachment.bucket_start_tx_bytes = stateRow.tx_total_bytes;
         attachment.last_counter_id = stateRow.network_counter_id;
         attachment.last_persist_bucket_ms = Math.floor((stateRow.persisted_at_ms || 0) / 60000) * 60000;
-        if (stateRow.persisted_sample_seq) {
+        // P0-1: Only restore watermark if state.persisted_instance_id === current instance_id!
+        if (stateRow.persisted_instance_id === attachment.instance_id && stateRow.persisted_sample_seq) {
           attachment.persisted_sample_seq = stateRow.persisted_sample_seq;
+        } else {
+          attachment.persisted_sample_seq = 0;
         }
       }
 
@@ -250,6 +247,7 @@ export class RealtimeHub extends DurableObject<Env> {
       attachment.last_seq = envelope.seq;
       ws.serializeAttachment(attachment);
 
+      const isSameInstance = stateRow?.persisted_instance_id === attachment.instance_id;
       const welcomeEnvelope: ServerEnvelope<WelcomeData> = {
         v: 1,
         type: 'welcome',
@@ -260,7 +258,7 @@ export class RealtimeHub extends DurableObject<Env> {
           config_rev: attachment.config_rev,
           config: serverConfig,
           persisted_instance_id: stateRow?.persisted_instance_id || null,
-          persisted_sample_seq: stateRow?.persisted_sample_seq || 0,
+          persisted_sample_seq: isSameInstance ? (stateRow?.persisted_sample_seq || 0) : 0,
         },
       };
 
@@ -274,12 +272,12 @@ export class RealtimeHub extends DurableObject<Env> {
       return;
     }
 
-    // Monotonic sequence verification
-    if (envelope.seq <= attachment.last_seq) {
+    // Sequence verification (allow seq == last_seq for idempotent retry)
+    if (envelope.seq < attachment.last_seq) {
       this.sendError(
         ws,
         'NON_MONOTONIC_SEQ',
-        `Envelope seq ${envelope.seq} is not greater than last acknowledged seq ${attachment.last_seq}`,
+        `Envelope seq ${envelope.seq} is less than last acknowledged seq ${attachment.last_seq}`,
         envelope.seq
       );
       return;

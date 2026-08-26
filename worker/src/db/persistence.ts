@@ -1,18 +1,23 @@
 import { ReportMetrics } from '../protocol/types';
 import { NormalizedGeo } from '../services/geo';
 
+export interface RawBucketMetric {
+  bucketStartMs: number;
+  report: ReportMetrics;
+  rxDelta: number;
+  txDelta: number;
+}
+
 export interface CheckpointParams {
   nodeId: string;
   instanceId: string;
   seq: number;
-  report: ReportMetrics;
+  latestReport: ReportMetrics;
   geo: NormalizedGeo;
   serverTimeMs: number;
-  stepRxDelta: number;
-  stepTxDelta: number;
-  trafficResetDay?: number;
-  persistedSampleSeq?: number;
+  persistedSampleSeq: number;
   droppedSamples?: number;
+  buckets: RawBucketMetric[];
 }
 
 export async function persist60sCheckpoint(
@@ -23,21 +28,18 @@ export async function persist60sCheckpoint(
     nodeId,
     instanceId,
     seq,
-    report,
+    latestReport,
     geo,
     serverTimeMs,
-    stepRxDelta,
-    stepTxDelta,
     persistedSampleSeq = 0,
     droppedSamples = 0,
+    buckets = [],
   } = params;
 
-  const bucketStartMs = Math.floor(serverTimeMs / 60000) * 60000;
-  const probesJson = JSON.stringify(report.probes || []);
-
+  const probesJson = JSON.stringify(latestReport.probes || []);
   const statements: D1PreparedStatement[] = [];
 
-  // 1. Upsert node_state with persisted_sample_seq watermark tracking
+  // 1. Upsert node_state with instance-scoped persisted_sample_seq watermark tracking (P0-1)
   statements.push(
     db
       .prepare(
@@ -76,7 +78,11 @@ export async function persist60sCheckpoint(
           probe_data_json = excluded.probe_data_json,
           persisted_at_ms = excluded.persisted_at_ms,
           persisted_instance_id = excluded.persisted_instance_id,
-          persisted_sample_seq = MAX(node_state.persisted_sample_seq, excluded.persisted_sample_seq),
+          persisted_sample_seq = CASE
+            WHEN node_state.persisted_instance_id = excluded.persisted_instance_id
+            THEN MAX(node_state.persisted_sample_seq, excluded.persisted_sample_seq)
+            ELSE excluded.persisted_sample_seq
+          END,
           dropped_samples = excluded.dropped_samples`
       )
       .bind(
@@ -84,24 +90,24 @@ export async function persist60sCheckpoint(
         instanceId,
         seq,
         serverTimeMs,
-        report.boot_id || null,
-        report.network.counter_id || null,
-        report.network.interface,
-        report.cpu.usage_pct ?? null,
-        report.cpu.throttled_pct ?? null,
-        report.memory.used_bytes ?? null,
-        report.memory.working_set_bytes ?? null,
-        report.memory.swap_used_bytes ?? null,
-        report.rootfs.used_bytes ?? null,
-        report.io.read_bps ?? null,
-        report.io.write_bps ?? null,
-        report.network.rx_bps ?? null,
-        report.network.tx_bps ?? null,
-        report.network.rx_total_bytes,
-        report.network.tx_total_bytes,
+        latestReport.boot_id || null,
+        latestReport.network.counter_id || null,
+        latestReport.network.interface,
+        latestReport.cpu.usage_pct ?? null,
+        latestReport.cpu.throttled_pct ?? null,
+        latestReport.memory.used_bytes ?? null,
+        latestReport.memory.working_set_bytes ?? null,
+        latestReport.memory.swap_used_bytes ?? null,
+        latestReport.rootfs.used_bytes ?? null,
+        latestReport.io.read_bps ?? null,
+        latestReport.io.write_bps ?? null,
+        latestReport.network.rx_bps ?? null,
+        latestReport.network.tx_bps ?? null,
+        latestReport.network.rx_total_bytes,
+        latestReport.network.tx_total_bytes,
         geo.edge_rtt_ms,
         geo.edge_transport,
-        report.uptime_sec ?? null,
+        latestReport.uptime_sec ?? null,
         probesJson,
         serverTimeMs,
         instanceId,
@@ -110,54 +116,59 @@ export async function persist60sCheckpoint(
       )
   );
 
-  // 2. Upsert metrics_raw (60s resolution bucket)
-  statements.push(
-    db
-      .prepare(
-        `INSERT INTO metrics_raw (
-          node_id, bucket_start_ms, cpu_usage_pct, cpu_throttled_pct,
-          memory_used_bytes, memory_working_set_bytes, swap_used_bytes,
-          rootfs_used_bytes, disk_read_bps, disk_write_bps,
-          rx_bps, tx_bps, rx_bytes_delta, tx_bytes_delta,
-          edge_rtt_ms, probe_data_json
-        ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+  // 2. Upsert each minute bucket to metrics_raw (P0-2 & P0-3 idempotent delta overwrite)
+  for (const b of buckets) {
+    const bucketProbesJson = JSON.stringify(b.report.probes || []);
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO metrics_raw (
+            node_id, bucket_start_ms, cpu_usage_pct, cpu_throttled_pct,
+            memory_used_bytes, memory_working_set_bytes, swap_used_bytes,
+            rootfs_used_bytes, disk_read_bps, disk_write_bps,
+            rx_bps, tx_bps, rx_bytes_delta, tx_bytes_delta,
+            edge_rtt_ms, probe_data_json
+          ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          )
+          ON CONFLICT(node_id, bucket_start_ms) DO UPDATE SET
+            cpu_usage_pct = excluded.cpu_usage_pct,
+            cpu_throttled_pct = excluded.cpu_throttled_pct,
+            memory_used_bytes = excluded.memory_used_bytes,
+            memory_working_set_bytes = excluded.memory_working_set_bytes,
+            swap_used_bytes = excluded.swap_used_bytes,
+            rootfs_used_bytes = excluded.rootfs_used_bytes,
+            disk_read_bps = excluded.disk_read_bps,
+            disk_write_bps = excluded.disk_write_bps,
+            rx_bps = excluded.rx_bps,
+            tx_bps = excluded.tx_bps,
+            rx_bytes_delta = excluded.rx_bytes_delta,
+            tx_bytes_delta = excluded.tx_bytes_delta,
+            edge_rtt_ms = excluded.edge_rtt_ms,
+            probe_data_json = excluded.probe_data_json`
         )
-        ON CONFLICT(node_id, bucket_start_ms) DO UPDATE SET
-          cpu_usage_pct = excluded.cpu_usage_pct,
-          cpu_throttled_pct = excluded.cpu_throttled_pct,
-          memory_used_bytes = excluded.memory_used_bytes,
-          memory_working_set_bytes = excluded.memory_working_set_bytes,
-          swap_used_bytes = excluded.swap_used_bytes,
-          rootfs_used_bytes = excluded.rootfs_used_bytes,
-          disk_read_bps = excluded.disk_read_bps,
-          disk_write_bps = excluded.disk_write_bps,
-          rx_bps = excluded.rx_bps,
-          tx_bps = excluded.tx_bps,
-          rx_bytes_delta = rx_bytes_delta + excluded.rx_bytes_delta,
-          tx_bytes_delta = tx_bytes_delta + excluded.tx_bytes_delta,
-          edge_rtt_ms = excluded.edge_rtt_ms,
-          probe_data_json = excluded.probe_data_json`
-      )
-      .bind(
-        nodeId,
-        bucketStartMs,
-        report.cpu.usage_pct ?? null,
-        report.cpu.throttled_pct ?? null,
-        report.memory.used_bytes ?? null,
-        report.memory.working_set_bytes ?? null,
-        report.memory.swap_used_bytes ?? null,
-        report.rootfs.used_bytes ?? null,
-        report.io.read_bps ?? null,
-        report.io.write_bps ?? null,
-        report.network.rx_bps ?? null,
-        report.network.tx_bps ?? null,
-        stepRxDelta,
-        stepTxDelta,
-        geo.edge_rtt_ms,
-        probesJson
-      )
-  );
+        .bind(
+          nodeId,
+          b.bucketStartMs,
+          b.report.cpu.usage_pct ?? null,
+          b.report.cpu.throttled_pct ?? null,
+          b.report.memory.used_bytes ?? null,
+          b.report.memory.working_set_bytes ?? null,
+          b.report.memory.swap_used_bytes ?? null,
+          b.report.rootfs.used_bytes ?? null,
+          b.report.io.read_bps ?? null,
+          b.report.io.write_bps ?? null,
+          b.report.network.rx_bps ?? null,
+          b.report.network.tx_bps ?? null,
+          b.rxDelta,
+          b.txDelta,
+          geo.edge_rtt_ms,
+          bucketProbesJson
+        )
+    );
+  }
 
-  await db.batch(statements);
+  if (statements.length > 0) {
+    await db.batch(statements);
+  }
 }

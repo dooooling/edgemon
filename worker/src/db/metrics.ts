@@ -84,7 +84,11 @@ export async function upsertNodeState(
         probe_data_json = excluded.probe_data_json,
         persisted_at_ms = excluded.persisted_at_ms,
         persisted_instance_id = excluded.persisted_instance_id,
-        persisted_sample_seq = MAX(node_state.persisted_sample_seq, excluded.persisted_sample_seq),
+        persisted_sample_seq = CASE
+          WHEN node_state.persisted_instance_id = excluded.persisted_instance_id
+          THEN MAX(node_state.persisted_sample_seq, excluded.persisted_sample_seq)
+          ELSE excluded.persisted_sample_seq
+        END,
         dropped_samples = excluded.dropped_samples`
     )
     .bind(
@@ -151,8 +155,8 @@ export async function upsertMetricsRaw(
         disk_write_bps = excluded.disk_write_bps,
         rx_bps = excluded.rx_bps,
         tx_bps = excluded.tx_bps,
-        rx_bytes_delta = rx_bytes_delta + excluded.rx_bytes_delta,
-        tx_bytes_delta = tx_bytes_delta + excluded.tx_bytes_delta,
+        rx_bytes_delta = excluded.rx_bytes_delta,
+        tx_bytes_delta = excluded.tx_bytes_delta,
         edge_rtt_ms = excluded.edge_rtt_ms,
         probe_data_json = excluded.probe_data_json`
     )

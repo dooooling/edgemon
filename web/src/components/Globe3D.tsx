@@ -9,6 +9,58 @@ interface Globe3DProps {
   mode?: '3d' | '2d';
 }
 
+// 6 Major Continent Vector Boundary Polygons [lat, lon][]
+const CONTINENTS: Array<{ name: string; labelPos: [number, number]; points: Array<[number, number]> }> = [
+  {
+    name: 'NORTH AMERICA',
+    labelPos: [45, -100],
+    points: [
+      [70, -165], [60, -140], [55, -125], [30, -115], [20, -105], [15, -90], [10, -75],
+      [25, -80], [35, -75], [45, -65], [60, -65], [70, -85], [75, -120], [70, -165]
+    ],
+  },
+  {
+    name: 'SOUTH AMERICA',
+    labelPos: [-15, -60],
+    points: [
+      [12, -75], [5, -78], [-5, -80], [-18, -75], [-35, -73], [-55, -68], [-52, -65],
+      [-35, -53], [-20, -40], [-5, -35], [5, -52], [12, -75]
+    ],
+  },
+  {
+    name: 'EUROPE',
+    labelPos: [52, 15],
+    points: [
+      [70, -10], [60, 5], [50, 2], [43, -9], [36, -5], [36, 15], [40, 26], [45, 35],
+      [55, 38], [60, 30], [70, 30], [70, -10]
+    ],
+  },
+  {
+    name: 'AFRICA',
+    labelPos: [5, 20],
+    points: [
+      [36, -5], [35, 12], [30, 32], [12, 43], [10, 51], [0, 42], [-12, 40], [-34, 26],
+      [-34, 18], [-15, 12], [5, 10], [10, -15], [20, -17], [36, -5]
+    ],
+  },
+  {
+    name: 'ASIA',
+    labelPos: [45, 90],
+    points: [
+      [75, 60], [70, 100], [65, 170], [60, 160], [35, 140], [22, 114], [10, 105],
+      [1, 104], [10, 77], [25, 62], [40, 50], [50, 55], [60, 60], [75, 60]
+    ],
+  },
+  {
+    name: 'AUSTRALIA',
+    labelPos: [-25, 135],
+    points: [
+      [-11, 130], [-15, 120], [-22, 114], [-34, 115], [-35, 138], [-38, 145], [-30, 153],
+      [-15, 145], [-12, 136], [-11, 130]
+    ],
+  },
+];
+
 // 400+ Sampled Landmass Coordinates for Morphing 3D/2D Dot-Matrix Rendering
 const LAND_POINTS: Array<[number, number]> = [
   // North America
@@ -37,11 +89,14 @@ const LAND_POINTS: Array<[number, number]> = [
 export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [selectedNode, setSelectedNode] = useState<NodeItem | null>(null);
+  const [currentZoom, setCurrentZoom] = useState<number>(100);
   const overlays = useRealtimeStore((s) => s.overlays);
   const { t } = useTranslation();
 
   const rotYRef = useRef<number>(0.5);
   const rotXRef = useRef<number>(0.2);
+  const scaleRef = useRef<number>(1.0);
+  const targetScaleRef = useRef<number>(1.0);
   const morphRef = useRef<number>(mode === '2d' ? 1 : 0);
   const isDraggingRef = useRef<boolean>(false);
   const lastMouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -66,7 +121,6 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     centerX: number,
     centerY: number
   ) {
-    // Ease-in-ease-out S-curve for smooth unroll
     const ease = (1 - Math.cos(morph * Math.PI)) / 2;
 
     // 1. 3D Spherical Position
@@ -99,7 +153,6 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     const screenX = centerX + xMorphed;
     const screenY = centerY - yMorphed;
 
-    // Visibility & Backface Culling during Morph
     const visible = z3d >= -20 || ease > 0.35;
     const alpha = Math.min(1.0, Math.max(0.15, (z3d + radius) / (radius * 2) + ease * 0.7));
 
@@ -129,7 +182,12 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
 
       const centerX = width / 2;
       const centerY = height / 2;
-      const radius = Math.min(width, height) * 0.36;
+
+      // Apply Zoom Scale Interpolation
+      scaleRef.current += (targetScaleRef.current - scaleRef.current) * 0.12;
+      const scale = scaleRef.current;
+      const baseRadius = Math.min(width, height) * 0.36;
+      const radius = baseRadius * scale;
 
       // Target morph interpolation (0 = 3D Sphere, 1 = 2D Map)
       const targetMorph = mode === '2d' ? 1.0 : 0.0;
@@ -144,7 +202,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
       const rotX = rotXRef.current;
       const rotY = rotYRef.current;
 
-      // 1. Outer Atmosphere Glow Ring (fades out as map unfolds into 2D)
+      // 1. Outer Atmosphere Glow Ring
       if (morph < 0.95) {
         const glowAlpha = (1 - morph) * 0.15;
         const glowGrad = ctx.createRadialGradient(
@@ -209,18 +267,63 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         ctx.stroke();
       });
 
-      // 4. Morphing Landmass Dot-Matrix
+      // 4. 3D Continent Boundary Polygons & Shading
+      CONTINENTS.forEach((cont) => {
+        ctx.fillStyle = `rgba(0, 102, 177, ${0.08 * (1 - morph * 0.3)})`; // BMW M Blue Tint Fill
+        ctx.strokeStyle = `rgba(0, 102, 177, ${0.4 + morph * 0.2})`; // Blue Vector Border
+        ctx.lineWidth = 1.2;
+
+        ctx.beginPath();
+        let pathStarted = false;
+        cont.points.forEach(([lat, lon]) => {
+          const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
+          if (pt.visible) {
+            if (!pathStarted) {
+              ctx.moveTo(pt.x, pt.y);
+              pathStarted = true;
+            } else {
+              ctx.lineTo(pt.x, pt.y);
+            }
+          }
+        });
+        if (pathStarted) {
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+
+        // Render Continent Region Name Labels in 3D Space
+        const labelPt = projectMorphed(
+          cont.labelPos[0],
+          cont.labelPos[1],
+          radius,
+          rotX,
+          rotY,
+          morph,
+          centerX,
+          centerY
+        );
+        if (labelPt.visible && labelPt.alpha > 0.4) {
+          ctx.fillStyle = `rgba(160, 160, 180, ${labelPt.alpha * 0.75})`;
+          ctx.font = '700 10px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(cont.name, labelPt.x, labelPt.y);
+          ctx.textAlign = 'left';
+        }
+      });
+
+      // 5. Morphing Landmass Dot-Matrix Surface
       LAND_POINTS.forEach(([lat, lon]) => {
         const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
         if (pt.visible) {
-          ctx.fillStyle = `rgba(80, 80, 95, ${pt.alpha})`;
+          ctx.fillStyle = `rgba(120, 130, 150, ${pt.alpha})`;
           ctx.beginPath();
-          ctx.arc(pt.x, pt.y, 2.0, 0, Math.PI * 2);
+          ctx.arc(pt.x, pt.y, 1.8, 0, Math.PI * 2);
           ctx.fill();
         }
       });
 
-      // 5. Morphing Active Telemetry Node Beacons
+      // 6. Morphing Active Telemetry Node Beacons
       geoNodes.forEach((node) => {
         const pt = projectMorphed(
           node.geo.lat!,
@@ -271,6 +374,34 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     };
   }, [geoNodes, overlays, mode]);
 
+  // Mouse Wheel Zoom Handler
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+    const newScale = Math.max(0.6, Math.min(2.5, targetScaleRef.current * zoomFactor));
+    targetScaleRef.current = newScale;
+    setCurrentZoom(Math.round(newScale * 100));
+  };
+
+  const handleZoomIn = () => {
+    const newScale = Math.min(2.5, targetScaleRef.current * 1.25);
+    targetScaleRef.current = newScale;
+    setCurrentZoom(Math.round(newScale * 100));
+  };
+
+  const handleZoomOut = () => {
+    const newScale = Math.max(0.6, targetScaleRef.current / 1.25);
+    targetScaleRef.current = newScale;
+    setCurrentZoom(Math.round(newScale * 100));
+  };
+
+  const handleZoomReset = () => {
+    targetScaleRef.current = 1.0;
+    rotXRef.current = 0.2;
+    rotYRef.current = 0.5;
+    setCurrentZoom(100);
+  };
+
   // Mouse & Touch Drag Handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     isDraggingRef.current = true;
@@ -296,7 +427,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     const mouseY = e.clientY - rect.top;
     const centerX = canvas.clientWidth / 2;
     const centerY = canvas.clientHeight / 2;
-    const radius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.36;
+    const radius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.36 * scaleRef.current;
 
     let hovered: NodeItem | null = null;
     for (const node of geoNodes) {
@@ -330,9 +461,31 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '400px', cursor: mode === '3d' ? 'grab' : 'default' }}>
+      {/* Zoom Control Buttons */}
+      <div
+        className="range-capsules"
+        style={{
+          position: 'absolute',
+          top: '16px',
+          left: '16px',
+          zIndex: 10,
+        }}
+      >
+        <button className="range-capsule-btn" onClick={handleZoomIn} title="Zoom In">
+          +
+        </button>
+        <button className="range-capsule-btn" onClick={handleZoomOut} title="Zoom Out">
+          -
+        </button>
+        <button className="range-capsule-btn" onClick={handleZoomReset} title="Reset View">
+          {currentZoom}%
+        </button>
+      </div>
+
       <canvas
         ref={canvasRef}
         style={{ width: '100%', height: '100%', display: 'block' }}
+        onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}

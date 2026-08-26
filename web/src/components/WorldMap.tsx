@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { NodeItem } from '../api/client';
 import { useRealtimeStore } from '../realtime/store';
+import { useTranslation } from '../i18n/I18nContext';
 
 interface WorldMapProps {
   nodes: NodeItem[];
@@ -10,6 +11,7 @@ interface WorldMapProps {
 export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
   const [selectedNode, setSelectedNode] = useState<NodeItem | null>(null);
   const overlays = useRealtimeStore((s) => s.overlays);
+  const { t } = useTranslation();
 
   const geoNodes = nodes.filter(
     (n) => n.geo?.lat != null && n.geo?.lon != null && !isNaN(n.geo.lat) && !isNaN(n.geo.lon)
@@ -17,7 +19,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
 
   function isOnline(node: NodeItem): boolean {
     const lastSeen = overlays[node.id]?.last_seen_at_ms ?? node.state?.last_seen_at_ms;
-    return lastSeen ? Date.now() - lastSeen < 180 * 1000 : false;
+    return lastSeen ? Date.now() - lastSeen < 90 * 1000 : false;
   }
 
   function projectX(lon: number): number {
@@ -34,13 +36,13 @@ export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
         <div>
           <span className="eyebrow-cap">GLOBAL ORBITAL CONSTELLATION</span>
           <h2 className="display-lg" style={{ fontSize: '24px', marginTop: '4px' }}>
-            EARTH FLEET TOPOLOGY
+            {t('map_title')}
           </h2>
         </div>
-        <span className="eyebrow-cap">{geoNodes.length} ACTIVE ORBITAL NODES</span>
+        <span className="eyebrow-cap">{geoNodes.length} {t('nav_active_count')}</span>
       </div>
 
-      <div className="map-viewport">
+      <div className="map-viewport" style={{ position: 'relative' }}>
         <svg viewBox="0 0 800 400" className="orbital-svg" xmlns="http://www.w3.org/2000/svg">
           {/* Orbital Grids */}
           <g stroke="#1a1a1f" strokeWidth="0.6">
@@ -88,11 +90,12 @@ export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
                 <circle
                   cx={x}
                   cy={y}
-                  r="4"
-                  fill={online ? '#00e676' : '#5a5a5f'}
+                  r="5"
+                  fill={online ? '#00e676' : '#e22718'}
                   stroke="#000000"
                   strokeWidth="1.5"
                   className="orbital-node-dot"
+                  style={{ cursor: 'pointer' }}
                   onMouseEnter={() => setSelectedNode(node)}
                 />
               </g>
@@ -102,14 +105,25 @@ export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
 
         {/* Floating Mission Radar Tooltip */}
         {selectedNode && (
-          <div className="radar-tooltip">
-            <span className="button-cap">{selectedNode.name}</span>
-            <span className="caption" style={{ color: '#ffffff' }}>
+          <div className="radar-tooltip" style={{
+            position: 'absolute',
+            bottom: '16px',
+            right: '16px',
+            backgroundColor: 'var(--colors-surface-card)',
+            border: '1px solid var(--colors-hairline)',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
+            zIndex: 10
+          }}>
+            <span className="button-cap" style={{ fontWeight: 700, fontSize: '14px', color: '#ffffff' }}>{selectedNode.name}</span>
+            <span className="caption" style={{ color: 'var(--colors-body)' }}>
               LOC: {selectedNode.geo.city || selectedNode.geo.country || 'UNKNOWN'} // COLO: {selectedNode.geo.colo || 'CF'}
             </span>
             {selectedNode.state?.edge_rtt_ms && (
               <span className="caption" style={{ color: 'var(--colors-status-live)', fontWeight: 700 }}>
-                SMOOTHED RTT: {selectedNode.state.edge_rtt_ms} MS
+                RTT: {selectedNode.state.edge_rtt_ms} MS
               </span>
             )}
             <Link
@@ -117,7 +131,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
               className="button-ghost-on-dark button-ghost-sm"
               style={{ marginTop: '6px' }}
             >
-              TELEMETRY LOGS ➔
+              {t('inspect_node')}
             </Link>
           </div>
         )}

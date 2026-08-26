@@ -18,6 +18,7 @@ export interface CheckpointParams {
   persistedSampleSeq: number;
   droppedSamples?: number;
   buckets: RawBucketMetric[];
+  trafficStatements?: D1PreparedStatement[];
 }
 
 export async function persist60sCheckpoint(
@@ -34,6 +35,7 @@ export async function persist60sCheckpoint(
     persistedSampleSeq = 0,
     droppedSamples = 0,
     buckets = [],
+    trafficStatements = [],
   } = params;
 
   const probesJson = JSON.stringify(latestReport.probes || []);
@@ -166,6 +168,11 @@ export async function persist60sCheckpoint(
           bucketProbesJson
         )
     );
+  }
+
+  // 3. Append traffic_periods atomic statements
+  if (trafficStatements && trafficStatements.length > 0) {
+    statements.push(...trafficStatements);
   }
 
   if (statements.length > 0) {

@@ -19,7 +19,7 @@ import {
   createDefaultAttachment,
   ingestReportCore,
 } from '../services/ingest';
-import { trackTrafficDelta, finalizeActiveTrafficSegment } from '../db/traffic';
+import { loadTrafficRuntimeState, finalizeActiveTrafficSegment } from '../db/traffic';
 import { verifyAdminSession } from '../services/session';
 
 export interface Env {
@@ -230,8 +230,6 @@ export class RealtimeHub extends DurableObject<Env> {
       if (stateRow) {
         attachment.last_rx_total_bytes = stateRow.rx_total_bytes;
         attachment.last_tx_total_bytes = stateRow.tx_total_bytes;
-        attachment.bucket_start_rx_bytes = stateRow.rx_total_bytes;
-        attachment.bucket_start_tx_bytes = stateRow.tx_total_bytes;
         attachment.last_counter_id = stateRow.network_counter_id;
         attachment.last_persist_bucket_ms = Math.floor((stateRow.persisted_at_ms || 0) / 60000) * 60000;
         // P0-1: Only restore watermark if state.persisted_instance_id === current instance_id!
@@ -241,6 +239,12 @@ export class RealtimeHub extends DurableObject<Env> {
           attachment.persisted_sample_seq = 0;
         }
       }
+
+      attachment.traffic_state = await loadTrafficRuntimeState(
+        this.env.DB,
+        attachment.node_id,
+        attachment.traffic_reset_day
+      );
 
       attachment.hello_ok = true;
       attachment.config_rev = configRow?.revision || 1;
@@ -362,8 +366,9 @@ export class RealtimeHub extends DurableObject<Env> {
           .bind(now, attachment.node_id)
           .run();
 
-        // Best-effort final traffic checkpoint on clean/replace disconnection
+        // Best-effort final traffic checkpoint on normal disconnection (MUST NOT run on 4001 SERVER_RECONNECT!)
         if (
+          code !== CloseCodes.SERVER_RECONNECT &&
           attachment.hello_ok &&
           attachment.last_rx_total_bytes !== null &&
           attachment.last_tx_total_bytes !== null

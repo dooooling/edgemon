@@ -1,17 +1,24 @@
 import { MetricSample, ReportMetrics, ReportPayload, validateReportPayload } from '../protocol/types';
 import { NormalizedGeo } from './geo';
 import { persist60sCheckpoint, RawBucketMetric } from '../db/persistence';
-import { trackTrafficDelta } from '../db/traffic';
+import {
+  applySampleTrafficTransition,
+  buildTrafficD1Statements,
+  computeBillingPeriodStart,
+  loadTrafficRuntimeState,
+  TrafficRuntimeState,
+} from '../db/traffic';
 import { getNodeState } from '../db/metrics';
 
 export interface MinuteAccumulator {
   bucket_start_ms: number;
   first_sample_seq: number;
   last_sample_seq: number;
-  first_rx_total_bytes: number;
-  first_tx_total_bytes: number;
-  last_rx_total_bytes: number;
-  last_tx_total_bytes: number;
+  rx_delta_sum: number;
+  tx_delta_sum: number;
+  previous_counter_id: string | null;
+  previous_rx_total: number | null;
+  previous_tx_total: number | null;
   cpu_sum: number;
   cpu_count: number;
   cpu_throttled_max: number | null;
@@ -46,12 +53,9 @@ export interface AgentAttachment {
   last_counter_id: string | null;
   last_rx_total_bytes: number | null;
   last_tx_total_bytes: number | null;
-  bucket_start_rx_bytes: number | null;
-  bucket_start_tx_bytes: number | null;
-  bucket_accumulated_rx_delta: number;
-  bucket_accumulated_tx_delta: number;
   last_ping_ts_ms: number;
   current_minute: MinuteAccumulator | null;
+  traffic_state: TrafficRuntimeState;
 }
 
 export interface IngestResult {
@@ -76,10 +80,11 @@ export function createMinuteAccumulator(bucketStartMs: number, sample: MetricSam
     bucket_start_ms: bucketStartMs,
     first_sample_seq: sample.sample_seq,
     last_sample_seq: sample.sample_seq,
-    first_rx_total_bytes: m.network.rx_total_bytes,
-    first_tx_total_bytes: m.network.tx_total_bytes,
-    last_rx_total_bytes: m.network.rx_total_bytes,
-    last_tx_total_bytes: m.network.tx_total_bytes,
+    rx_delta_sum: 0,
+    tx_delta_sum: 0,
+    previous_counter_id: m.network?.counter_id || null,
+    previous_rx_total: m.network.rx_total_bytes,
+    previous_tx_total: m.network.tx_total_bytes,
     cpu_sum: cpuUsage ?? 0,
     cpu_count: cpuUsage !== null ? 1 : 0,
     cpu_throttled_max: typeof m.cpu?.throttled_pct === 'number' && Number.isFinite(m.cpu.throttled_pct) ? m.cpu.throttled_pct : null,
@@ -99,9 +104,27 @@ export function createMinuteAccumulator(bucketStartMs: number, sample: MetricSam
 
 export function mergeIntoAccumulator(acc: MinuteAccumulator, sample: MetricSample): void {
   const m = sample.metrics;
+  const sampleCounterId = m.network?.counter_id || null;
+  const sampleRx = m.network.rx_total_bytes;
+  const sampleTx = m.network.tx_total_bytes;
+
+  // P1-2: Monotonic delta accumulation within the same counter across samples
+  if (
+    acc.previous_counter_id !== null &&
+    acc.previous_counter_id === sampleCounterId &&
+    acc.previous_rx_total !== null &&
+    acc.previous_tx_total !== null
+  ) {
+    if (sampleRx >= acc.previous_rx_total && sampleTx >= acc.previous_tx_total) {
+      acc.rx_delta_sum += sampleRx - acc.previous_rx_total;
+      acc.tx_delta_sum += sampleTx - acc.previous_tx_total;
+    }
+  }
+
+  acc.previous_counter_id = sampleCounterId;
+  acc.previous_rx_total = sampleRx;
+  acc.previous_tx_total = sampleTx;
   acc.last_sample_seq = sample.sample_seq;
-  acc.last_rx_total_bytes = m.network.rx_total_bytes;
-  acc.last_tx_total_bytes = m.network.tx_total_bytes;
   acc.last_metrics = m;
 
   if (typeof m.cpu?.usage_pct === 'number' && Number.isFinite(m.cpu.usage_pct)) {
@@ -142,9 +165,6 @@ export function finalizeAccumulator(acc: MinuteAccumulator): RawBucketMetric {
   const avgRxBps = acc.rx_bps_count > 0 ? Math.round(acc.rx_bps_sum / acc.rx_bps_count) : last.network?.rx_bps ?? null;
   const avgTxBps = acc.tx_bps_count > 0 ? Math.round(acc.tx_bps_sum / acc.tx_bps_count) : last.network?.tx_bps ?? null;
 
-  const rxDelta = Math.max(0, acc.last_rx_total_bytes - acc.first_rx_total_bytes);
-  const txDelta = Math.max(0, acc.last_tx_total_bytes - acc.first_tx_total_bytes);
-
   const report: ReportMetrics = {
     config_rev: last.config_rev,
     boot_id: last.boot_id,
@@ -169,8 +189,8 @@ export function finalizeAccumulator(acc: MinuteAccumulator): RawBucketMetric {
       counter_id: last.network.counter_id,
       rx_bps: avgRxBps,
       tx_bps: avgTxBps,
-      rx_total_bytes: acc.last_rx_total_bytes,
-      tx_total_bytes: acc.last_tx_total_bytes,
+      rx_total_bytes: last.network.rx_total_bytes,
+      tx_total_bytes: last.network.tx_total_bytes,
     },
     uptime_sec: last.uptime_sec,
     probes: last.probes,
@@ -179,8 +199,8 @@ export function finalizeAccumulator(acc: MinuteAccumulator): RawBucketMetric {
   return {
     bucketStartMs: acc.bucket_start_ms,
     report,
-    rxDelta,
-    txDelta,
+    rxDelta: acc.rx_delta_sum,
+    txDelta: acc.tx_delta_sum,
   };
 }
 
@@ -272,7 +292,7 @@ export async function ingestReportCore(
     is_hidden: currentAttachment.is_hidden,
   };
 
-  // Hydrate D1 node_state on stateless HTTP fallback
+  // Hydrate D1 state on stateless HTTP fallback
   if (!attachment) {
     const lastDbState = await getNodeState(db, nodeId);
     if (lastDbState) {
@@ -281,52 +301,36 @@ export async function ingestReportCore(
       }
       currentAttachment.last_persist_bucket_ms = Math.floor((lastDbState.persisted_at_ms || 0) / 60000) * 60000;
     }
+    currentAttachment.traffic_state = await loadTrafficRuntimeState(db, nodeId, trafficResetDay);
   }
 
-  // 5. Sample-by-Sample Counter Transition Tracking & Minute Accumulator (P0-2 & P0-3)
+  // 5. Sample-by-Sample Traffic State Transition & Minute Accumulator (P0-1, P0-2, P0-3, P1-1, P1-2)
   const bucketsToPersist: RawBucketMetric[] = [];
   let maxDurableCandidateSeq = currentAttachment.persisted_sample_seq;
 
   for (const s of validSamples) {
     const sampleBucket = Math.floor(s.sampled_at_ms / 60000) * 60000;
-
-    // A. Sample-by-Sample Traffic Counter Domain Tracking (P0-3: captures exact peak before reset)
     const sampleCounterId = s.metrics.network?.counter_id || null;
     const sampleRx = s.metrics.network.rx_total_bytes;
     const sampleTx = s.metrics.network.tx_total_bytes;
 
-    const isCounterChanged = currentAttachment.last_counter_id !== null && currentAttachment.last_counter_id !== sampleCounterId;
-    const isCounterReset =
-      currentAttachment.last_rx_total_bytes !== null &&
-      (sampleRx < currentAttachment.last_rx_total_bytes || sampleTx < (currentAttachment.last_tx_total_bytes ?? 0));
-
-    if (isCounterChanged || isCounterReset) {
-      try {
-        await trackTrafficDelta(
-          db,
-          nodeId,
-          sampleRx,
-          sampleTx,
-          sampleCounterId,
-          currentAttachment.traffic_reset_day,
-          currentAttachment.last_rx_total_bytes,
-          currentAttachment.last_tx_total_bytes
-        );
-      } catch (err) {
-        console.error(`[Ingest] Immediate traffic reset settlement failed for node ${nodeId}:`, err);
-      }
-      currentAttachment.bucket_start_rx_bytes = sampleRx;
-      currentAttachment.bucket_start_tx_bytes = sampleTx;
-    } else if (currentAttachment.bucket_start_rx_bytes === null) {
-      currentAttachment.bucket_start_rx_bytes = sampleRx;
-      currentAttachment.bucket_start_tx_bytes = sampleTx;
-    }
+    // A. Pure in-memory traffic state transition (captures peak reading & handles period rollover)
+    currentAttachment.traffic_state = applySampleTrafficTransition(
+      currentAttachment.traffic_state,
+      s.sampled_at_ms,
+      sampleRx,
+      sampleTx,
+      sampleCounterId,
+      currentAttachment.traffic_reset_day,
+      currentAttachment.last_rx_total_bytes,
+      currentAttachment.last_tx_total_bytes
+    );
 
     currentAttachment.last_counter_id = sampleCounterId;
     currentAttachment.last_rx_total_bytes = sampleRx;
     currentAttachment.last_tx_total_bytes = sampleTx;
 
-    // B. Minute Accumulator
+    // B. Minute Accumulator with monotonic rx_delta_sum / tx_delta_sum
     if (!currentAttachment.current_minute) {
       currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s);
     } else if (sampleBucket === currentAttachment.current_minute.bucket_start_ms) {
@@ -359,7 +363,10 @@ export async function ingestReportCore(
 
   let actuallyPersisted = false;
 
-  if (bucketsToPersist.length > 0) {
+  // 6. Atomic Persistence Checkpoint (P0-1: traffic_periods + metrics_raw + node_state in ONE db.batch)
+  if (bucketsToPersist.length > 0 || currentAttachment.traffic_state.dirty) {
+    const trafficStatements = buildTrafficD1Statements(db, nodeId, currentAttachment.traffic_state, serverTimeMs);
+
     try {
       await persist60sCheckpoint(db, {
         nodeId,
@@ -371,16 +378,19 @@ export async function ingestReportCore(
         persistedSampleSeq: maxDurableCandidateSeq,
         droppedSamples: report.dropped_samples || 0,
         buckets: bucketsToPersist,
+        trafficStatements,
       });
 
-      actuallyPersisted = true;
+      actuallyPersisted = bucketsToPersist.length > 0;
+      currentAttachment.traffic_state.dirty = false;
+      currentAttachment.traffic_state.prev_period_settlement = null;
       currentAttachment.persisted_sample_seq = Math.max(currentAttachment.persisted_sample_seq, maxDurableCandidateSeq);
-      currentAttachment.last_persist_bucket_ms = Math.max(
-        currentAttachment.last_persist_bucket_ms,
-        ...bucketsToPersist.map((b) => b.bucketStartMs)
-      );
-      currentAttachment.bucket_start_rx_bytes = currentAttachment.last_rx_total_bytes;
-      currentAttachment.bucket_start_tx_bytes = currentAttachment.last_tx_total_bytes;
+      if (bucketsToPersist.length > 0) {
+        currentAttachment.last_persist_bucket_ms = Math.max(
+          currentAttachment.last_persist_bucket_ms,
+          ...bucketsToPersist.map((b) => b.bucketStartMs)
+        );
+      }
     } catch (err: any) {
       console.error(`[Ingest] D1 Checkpoint failed for node ${nodeId}:`, err);
       // P0-1: D1 persistence failed! Return error so RealtimeHub closes WSS to trigger Agent replay!
@@ -396,23 +406,7 @@ export async function ingestReportCore(
     }
   }
 
-  // Final traffic tracking in steady state
-  try {
-    await trackTrafficDelta(
-      db,
-      nodeId,
-      currentAttachment.last_rx_total_bytes ?? latestMetrics.network.rx_total_bytes,
-      currentAttachment.last_tx_total_bytes ?? latestMetrics.network.tx_total_bytes,
-      currentAttachment.last_counter_id,
-      currentAttachment.traffic_reset_day,
-      currentAttachment.last_rx_total_bytes,
-      currentAttachment.last_tx_total_bytes
-    );
-  } catch (err) {
-    console.error(`[Ingest] Traffic delta tracking error for node ${nodeId}:`, err);
-  }
-
-  // 6. Update Runtime Attachment State
+  // 7. Update Runtime Attachment State
   currentAttachment.last_seq = seq;
   currentAttachment.last_report_received_at_ms = serverTimeMs;
 
@@ -437,6 +431,7 @@ export function createDefaultAttachment(
   trafficResetDay = 1,
   isHidden = false
 ): AgentAttachment {
+  const periodStartMs = computeBillingPeriodStart(nowMs, trafficResetDay);
   return {
     kind: 'agent',
     node_id: nodeId,
@@ -455,11 +450,16 @@ export function createDefaultAttachment(
     last_counter_id: null,
     last_rx_total_bytes: null,
     last_tx_total_bytes: null,
-    bucket_start_rx_bytes: null,
-    bucket_start_tx_bytes: null,
-    bucket_accumulated_rx_delta: 0,
-    bucket_accumulated_tx_delta: 0,
     last_ping_ts_ms: nowMs,
     current_minute: null,
+    traffic_state: {
+      period_start_ms: periodStartMs,
+      finalized_rx_bytes: 0,
+      finalized_tx_bytes: 0,
+      active_counter_id: null,
+      active_rx_base_bytes: null,
+      active_tx_base_bytes: null,
+      dirty: false,
+    },
   };
 }

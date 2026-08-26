@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { finalizeActiveTrafficSegment, trackTrafficDelta, computeBillingPeriodStart } from '../src/db/traffic';
+import {
+  finalizeActiveTrafficSegment,
+  applySampleTrafficTransition,
+  computeBillingPeriodStart,
+  TrafficRuntimeState,
+} from '../src/db/traffic';
 import { validateReportPayload, MetricSample, ReportMetrics } from '../src/protocol/types';
 import { ingestReportCore, createDefaultAttachment } from '../src/services/ingest';
 import { NormalizedGeo } from '../src/services/geo';
@@ -106,6 +111,16 @@ function createMockDb(persistedInstanceId: string | null = null, persistedSample
             txDelta: s.args[13],
           });
         }
+        if (s.sql && (s.sql.includes('INSERT INTO traffic_periods') || s.sql.includes('UPDATE traffic_periods SET'))) {
+          updateCalled = true;
+          if (s.sql.includes('INSERT INTO traffic_periods')) {
+            updatedRx = s.args[2];
+            updatedTx = s.args[3];
+          } else {
+            updatedRx = s.args[0];
+            updatedTx = s.args[1];
+          }
+        }
       }
       return stmts.map(() => ({ success: true }));
     },
@@ -143,12 +158,23 @@ describe('Traffic Ingest & WebSocket Disconnect Finalization', () => {
     expect(mockDb.updatedTx).toBe(100);
   });
 
-  it('trackTrafficDelta returns correct total period traffic in steady state', async () => {
-    const mockDb = createMockDb();
-    const res = await trackTrafficDelta(mockDb, 'node-1', 400, 200, 'counter-a', 1, 300, 150);
+  it('applySampleTrafficTransition updates active traffic segment in memory in steady state', () => {
+    let state: TrafficRuntimeState = {
+      period_start_ms: computeBillingPeriodStart(Date.now(), 1),
+      finalized_rx_bytes: 1000,
+      finalized_tx_bytes: 500,
+      active_counter_id: 'counter-a',
+      active_rx_base_bytes: 100,
+      active_tx_base_bytes: 50,
+      dirty: false,
+    };
 
-    expect(res.periodRxBytes).toBe(1000 + (400 - 100));
-    expect(res.periodTxBytes).toBe(500 + (200 - 50));
+    state = applySampleTrafficTransition(state, Date.now(), 400, 200, 'counter-a', 1, 300, 150);
+    const activeRx = state.active_rx_base_bytes !== null ? Math.max(0, 400 - state.active_rx_base_bytes) : 0;
+    const activeTx = state.active_tx_base_bytes !== null ? Math.max(0, 200 - state.active_tx_base_bytes) : 0;
+
+    expect(state.finalized_rx_bytes + activeRx).toBe(1000 + (400 - 100));
+    expect(state.finalized_tx_bytes + activeTx).toBe(500 + (200 - 50));
   });
 
   it('validateReportPayload handles both single report and samples array', () => {
@@ -361,13 +387,19 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
   it('P0-3: sequential sample-by-sample counter reset captures peak reading before reset', async () => {
     const mockDb = createMockDb('instance-1', 0);
     const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    const t0 = Math.floor(1700000000000 / 60000) * 60000;
     attachment.last_counter_id = 'cnt-1';
     attachment.last_rx_total_bytes = 1000;
     attachment.last_tx_total_bytes = 500;
-    attachment.bucket_start_rx_bytes = 1000;
-    attachment.bucket_start_tx_bytes = 500;
-
-    const t0 = Math.floor(1700000000000 / 60000) * 60000;
+    attachment.traffic_state = {
+      period_start_ms: computeBillingPeriodStart(t0, 1),
+      finalized_rx_bytes: 1000,
+      finalized_tx_bytes: 500,
+      active_counter_id: 'cnt-1',
+      active_rx_base_bytes: 100,
+      active_tx_base_bytes: 50,
+      dirty: false,
+    };
 
     // Batch contains: 1100 -> 1200 (peak) -> counter reset to 50 -> 100
     const samples: MetricSample[] = [
@@ -421,5 +453,40 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     expect(mockDb.updateCalled).toBe(true);
     expect(mockDb.updatedRx).toBe(2100); // 1000 previous finalized + 1100 delta from peak 1200 = 2100
     expect(mockDb.updatedTx).toBe(1050); // 500 previous finalized + 550 delta from peak 600 = 1050
+  });
+
+  it('P1-2: MinuteAccumulator correctly accumulates delta across counter reset within the same minute', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    const t1200 = Math.floor(1700000000000 / 60000) * 60000;
+    const t1201 = t1200 + 60000;
+
+    // Minute 12:00 has samples: 1000 -> 1100 (+100) -> 1200 (+100) -> reset 50 (0) -> 100 (+50) -> Total delta = 250
+    const samples: MetricSample[] = [
+      { sample_seq: 1, sampled_at_ms: t1200 + 2000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1000, tx_total_bytes: 500 } } },
+      { sample_seq: 2, sampled_at_ms: t1200 + 4000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1100, tx_total_bytes: 550 } } },
+      { sample_seq: 3, sampled_at_ms: t1200 + 6000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1200, tx_total_bytes: 600 } } },
+      { sample_seq: 4, sampled_at_ms: t1200 + 8000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c2', rx_total_bytes: 50, tx_total_bytes: 20 } } },
+      { sample_seq: 5, sampled_at_ms: t1200 + 10000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c2', rx_total_bytes: 100, tx_total_bytes: 40 } } },
+      { sample_seq: 6, sampled_at_ms: t1201, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c2', rx_total_bytes: 120, tx_total_bytes: 50 } } },
+    ];
+
+    const res = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      { samples },
+      mockGeo,
+      attachment
+    );
+
+    expect(res.result.accepted).toBe(true);
+    expect(mockDb.insertedBuckets.length).toBe(1);
+    expect(mockDb.insertedBuckets[0].bucketStartMs).toBe(t1200);
+    // Delta should be 100 + 100 + 50 = 250 (NOT 0!)
+    expect(mockDb.insertedBuckets[0].rxDelta).toBe(250);
+    expect(mockDb.insertedBuckets[0].txDelta).toBe(120); // 50 + 50 + 20 = 120
   });
 });

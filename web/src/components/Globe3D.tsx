@@ -6,9 +6,10 @@ import { useTranslation } from '../i18n/I18nContext';
 
 interface Globe3DProps {
   nodes: NodeItem[];
+  mode?: '3d' | '2d';
 }
 
-// 400+ Sampled Landmass Coordinates for 3D Dot-Matrix Globe Rendering
+// 400+ Sampled Landmass Coordinates for Morphing 3D/2D Dot-Matrix Rendering
 const LAND_POINTS: Array<[number, number]> = [
   // North America
   [65, -150], [60, -120], [50, -110], [40, -120], [35, -100], [30, -90], [25, -80],
@@ -33,14 +34,15 @@ const LAND_POINTS: Array<[number, number]> = [
   [-15, 130], [-25, 120], [-30, 130], [-35, 145], [-25, 150], [-15, 140], [-20, 135],
 ];
 
-export const Globe3D: React.FC<Globe3DProps> = ({ nodes }) => {
+export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [selectedNode, setSelectedNode] = useState<NodeItem | null>(null);
   const overlays = useRealtimeStore((s) => s.overlays);
   const { t } = useTranslation();
 
   const rotYRef = useRef<number>(0.5);
-  const rotXRef = useRef<number>(0.3);
+  const rotXRef = useRef<number>(0.2);
+  const morphRef = useRef<number>(mode === '2d' ? 1 : 0);
   const isDraggingRef = useRef<boolean>(false);
   const lastMouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -53,23 +55,55 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes }) => {
     return lastSeen ? Date.now() - lastSeen < 90 * 1000 : false;
   }
 
-  // 3D Projection math: convert lat/lon to 3D Cartesian coordinates
-  function project3D(lat: number, lon: number, radius: number, rotX: number, rotY: number) {
+  // Continuous Morphing 3D Sphere <-> 2D Flat Map Projection Math
+  function projectMorphed(
+    lat: number,
+    lon: number,
+    radius: number,
+    rotX: number,
+    rotY: number,
+    morph: number,
+    centerX: number,
+    centerY: number
+  ) {
+    // Ease-in-ease-out S-curve for smooth unroll
+    const ease = (1 - Math.cos(morph * Math.PI)) / 2;
+
+    // 1. 3D Spherical Position
     const phi = (90 - lat) * (Math.PI / 180);
     const theta = (lon + 180) * (Math.PI / 180) + rotY;
 
-    // Standard spherical coordinates
-    let x = -radius * Math.sin(phi) * Math.cos(theta);
-    let y = radius * Math.cos(phi);
-    let z = radius * Math.sin(phi) * Math.sin(theta);
+    const x3dRaw = -radius * Math.sin(phi) * Math.cos(theta);
+    const y3dRaw = radius * Math.cos(phi);
+    const z3dRaw = radius * Math.sin(phi) * Math.sin(theta);
 
-    // Rotate around X-axis (tilt)
-    const cosX = Math.cos(rotX);
-    const sinX = Math.sin(rotX);
-    const yRot = y * cosX - z * sinX;
-    const zRot = y * sinX + z * cosX;
+    // Apply X-tilt (rotX)
+    const cosX = Math.cos(rotX * (1 - ease));
+    const sinX = Math.sin(rotX * (1 - ease));
+    const x3d = x3dRaw;
+    const y3d = y3dRaw * cosX - z3dRaw * sinX;
+    const z3d = y3dRaw * sinX + z3dRaw * cosX;
 
-    return { x, y: yRot, z: zRot };
+    // 2. 2D Flat Rectangular Position
+    const flatWidth = radius * 2.3;
+    const flatHeight = radius * 1.15;
+    const x2d = (lon / 180) * flatWidth;
+    const y2d = (lat / 90) * flatHeight;
+    const z2d = 0;
+
+    // 3. Morph Linear Blend
+    const xMorphed = (1 - ease) * x3d + ease * x2d;
+    const yMorphed = (1 - ease) * y3d + ease * y2d;
+    const zMorphed = (1 - ease) * z3d + ease * z2d;
+
+    const screenX = centerX + xMorphed;
+    const screenY = centerY - yMorphed;
+
+    // Visibility & Backface Culling during Morph
+    const visible = z3d >= -20 || ease > 0.35;
+    const alpha = Math.min(1.0, Math.max(0.15, (z3d + radius) / (radius * 2) + ease * 0.7));
+
+    return { x: screenX, y: screenY, z: zMorphed, alpha, visible };
   }
 
   useEffect(() => {
@@ -95,50 +129,66 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes }) => {
 
       const centerX = width / 2;
       const centerY = height / 2;
-      const radius = Math.min(width, height) * 0.38;
+      const radius = Math.min(width, height) * 0.36;
 
-      if (!isDraggingRef.current) {
-        rotYRef.current += 0.002; // Smooth auto-rotation
+      // Target morph interpolation (0 = 3D Sphere, 1 = 2D Map)
+      const targetMorph = mode === '2d' ? 1.0 : 0.0;
+      morphRef.current += (targetMorph - morphRef.current) * 0.06;
+      const morph = morphRef.current;
+
+      if (!isDraggingRef.current && morph < 0.8) {
+        rotYRef.current += 0.002 * (1 - morph); // Slow spin when in 3D
       }
       pulsePhase += 0.04;
 
       const rotX = rotXRef.current;
       const rotY = rotYRef.current;
 
-      // 1. Atmosphere Halo / Outer Glow Ring
-      const glowGrad = ctx.createRadialGradient(centerX, centerY, radius * 0.95, centerX, centerY, radius * 1.15);
-      glowGrad.addColorStop(0, 'rgba(0, 230, 118, 0.15)');
-      glowGrad.addColorStop(1, 'rgba(0, 230, 118, 0.0)');
-      ctx.fillStyle = glowGrad;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius * 1.15, 0, Math.PI * 2);
-      ctx.fill();
+      // 1. Outer Atmosphere Glow Ring (fades out as map unfolds into 2D)
+      if (morph < 0.95) {
+        const glowAlpha = (1 - morph) * 0.15;
+        const glowGrad = ctx.createRadialGradient(
+          centerX,
+          centerY,
+          radius * 0.95,
+          centerX,
+          centerY,
+          radius * 1.15
+        );
+        glowGrad.addColorStop(0, `rgba(0, 230, 118, ${glowAlpha})`);
+        glowGrad.addColorStop(1, 'rgba(0, 230, 118, 0.0)');
+        ctx.fillStyle = glowGrad;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius * 1.15, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
-      // 2. Earth Sphere Body
+      // 2. Base Sphere / Flat Chassis Fill
       ctx.fillStyle = '#0a0a0d';
-      ctx.strokeStyle = '#22222a';
+      ctx.strokeStyle = `rgba(34, 34, 42, ${1 - morph * 0.5})`;
       ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
 
-      // 3. 3D Wireframe Latitude Parallels & Longitude Meridians
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+      if (morph < 0.05) {
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // 3. Morphing 3D/2D Wireframe Grid Lines
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.06 + morph * 0.04})`;
       ctx.lineWidth = 0.8;
 
       // Latitude Parallels
       [-60, -30, 0, 30, 60].forEach((lat) => {
         ctx.beginPath();
         for (let lon = -180; lon <= 180; lon += 5) {
-          const pt = project3D(lat, lon, radius, rotX, rotY);
-          const screenX = centerX + pt.x;
-          const screenY = centerY - pt.y;
-          if (pt.z >= 0) {
-            if (lon === -180) ctx.moveTo(screenX, screenY);
-            else ctx.lineTo(screenX, screenY);
+          const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
+          if (pt.visible) {
+            if (lon === -180) ctx.moveTo(pt.x, pt.y);
+            else ctx.lineTo(pt.x, pt.y);
           } else {
-            ctx.moveTo(screenX, screenY);
+            ctx.moveTo(pt.x, pt.y);
           }
         }
         ctx.stroke();
@@ -148,50 +198,50 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes }) => {
       [-120, -60, 0, 60, 120, 180].forEach((lon) => {
         ctx.beginPath();
         for (let lat = -90; lat <= 90; lat += 5) {
-          const pt = project3D(lat, lon, radius, rotX, rotY);
-          const screenX = centerX + pt.x;
-          const screenY = centerY - pt.y;
-          if (pt.z >= 0) {
-            if (lat === -90) ctx.moveTo(screenX, screenY);
-            else ctx.lineTo(screenX, screenY);
+          const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
+          if (pt.visible) {
+            if (lat === -90) ctx.moveTo(pt.x, pt.y);
+            else ctx.lineTo(pt.x, pt.y);
           } else {
-            ctx.moveTo(screenX, screenY);
+            ctx.moveTo(pt.x, pt.y);
           }
         }
         ctx.stroke();
       });
 
-      // 4. Landmass Dot-Matrix Surface
-      ctx.fillStyle = '#2a2a32';
+      // 4. Morphing Landmass Dot-Matrix
       LAND_POINTS.forEach(([lat, lon]) => {
-        const pt = project3D(lat, lon, radius, rotX, rotY);
-        if (pt.z >= -10) {
-          const alpha = Math.max(0.1, (pt.z + radius) / (radius * 2));
-          const screenX = centerX + pt.x;
-          const screenY = centerY - pt.y;
-          ctx.fillStyle = `rgba(60, 60, 70, ${alpha})`;
+        const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
+        if (pt.visible) {
+          ctx.fillStyle = `rgba(80, 80, 95, ${pt.alpha})`;
           ctx.beginPath();
-          ctx.arc(screenX, screenY, 2.0, 0, Math.PI * 2);
+          ctx.arc(pt.x, pt.y, 2.0, 0, Math.PI * 2);
           ctx.fill();
         }
       });
 
-      // 5. Active Telemetry Node Beacons in 3D
+      // 5. Morphing Active Telemetry Node Beacons
       geoNodes.forEach((node) => {
-        const pt = project3D(node.geo.lat!, node.geo.lon!, radius, rotX, rotY);
-        const screenX = centerX + pt.x;
-        const screenY = centerY - pt.y;
+        const pt = projectMorphed(
+          node.geo.lat!,
+          node.geo.lon!,
+          radius,
+          rotX,
+          rotY,
+          morph,
+          centerX,
+          centerY
+        );
         const online = isOnline(node);
 
-        // Only draw visible front-facing nodes (z >= -5)
-        if (pt.z >= -5) {
+        if (pt.visible) {
           // Pulsing Beacon Outer Ring
           if (online) {
             const pulseR = 5 + Math.sin(pulsePhase) * 4;
             ctx.strokeStyle = '#00e676';
             ctx.lineWidth = 1.2;
             ctx.beginPath();
-            ctx.arc(screenX, screenY, pulseR, 0, Math.PI * 2);
+            ctx.arc(pt.x, pt.y, pulseR, 0, Math.PI * 2);
             ctx.stroke();
           }
 
@@ -200,14 +250,14 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes }) => {
           ctx.strokeStyle = '#000000';
           ctx.lineWidth = 1.5;
           ctx.beginPath();
-          ctx.arc(screenX, screenY, 5, 0, Math.PI * 2);
+          ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
 
           // Label
           ctx.fillStyle = '#ffffff';
           ctx.font = '700 11px Inter, sans-serif';
-          ctx.fillText(node.name.toUpperCase(), screenX + 8, screenY + 4);
+          ctx.fillText(node.name.toUpperCase(), pt.x + 8, pt.y + 4);
         }
       });
 
@@ -219,7 +269,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes }) => {
     return () => {
       cancelAnimationFrame(animId);
     };
-  }, [geoNodes, overlays]);
+  }, [geoNodes, overlays, mode]);
 
   // Mouse & Touch Drag Handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -231,7 +281,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes }) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    if (isDraggingRef.current) {
+    if (isDraggingRef.current && mode === '3d') {
       const deltaX = e.clientX - lastMouseRef.current.x;
       const deltaY = e.clientY - lastMouseRef.current.y;
       rotYRef.current += deltaX * 0.008;
@@ -246,15 +296,22 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes }) => {
     const mouseY = e.clientY - rect.top;
     const centerX = canvas.clientWidth / 2;
     const centerY = canvas.clientHeight / 2;
-    const radius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.38;
+    const radius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.36;
 
     let hovered: NodeItem | null = null;
     for (const node of geoNodes) {
-      const pt = project3D(node.geo.lat!, node.geo.lon!, radius, rotXRef.current, rotYRef.current);
-      if (pt.z >= -5) {
-        const screenX = centerX + pt.x;
-        const screenY = centerY - pt.y;
-        const dist = Math.hypot(mouseX - screenX, mouseY - screenY);
+      const pt = projectMorphed(
+        node.geo.lat!,
+        node.geo.lon!,
+        radius,
+        rotXRef.current,
+        rotYRef.current,
+        morphRef.current,
+        centerX,
+        centerY
+      );
+      if (pt.visible) {
+        const dist = Math.hypot(mouseX - pt.x, mouseY - pt.y);
         if (dist < 15) {
           hovered = node;
           break;
@@ -272,7 +329,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes }) => {
   };
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '400px', cursor: 'grab' }}>
+    <div style={{ position: 'relative', width: '100%', height: '400px', cursor: mode === '3d' ? 'grab' : 'default' }}>
       <canvas
         ref={canvasRef}
         style={{ width: '100%', height: '100%', display: 'block' }}

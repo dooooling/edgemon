@@ -118,7 +118,11 @@ export const NodeDetailPage: React.FC = () => {
           </div>
           <div className="spec-entry">
             <span className="spec-entry-label">{t('system_kernel')}</span>
-            <span className="spec-entry-val">{node.system?.kernel || 'UNKNOWN'}</span>
+            <span className="spec-entry-val">
+              {node.system?.os_version
+                ? `${node.system.os_version} (${node.system.kernel || 'KERNEL'})`
+                : node.system?.kernel || 'UNKNOWN'}
+            </span>
           </div>
           <div className="spec-entry">
             <span className="spec-entry-label">{t('location_colo')}</span>

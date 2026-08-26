@@ -50,9 +50,66 @@ fn get_system_hostname() -> String {
     "unknown-host".to_string()
 }
 
+#[cfg(windows)]
+fn read_windows_os_version() -> Option<String> {
+    use windows_sys::Win32::System::SystemInformation::{GetVersionExW, OSVERSIONINFOEXW};
+    unsafe {
+        let mut info = std::mem::zeroed::<OSVERSIONINFOEXW>();
+        info.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOEXW>() as u32;
+        if GetVersionExW(&mut info as *mut _ as *mut _) != 0 {
+            let major = info.dwMajorVersion;
+            let minor = info.dwMinorVersion;
+            let build = info.dwBuildNumber;
+            let ver_name = match (major, minor) {
+                (10, 0) => {
+                    if build >= 22000 {
+                        "Windows 11"
+                    } else {
+                        "Windows 10"
+                    }
+                }
+                (6, 3) => "Windows 8.1",
+                (6, 2) => "Windows 8",
+                (6, 1) => "Windows 7",
+                (6, 0) => "Windows Vista",
+                _ => "Windows NT",
+            };
+            return Some(format!("{} (Build {})", ver_name, build));
+        }
+    }
+    Some("Windows NT".to_string())
+}
+
+fn get_os_version() -> Option<String> {
+    #[cfg(windows)]
+    {
+        read_windows_os_version()
+    }
+
+    #[cfg(unix)]
+    {
+        if let Ok(content) = std::fs::read_to_string("/etc/os-release")
+            .or_else(|_| std::fs::read_to_string("/usr/lib/os-release"))
+        {
+            for line in content.lines() {
+                if let Some(val) = line.strip_prefix("PRETTY_NAME=") {
+                    let trimmed = val.trim_matches('"').trim_matches('\'').trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
 fn get_kernel_version() -> String {
     #[cfg(windows)]
     {
+        if let Some(os_ver) = read_windows_os_version() {
+            return os_ver;
+        }
         "Windows NT (x86_64)".to_string()
     }
     #[cfg(unix)]
@@ -276,7 +333,7 @@ fn main() -> Result<()> {
             } else {
                 "linux".to_string()
             },
-            os_version: None,
+            os_version: get_os_version(),
             kernel: kernel.clone(),
         },
         environment: EnvironmentInfo {

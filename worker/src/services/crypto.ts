@@ -75,7 +75,7 @@ export async function signSession(payload: string, secret: string): Promise<stri
 
 export async function verifySession(token: string, secret: string): Promise<string | null> {
   const parts = token.split('.');
-  if (parts.len !== 2 && parts.length !== 2) {
+  if (parts.length !== 2) {
     return null;
   }
   const [b64Payload, sigB64] = parts;

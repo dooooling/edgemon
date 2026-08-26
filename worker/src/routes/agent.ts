@@ -126,7 +126,12 @@ agentRoutes.post('/api/agent/v1/report', async (c) => {
   }
 
   // Active instance ownership verification (prevent stale/duplicate instances from overwriting)
-  if (node.active_instance_id && node.active_instance_id !== body.instance_id) {
+  const stateRow = await c.env.DB
+    .prepare('SELECT agent_instance_id FROM node_state WHERE node_id = ?')
+    .bind(creds.nodeId)
+    .first<{ agent_instance_id: string | null }>();
+
+  if (stateRow?.agent_instance_id && stateRow.agent_instance_id !== body.instance_id) {
     return errorResponse(
       'INSTANCE_MISMATCH',
       'Instance ID mismatch with currently active registered instance. Hello handshake required.',
@@ -163,7 +168,7 @@ agentRoutes.post('/api/agent/v1/report', async (c) => {
     .bind(creds.nodeId)
     .first<{ revision: number }>();
 
-  const latestConfigRev = configRow?.revision || body.data.config_rev;
+  const latestConfigRev = configRow?.revision ?? body.data.config_rev ?? 1;
 
   const ackEnvelope: ServerEnvelope<AckData> = {
     v: 1,

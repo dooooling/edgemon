@@ -40,11 +40,14 @@ export function extractCloudflareMetadata(request: Request): NormalizedGeo {
   let edge_rtt_ms: number | null = null;
   let edge_transport: 'quic' | 'tcp' | null = null;
 
-  if (cf?.clientQuicRtt && cf.clientQuicRtt > 0) {
-    edge_rtt_ms = Math.round(cf.clientQuicRtt * 10) / 10;
+  const quicRtt = typeof (cf as any)?.clientQuicRtt === 'number' ? (cf as any).clientQuicRtt : null;
+  const tcpRtt = typeof (cf as any)?.clientTcpRtt === 'number' ? (cf as any).clientTcpRtt : null;
+
+  if (quicRtt !== null && quicRtt > 0) {
+    edge_rtt_ms = Math.round(quicRtt * 10) / 10;
     edge_transport = 'quic';
-  } else if (cf?.clientTcpRtt && cf.clientTcpRtt > 0) {
-    edge_rtt_ms = Math.round(cf.clientTcpRtt * 10) / 10;
+  } else if (tcpRtt !== null && tcpRtt > 0) {
+    edge_rtt_ms = Math.round(tcpRtt * 10) / 10;
     edge_transport = 'tcp';
   }
 

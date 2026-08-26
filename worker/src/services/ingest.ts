@@ -4,6 +4,7 @@ import { persist60sCheckpoint, RawBucketMetric } from '../db/persistence';
 import {
   applySampleTrafficTransition,
   buildTrafficD1Statements,
+  cloneTrafficRuntimeState,
   computeBillingPeriodStart,
   loadTrafficRuntimeState,
   TrafficRuntimeState,
@@ -16,9 +17,6 @@ export interface MinuteAccumulator {
   last_sample_seq: number;
   rx_delta_sum: number;
   tx_delta_sum: number;
-  previous_counter_id: string | null;
-  previous_rx_total: number | null;
-  previous_tx_total: number | null;
   cpu_sum: number;
   cpu_count: number;
   cpu_throttled_max: number | null;
@@ -67,7 +65,18 @@ export interface IngestResult {
   isHiddenNode?: boolean;
 }
 
-export function createMinuteAccumulator(bucketStartMs: number, sample: MetricSample): MinuteAccumulator {
+interface DurableCut {
+  sampleSeq: number;
+  report: ReportMetrics;
+  trafficState: TrafficRuntimeState;
+}
+
+export function createMinuteAccumulator(
+  bucketStartMs: number,
+  sample: MetricSample,
+  rxDelta = 0,
+  txDelta = 0
+): MinuteAccumulator {
   const m = sample.metrics;
   const cpuUsage = typeof m.cpu?.usage_pct === 'number' && Number.isFinite(m.cpu.usage_pct) ? m.cpu.usage_pct : null;
   const memUsed = typeof m.memory?.used_bytes === 'number' && Number.isFinite(m.memory.used_bytes) ? m.memory.used_bytes : null;
@@ -80,11 +89,8 @@ export function createMinuteAccumulator(bucketStartMs: number, sample: MetricSam
     bucket_start_ms: bucketStartMs,
     first_sample_seq: sample.sample_seq,
     last_sample_seq: sample.sample_seq,
-    rx_delta_sum: 0,
-    tx_delta_sum: 0,
-    previous_counter_id: m.network?.counter_id || null,
-    previous_rx_total: m.network.rx_total_bytes,
-    previous_tx_total: m.network.tx_total_bytes,
+    rx_delta_sum: rxDelta,
+    tx_delta_sum: txDelta,
     cpu_sum: cpuUsage ?? 0,
     cpu_count: cpuUsage !== null ? 1 : 0,
     cpu_throttled_max: typeof m.cpu?.throttled_pct === 'number' && Number.isFinite(m.cpu.throttled_pct) ? m.cpu.throttled_pct : null,
@@ -102,28 +108,15 @@ export function createMinuteAccumulator(bucketStartMs: number, sample: MetricSam
   };
 }
 
-export function mergeIntoAccumulator(acc: MinuteAccumulator, sample: MetricSample): void {
+export function mergeIntoAccumulator(
+  acc: MinuteAccumulator,
+  sample: MetricSample,
+  rxDelta = 0,
+  txDelta = 0
+): void {
   const m = sample.metrics;
-  const sampleCounterId = m.network?.counter_id || null;
-  const sampleRx = m.network.rx_total_bytes;
-  const sampleTx = m.network.tx_total_bytes;
-
-  // P1-2: Monotonic delta accumulation within the same counter across samples
-  if (
-    acc.previous_counter_id !== null &&
-    acc.previous_counter_id === sampleCounterId &&
-    acc.previous_rx_total !== null &&
-    acc.previous_tx_total !== null
-  ) {
-    if (sampleRx >= acc.previous_rx_total && sampleTx >= acc.previous_tx_total) {
-      acc.rx_delta_sum += sampleRx - acc.previous_rx_total;
-      acc.tx_delta_sum += sampleTx - acc.previous_tx_total;
-    }
-  }
-
-  acc.previous_counter_id = sampleCounterId;
-  acc.previous_rx_total = sampleRx;
-  acc.previous_tx_total = sampleTx;
+  acc.rx_delta_sum += rxDelta;
+  acc.tx_delta_sum += txDelta;
   acc.last_sample_seq = sample.sample_seq;
   acc.last_metrics = m;
 
@@ -226,11 +219,11 @@ export async function ingestReportCore(
     };
   }
 
-  // 2. Monotonic Seq Check with Idempotent Retry on ACK Loss (P0-4)
+  // 2. Monotonic Seq Check with Idempotent Retry on ACK Loss
   if (attachment) {
     if (seq < attachment.last_seq) {
       return {
-        result: { accepted: false, persisted: false, error: 'STALE_OR_DUPLICATE_SEQ', isHiddenNode: isHidden },
+        result: { accepted: false, persisted: false, error: 'NON_MONOTONIC_SEQ', isHiddenNode: isHidden },
         updatedAttachment: attachment,
       };
     }
@@ -276,7 +269,7 @@ export async function ingestReportCore(
   const latestSample = validSamples[validSamples.length - 1];
   const latestMetrics = latestSample.metrics;
 
-  // 4. Construct Live Broadcast Payload with true received_at_ms and full samples array (P1)
+  // 4. Construct Live Broadcast Payload with true received_at_ms and full samples array
   const livePayload = {
     node_id: nodeId,
     name: nodeName,
@@ -292,7 +285,7 @@ export async function ingestReportCore(
     is_hidden: currentAttachment.is_hidden,
   };
 
-  // Hydrate D1 state on stateless HTTP fallback
+  // Hydrate D1 state on stateless HTTP fallback (P0-2)
   if (!attachment) {
     const lastDbState = await getNodeState(db, nodeId);
     if (lastDbState) {
@@ -300,26 +293,65 @@ export async function ingestReportCore(
         currentAttachment.persisted_sample_seq = lastDbState.persisted_sample_seq;
       }
       currentAttachment.last_persist_bucket_ms = Math.floor((lastDbState.persisted_at_ms || 0) / 60000) * 60000;
+      currentAttachment.last_rx_total_bytes = lastDbState.rx_total_bytes;
+      currentAttachment.last_tx_total_bytes = lastDbState.tx_total_bytes;
+      currentAttachment.last_counter_id = lastDbState.network_counter_id;
     }
     currentAttachment.traffic_state = await loadTrafficRuntimeState(db, nodeId, trafficResetDay);
   }
 
   // 5. Sample-by-Sample Traffic State Transition & Minute Accumulator (P0-1, P0-2, P0-3, P1-1, P1-2)
   const bucketsToPersist: RawBucketMetric[] = [];
-  let maxDurableCandidateSeq = currentAttachment.persisted_sample_seq;
+  let durableCut: DurableCut | null = null;
 
   for (const s of validSamples) {
     const sampleBucket = Math.floor(s.sampled_at_ms / 60000) * 60000;
     const sampleCounterId = s.metrics.network?.counter_id || null;
-    const sampleRx = s.metrics.network.rx_total_bytes;
-    const sampleTx = s.metrics.network.tx_total_bytes;
+    const sampleRx = s.metrics.network?.rx_total_bytes ?? null;
+    const sampleTx = s.metrics.network?.tx_total_bytes ?? null;
 
-    // A. Pure in-memory traffic state transition (captures peak reading & handles period rollover)
+    // 5.1 Global monotonic delta calculation across samples (P1-1: zero cross-minute boundary loss)
+    const sameCounter = sampleCounterId !== null && sampleCounterId === currentAttachment.last_counter_id;
+    const prevRx = currentAttachment.last_rx_total_bytes;
+    const prevTx = currentAttachment.last_tx_total_bytes;
+
+    const rxDelta = (sameCounter && prevRx !== null && sampleRx !== null && sampleRx >= prevRx)
+      ? sampleRx - prevRx
+      : 0;
+    const txDelta = (sameCounter && prevTx !== null && sampleTx !== null && sampleTx >= prevTx)
+      ? sampleTx - prevTx
+      : 0;
+
+    // 5.2 Minute Rollover Check BEFORE modifying live traffic_state for this new sample (P0-1)
+    if (currentAttachment.current_minute) {
+      if (sampleBucket > currentAttachment.current_minute.bucket_start_ms) {
+        // A previous minute just CLOSED!
+        // Snapshot the EXACT durable cut at the close of that minute:
+        durableCut = {
+          sampleSeq: currentAttachment.current_minute.last_sample_seq,
+          report: currentAttachment.current_minute.last_metrics,
+          trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
+        };
+
+        bucketsToPersist.push(finalizeAccumulator(currentAttachment.current_minute));
+        currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
+      } else if (sampleBucket === currentAttachment.current_minute.bucket_start_ms) {
+        mergeIntoAccumulator(currentAttachment.current_minute, s, rxDelta, txDelta);
+      } else {
+        // Historical sample prior to current accumulator (e.g. from buffer replay)
+        const histAcc = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
+        bucketsToPersist.push(finalizeAccumulator(histAcc));
+      }
+    } else {
+      currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
+    }
+
+    // 5.3 Advance live in-memory traffic_state for this sample (Live DO RAM only)
     currentAttachment.traffic_state = applySampleTrafficTransition(
       currentAttachment.traffic_state,
       s.sampled_at_ms,
-      sampleRx,
-      sampleTx,
+      sampleRx ?? 0,
+      sampleTx ?? 0,
       sampleCounterId,
       currentAttachment.traffic_reset_day,
       currentAttachment.last_rx_total_bytes,
@@ -327,70 +359,52 @@ export async function ingestReportCore(
     );
 
     currentAttachment.last_counter_id = sampleCounterId;
-    currentAttachment.last_rx_total_bytes = sampleRx;
-    currentAttachment.last_tx_total_bytes = sampleTx;
-
-    // B. Minute Accumulator with monotonic rx_delta_sum / tx_delta_sum
-    if (!currentAttachment.current_minute) {
-      currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s);
-    } else if (sampleBucket === currentAttachment.current_minute.bucket_start_ms) {
-      // Same minute: merge sample into accumulator (no D1 write, watermark not advanced)
-      mergeIntoAccumulator(currentAttachment.current_minute, s);
-    } else if (sampleBucket > currentAttachment.current_minute.bucket_start_ms) {
-      // Minute Rollover! Previous minute bucket is now COMPLETED!
-      const finalized = finalizeAccumulator(currentAttachment.current_minute);
-      bucketsToPersist.push(finalized);
-      maxDurableCandidateSeq = Math.max(maxDurableCandidateSeq, currentAttachment.current_minute.last_sample_seq);
-
-      // Start new accumulator for the newer minute
-      currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s);
-    } else {
-      // Historical sample prior to current accumulator (e.g. from buffer replay)
-      const histAcc = createMinuteAccumulator(sampleBucket, s);
-      bucketsToPersist.push(finalizeAccumulator(histAcc));
-      maxDurableCandidateSeq = Math.max(maxDurableCandidateSeq, s.sample_seq);
-    }
+    if (sampleRx !== null) currentAttachment.last_rx_total_bytes = sampleRx;
+    if (sampleTx !== null) currentAttachment.last_tx_total_bytes = sampleTx;
   }
 
-  // On stateless HTTP fallback, if this is a standalone report with completed historical buckets,
+  // On stateless HTTP fallback, if this is a standalone report with completed past minute bucket,
   // finalize any past minute bucket
   const currentServerBucketStartMs = Math.floor(serverTimeMs / 60000) * 60000;
   if (!attachment && currentAttachment.current_minute && currentAttachment.current_minute.bucket_start_ms < currentServerBucketStartMs) {
-    const finalized = finalizeAccumulator(currentAttachment.current_minute);
-    bucketsToPersist.push(finalized);
-    maxDurableCandidateSeq = Math.max(maxDurableCandidateSeq, currentAttachment.current_minute.last_sample_seq);
+    durableCut = {
+      sampleSeq: currentAttachment.current_minute.last_sample_seq,
+      report: currentAttachment.current_minute.last_metrics,
+      trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
+    };
+    bucketsToPersist.push(finalizeAccumulator(currentAttachment.current_minute));
   }
 
   let actuallyPersisted = false;
 
-  // 6. Atomic Persistence Checkpoint (P0-1: traffic_periods + metrics_raw + node_state in ONE db.batch)
-  if (bucketsToPersist.length > 0 || currentAttachment.traffic_state.dirty) {
-    const trafficStatements = buildTrafficD1Statements(db, nodeId, currentAttachment.traffic_state, serverTimeMs);
+  // 6. Atomic Persistence Checkpoint (P0-1: single durable cut alignment)
+  // Checkpoint is written to D1 ONLY when a full minute bucket closes.
+  // Live samples for the unclosed active minute remain strictly in DO RAM and Agent buffer.
+  if (bucketsToPersist.length > 0 && durableCut) {
+    const trafficStatements = buildTrafficD1Statements(db, nodeId, durableCut.trafficState, serverTimeMs);
 
     try {
       await persist60sCheckpoint(db, {
         nodeId,
         instanceId,
         seq,
-        latestReport: latestMetrics,
+        latestReport: durableCut.report,
         geo,
         serverTimeMs,
-        persistedSampleSeq: maxDurableCandidateSeq,
+        persistedSampleSeq: durableCut.sampleSeq,
         droppedSamples: report.dropped_samples || 0,
         buckets: bucketsToPersist,
         trafficStatements,
       });
 
-      actuallyPersisted = bucketsToPersist.length > 0;
+      actuallyPersisted = true;
       currentAttachment.traffic_state.dirty = false;
       currentAttachment.traffic_state.prev_period_settlement = null;
-      currentAttachment.persisted_sample_seq = Math.max(currentAttachment.persisted_sample_seq, maxDurableCandidateSeq);
-      if (bucketsToPersist.length > 0) {
-        currentAttachment.last_persist_bucket_ms = Math.max(
-          currentAttachment.last_persist_bucket_ms,
-          ...bucketsToPersist.map((b) => b.bucketStartMs)
-        );
-      }
+      currentAttachment.persisted_sample_seq = Math.max(currentAttachment.persisted_sample_seq, durableCut.sampleSeq);
+      currentAttachment.last_persist_bucket_ms = Math.max(
+        currentAttachment.last_persist_bucket_ms,
+        ...bucketsToPersist.map((b) => b.bucketStartMs)
+      );
     } catch (err: any) {
       console.error(`[Ingest] D1 Checkpoint failed for node ${nodeId}:`, err);
       // P0-1: D1 persistence failed! Return error so RealtimeHub closes WSS to trigger Agent replay!

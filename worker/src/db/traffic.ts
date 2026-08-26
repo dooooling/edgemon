@@ -24,6 +24,21 @@ export interface TrafficRuntimeState {
   } | null;
 }
 
+export function cloneTrafficRuntimeState(state: TrafficRuntimeState): TrafficRuntimeState {
+  return {
+    period_start_ms: state.period_start_ms,
+    finalized_rx_bytes: state.finalized_rx_bytes,
+    finalized_tx_bytes: state.finalized_tx_bytes,
+    active_counter_id: state.active_counter_id,
+    active_rx_base_bytes: state.active_rx_base_bytes,
+    active_tx_base_bytes: state.active_tx_base_bytes,
+    dirty: state.dirty,
+    prev_period_settlement: state.prev_period_settlement
+      ? { ...state.prev_period_settlement }
+      : null,
+  };
+}
+
 export function computeBillingPeriodStart(nowMs: number, resetDay = 1): number {
   const date = new Date(nowMs);
   const currentDay = date.getUTCDate();
@@ -88,17 +103,18 @@ export async function getCurrentPeriodTraffic(
   };
 }
 
+/**
+ * Loads the latest durable traffic period state from D1 (P0-4).
+ * Queries the most recent period row to preserve active base across billing boundaries.
+ */
 export async function loadTrafficRuntimeState(
   db: D1Database,
   nodeId: string,
   resetDay = 1
 ): Promise<TrafficRuntimeState> {
-  const now = Date.now();
-  const periodStartMs = computeBillingPeriodStart(now, resetDay);
-
   const period = await db
-    .prepare('SELECT * FROM traffic_periods WHERE node_id = ? AND period_start_ms = ?')
-    .bind(nodeId, periodStartMs)
+    .prepare('SELECT * FROM traffic_periods WHERE node_id = ? ORDER BY period_start_ms DESC LIMIT 1')
+    .bind(nodeId)
     .first<TrafficPeriodRow>();
 
   if (period) {
@@ -113,6 +129,9 @@ export async function loadTrafficRuntimeState(
     };
   }
 
+  const now = Date.now();
+  const periodStartMs = computeBillingPeriodStart(now, resetDay);
+
   return {
     period_start_ms: periodStartMs,
     finalized_rx_bytes: 0,
@@ -120,7 +139,7 @@ export async function loadTrafficRuntimeState(
     active_counter_id: null,
     active_rx_base_bytes: null,
     active_tx_base_bytes: null,
-    dirty: true, // Needs initial insert
+    dirty: true, // Needs initial insert on first durable cut
   };
 }
 
@@ -200,11 +219,16 @@ export function applySampleTrafficTransition(
     currentState.active_rx_base_bytes = currentRxTotal;
     currentState.active_tx_base_bytes = currentTxTotal;
     currentState.dirty = true;
+    return currentState;
   }
 
   return currentState;
 }
 
+/**
+ * Builds idempotent D1 statements for traffic period persistence.
+ * To be combined with node_state and metrics_raw inside persist60sCheckpoint db.batch().
+ */
 export function buildTrafficD1Statements(
   db: D1Database,
   nodeId: string,
@@ -213,9 +237,9 @@ export function buildTrafficD1Statements(
 ): D1PreparedStatement[] {
   const statements: D1PreparedStatement[] = [];
 
-  // 1. Settle previous billing period if rollover occurred
+  // If a billing rollover occurred, finalize the previous period row first
   if (state.prev_period_settlement) {
-    const p = state.prev_period_settlement;
+    const prev = state.prev_period_settlement;
     statements.push(
       db
         .prepare(
@@ -227,17 +251,29 @@ export function buildTrafficD1Statements(
             updated_at_ms = ?
           WHERE node_id = ? AND period_start_ms = ?`
         )
-        .bind(p.finalized_rx_delta, p.finalized_tx_delta, nowMs, nodeId, p.period_start_ms)
+        .bind(
+          prev.finalized_rx_delta,
+          prev.finalized_tx_delta,
+          nowMs,
+          nodeId,
+          prev.period_start_ms
+        )
     );
   }
 
-  // 2. Idempotent UPSERT of current billing period
+  // UPSERT the current active billing period snapshot (Idempotent state mutation)
   statements.push(
     db
       .prepare(
         `INSERT INTO traffic_periods (
-          node_id, period_start_ms, finalized_rx_bytes, finalized_tx_bytes,
-          active_counter_id, active_rx_base_bytes, active_tx_base_bytes, updated_at_ms
+          node_id,
+          period_start_ms,
+          finalized_rx_bytes,
+          finalized_tx_bytes,
+          active_counter_id,
+          active_rx_base_bytes,
+          active_tx_base_bytes,
+          updated_at_ms
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(node_id, period_start_ms) DO UPDATE SET
           finalized_rx_bytes = excluded.finalized_rx_bytes,
@@ -260,43 +296,4 @@ export function buildTrafficD1Statements(
   );
 
   return statements;
-}
-
-export async function finalizeActiveTrafficSegment(
-  db: D1Database,
-  nodeId: string,
-  resetDay = 1,
-  lastRxTotal: number | null,
-  lastTxTotal: number | null
-): Promise<void> {
-  if (lastRxTotal === null || lastTxTotal === null) return;
-  const now = Date.now();
-  const periodStartMs = computeBillingPeriodStart(now, resetDay);
-
-  const period = await db
-    .prepare('SELECT * FROM traffic_periods WHERE node_id = ? AND period_start_ms = ?')
-    .bind(nodeId, periodStartMs)
-    .first<TrafficPeriodRow>();
-
-  if (!period || period.active_rx_base_bytes === null || period.active_tx_base_bytes === null) {
-    return;
-  }
-
-  const activeRxDelta = Math.max(0, lastRxTotal - period.active_rx_base_bytes);
-  const activeTxDelta = Math.max(0, lastTxTotal - period.active_tx_base_bytes);
-
-  if (activeRxDelta === 0 && activeTxDelta === 0) return;
-
-  await db
-    .prepare(
-      `UPDATE traffic_periods SET
-        finalized_rx_bytes = finalized_rx_bytes + ?,
-        finalized_tx_bytes = finalized_tx_bytes + ?,
-        active_rx_base_bytes = ?,
-        active_tx_base_bytes = ?,
-        updated_at_ms = ?
-      WHERE node_id = ? AND period_start_ms = ?`
-    )
-    .bind(activeRxDelta, activeTxDelta, lastRxTotal, lastTxTotal, now, nodeId, periodStartMs)
-    .run();
 }

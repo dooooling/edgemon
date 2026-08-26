@@ -19,7 +19,7 @@ import {
   createDefaultAttachment,
   ingestReportCore,
 } from '../services/ingest';
-import { loadTrafficRuntimeState, finalizeActiveTrafficSegment } from '../db/traffic';
+import { loadTrafficRuntimeState } from '../db/traffic';
 import { verifyAdminSession } from '../services/session';
 
 export interface Env {
@@ -365,22 +365,6 @@ export class RealtimeHub extends DurableObject<Env> {
           .prepare('UPDATE nodes SET last_stream_disconnected_at_ms = ? WHERE id = ?')
           .bind(now, attachment.node_id)
           .run();
-
-        // Best-effort final traffic checkpoint on normal disconnection (MUST NOT run on 4001 SERVER_RECONNECT!)
-        if (
-          code !== CloseCodes.SERVER_RECONNECT &&
-          attachment.hello_ok &&
-          attachment.last_rx_total_bytes !== null &&
-          attachment.last_tx_total_bytes !== null
-        ) {
-          await finalizeActiveTrafficSegment(
-            this.env.DB,
-            attachment.node_id,
-            attachment.traffic_reset_day,
-            attachment.last_rx_total_bytes,
-            attachment.last_tx_total_bytes
-          );
-        }
       } catch {
         // Best-effort update on close
       }
@@ -500,11 +484,15 @@ export class RealtimeHub extends DurableObject<Env> {
       syntheticAttachment.persisted_sample_seq = stateRow.persisted_instance_id === instanceId ? (stateRow.persisted_sample_seq || 0) : 0;
       syntheticAttachment.last_rx_total_bytes = stateRow.rx_total_bytes;
       syntheticAttachment.last_tx_total_bytes = stateRow.tx_total_bytes;
-      syntheticAttachment.bucket_start_rx_bytes = stateRow.rx_total_bytes;
-      syntheticAttachment.bucket_start_tx_bytes = stateRow.tx_total_bytes;
       syntheticAttachment.last_counter_id = stateRow.network_counter_id;
       syntheticAttachment.last_persist_bucket_ms = Math.floor((stateRow.persisted_at_ms || 0) / 60000) * 60000;
     }
+
+    syntheticAttachment.traffic_state = await loadTrafficRuntimeState(
+      this.env.DB,
+      nodeId,
+      trafficResetDay
+    );
 
     const { result } = await ingestReportCore(
       this.env.DB,

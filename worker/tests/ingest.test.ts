@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  finalizeActiveTrafficSegment,
   applySampleTrafficTransition,
   computeBillingPeriodStart,
   TrafficRuntimeState,
@@ -149,13 +148,23 @@ const baseMetrics: ReportMetrics = {
 };
 
 describe('Traffic Ingest & WebSocket Disconnect Finalization', () => {
-  it('finalizeActiveTrafficSegment forces active bytes to finalize into D1 on disconnect', async () => {
-    const mockDb = createMockDb();
-    await finalizeActiveTrafficSegment(mockDb, 'node-1', 1, 300, 150);
+  it('Traffic state transitions in memory without mutating D1 out-of-band on disconnect', () => {
+    let state: TrafficRuntimeState = {
+      period_start_ms: computeBillingPeriodStart(Date.now(), 1),
+      finalized_rx_bytes: 1000,
+      finalized_tx_bytes: 500,
+      active_counter_id: 'counter-a',
+      active_rx_base_bytes: 100,
+      active_tx_base_bytes: 50,
+      dirty: false,
+    };
 
-    expect(mockDb.updateCalled).toBe(true);
-    expect(mockDb.updatedRx).toBe(200);
-    expect(mockDb.updatedTx).toBe(100);
+    state = applySampleTrafficTransition(state, Date.now(), 400, 200, 'counter-a', 1, 300, 150);
+    const activeRx = state.active_rx_base_bytes !== null ? Math.max(0, 400 - state.active_rx_base_bytes) : 0;
+    const activeTx = state.active_tx_base_bytes !== null ? Math.max(0, 200 - state.active_tx_base_bytes) : 0;
+
+    expect(state.finalized_rx_bytes + activeRx).toBe(1000 + (400 - 100));
+    expect(state.finalized_tx_bytes + activeTx).toBe(500 + (200 - 50));
   });
 
   it('applySampleTrafficTransition updates active traffic segment in memory in steady state', () => {
@@ -234,7 +243,7 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     );
 
     expect(res.result.accepted).toBe(false);
-    expect(res.result.error).toBe('STALE_OR_DUPLICATE_SEQ');
+    expect(res.result.error).toBe('NON_MONOTONIC_SEQ');
   });
 
   it('P0-1: new instance does not inherit old instance watermark on stateless fallback', async () => {
@@ -401,7 +410,7 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
       dirty: false,
     };
 
-    // Batch contains: 1100 -> 1200 (peak) -> counter reset to 50 -> 100
+    // Batch contains: 1100 -> 1200 (peak) -> counter reset to 50 -> 100 -> minute rollover at 105
     const samples: MetricSample[] = [
       {
         sample_seq: 101,
@@ -435,6 +444,14 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
           network: { ...baseMetrics.network, counter_id: 'cnt-2', rx_total_bytes: 100, tx_total_bytes: 40 },
         },
       },
+      {
+        sample_seq: 105,
+        sampled_at_ms: t0 + 60000,
+        metrics: {
+          ...baseMetrics,
+          network: { ...baseMetrics.network, counter_id: 'cnt-2', rx_total_bytes: 120, tx_total_bytes: 50 },
+        },
+      },
     ];
 
     const res = await ingestReportCore(
@@ -449,7 +466,7 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     );
 
     expect(res.result.accepted).toBe(true);
-    // Settle old counter at peak (1200 - 100 = 1100 delta)
+    // Settle old counter at peak (1200 - 100 = 1100 delta) upon minute close
     expect(mockDb.updateCalled).toBe(true);
     expect(mockDb.updatedRx).toBe(2100); // 1000 previous finalized + 1100 delta from peak 1200 = 2100
     expect(mockDb.updatedTx).toBe(1050); // 500 previous finalized + 550 delta from peak 600 = 1050
@@ -488,5 +505,60 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     // Delta should be 100 + 100 + 50 = 250 (NOT 0!)
     expect(mockDb.insertedBuckets[0].rxDelta).toBe(250);
     expect(mockDb.insertedBuckets[0].txDelta).toBe(120); // 50 + 50 + 20 = 120
+  });
+
+  it('P1-1: cross-minute boundary delta is captured without interval loss', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    const t1200 = Math.floor(1700000000000 / 60000) * 60000;
+    const t1201 = t1200 + 60000;
+    const t1202 = t1201 + 60000;
+
+    // Report 1 in minute 12:00: total = 1000
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      { samples: [{ sample_seq: 1, sampled_at_ms: t1200 + 58000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1000, tx_total_bytes: 500 } } }] },
+      mockGeo,
+      attachment
+    );
+
+    // Report 2 in minute 12:01: first sample 1100 (+100 across boundary), second sample 1200 (+100)
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      2,
+      {
+        samples: [
+          { sample_seq: 2, sampled_at_ms: t1201 + 2000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1100, tx_total_bytes: 550 } } },
+          { sample_seq: 3, sampled_at_ms: t1201 + 4000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1200, tx_total_bytes: 600 } } },
+        ],
+      },
+      mockGeo,
+      attachment
+    );
+
+    // Report 3 in minute 12:02: rolls over minute 12:01 -> total = 1300 (+100 across boundary)
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      3,
+      { samples: [{ sample_seq: 4, sampled_at_ms: t1202, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1300, tx_total_bytes: 650 } } }] },
+      mockGeo,
+      attachment
+    );
+
+    // Minute 12:01 should have finalized with rxDelta = 100 (from 1000->1100) + 100 (from 1100->1200) = 200
+    const m1201 = mockDb.insertedBuckets.find((b) => b.bucketStartMs === t1201);
+    expect(m1201).toBeDefined();
+    expect(m1201?.rxDelta).toBe(200);
+    expect(m1201?.txDelta).toBe(100);
   });
 });

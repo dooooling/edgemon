@@ -140,18 +140,97 @@ fn read_windows_os_version() -> Option<String> {
             } else {
                 "Windows 10"
             };
-
-            let final_ver = match (display_version, build_str.is_empty()) {
-                (Some(dv), false) => format!("{} {} (Build {})", win_name, dv, build_str),
-                (Some(dv), true) => format!("{} {}", win_name, dv),
-                (None, false) => format!("{} (Build {})", win_name, build_str),
-                (None, true) => win_name.to_string(),
+            let final_ver = match display_version {
+                Some(dv) => format!("{} {}", win_name, dv),
+                None => win_name.to_string(),
             };
 
             return Some(final_ver);
         }
     }
     Some("Windows 11".to_string())
+}
+fn read_windows_kernel_version() -> String {
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_LOCAL_MACHINE, KEY_READ, REG_SZ,
+    };
+
+    let key_path: Vec<u16> = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\0"
+        .encode_utf16()
+        .collect();
+    let mut hkey = 0isize;
+
+    unsafe {
+        if RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            key_path.as_ptr(),
+            0,
+            KEY_READ,
+            &mut hkey,
+        ) == 0
+        {
+            let read_string = |val_name: &str| -> Option<String> {
+                let name_utf16: Vec<u16> =
+                    val_name.encode_utf16().chain(std::iter::once(0)).collect();
+                let mut buf_size = 512u32;
+                let mut buf = vec![0u8; 512];
+                let mut val_type = 0u32;
+                if RegQueryValueExW(
+                    hkey,
+                    name_utf16.as_ptr(),
+                    std::ptr::null_mut(),
+                    &mut val_type,
+                    buf.as_mut_ptr(),
+                    &mut buf_size,
+                ) == 0
+                    && val_type == REG_SZ
+                {
+                    let wide_slice = std::slice::from_raw_parts(
+                        buf.as_ptr() as *const u16,
+                        (buf_size as usize) / 2,
+                    );
+                    let s = String::from_utf16_lossy(wide_slice);
+                    let trimmed = s.trim_matches('\0').trim().to_string();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed);
+                    }
+                }
+                None
+            };
+
+            let read_dword = |val_name: &str| -> Option<u32> {
+                let name_utf16: Vec<u16> =
+                    val_name.encode_utf16().chain(std::iter::once(0)).collect();
+                let mut val = 0u32;
+                let mut val_size = std::mem::size_of::<u32>() as u32;
+                if RegQueryValueExW(
+                    hkey,
+                    name_utf16.as_ptr(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    &mut val as *mut u32 as *mut u8,
+                    &mut val_size,
+                ) == 0
+                {
+                    return Some(val);
+                }
+                None
+            };
+
+            let build = read_string("CurrentBuildNumber").or_else(|| read_string("CurrentBuild"));
+            let ubr = read_dword("UBR");
+
+            RegCloseKey(hkey);
+
+            if let Some(b) = build {
+                if let Some(u) = ubr {
+                    return format!("10.0.{}.{}", b, u);
+                }
+                return format!("10.0.{}", b);
+            }
+        }
+    }
+    "10.0.26200".to_string()
 }
 
 fn get_os_version() -> Option<String> {
@@ -181,10 +260,7 @@ fn get_os_version() -> Option<String> {
 fn get_kernel_version() -> String {
     #[cfg(windows)]
     {
-        if let Some(os_ver) = read_windows_os_version() {
-            return os_ver;
-        }
-        "Windows NT (x86_64)".to_string()
+        read_windows_kernel_version()
     }
     #[cfg(unix)]
     {

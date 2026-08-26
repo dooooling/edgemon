@@ -256,12 +256,12 @@ export async function ingestReportCore(
   const latestSample = validSamples[validSamples.length - 1];
   const latestMetrics = latestSample.metrics;
 
-  // 4. Construct Live Broadcast Payload with true sampled_at_ms and full samples array (P1-1)
+  // 4. Construct Live Broadcast Payload with true received_at_ms and full samples array (P1)
   const livePayload = {
     node_id: nodeId,
     name: nodeName,
     instance_id: instanceId,
-    ts_ms: latestSample.sampled_at_ms,
+    received_at_ms: serverTimeMs,
     metrics: latestMetrics,
     samples: validSamples.map((s) => ({
       sample_seq: s.sample_seq,
@@ -271,39 +271,6 @@ export async function ingestReportCore(
     geo,
     is_hidden: currentAttachment.is_hidden,
   };
-
-  // 5. Traffic Counter Domain & Boundary Tracking
-  const currentCounterId = latestMetrics.network.counter_id || null;
-  const currentRx = latestMetrics.network.rx_total_bytes;
-  const currentTx = latestMetrics.network.tx_total_bytes;
-
-  const isCounterChanged = currentAttachment.last_counter_id !== currentCounterId;
-  const isCounterReset =
-    currentAttachment.last_rx_total_bytes !== null &&
-    (currentRx < currentAttachment.last_rx_total_bytes || currentTx < (currentAttachment.last_tx_total_bytes ?? 0));
-
-  if (isCounterChanged || isCounterReset) {
-    try {
-      await trackTrafficDelta(
-        db,
-        nodeId,
-        currentRx,
-        currentTx,
-        currentCounterId,
-        currentAttachment.traffic_reset_day,
-        currentAttachment.last_rx_total_bytes,
-        currentAttachment.last_tx_total_bytes
-      );
-    } catch (err) {
-      console.error(`[Ingest] Immediate traffic reset settlement failed for node ${nodeId}:`, err);
-    }
-
-    currentAttachment.bucket_start_rx_bytes = currentRx;
-    currentAttachment.bucket_start_tx_bytes = currentTx;
-  } else if (currentAttachment.bucket_start_rx_bytes === null) {
-    currentAttachment.bucket_start_rx_bytes = currentRx;
-    currentAttachment.bucket_start_tx_bytes = currentTx;
-  }
 
   // Hydrate D1 node_state on stateless HTTP fallback
   if (!attachment) {
@@ -316,13 +283,50 @@ export async function ingestReportCore(
     }
   }
 
-  // 6. Minute Accumulator & Minute Rollover Finalization (P0-1 & P0-2)
+  // 5. Sample-by-Sample Counter Transition Tracking & Minute Accumulator (P0-2 & P0-3)
   const bucketsToPersist: RawBucketMetric[] = [];
   let maxDurableCandidateSeq = currentAttachment.persisted_sample_seq;
 
   for (const s of validSamples) {
     const sampleBucket = Math.floor(s.sampled_at_ms / 60000) * 60000;
 
+    // A. Sample-by-Sample Traffic Counter Domain Tracking (P0-3: captures exact peak before reset)
+    const sampleCounterId = s.metrics.network?.counter_id || null;
+    const sampleRx = s.metrics.network.rx_total_bytes;
+    const sampleTx = s.metrics.network.tx_total_bytes;
+
+    const isCounterChanged = currentAttachment.last_counter_id !== null && currentAttachment.last_counter_id !== sampleCounterId;
+    const isCounterReset =
+      currentAttachment.last_rx_total_bytes !== null &&
+      (sampleRx < currentAttachment.last_rx_total_bytes || sampleTx < (currentAttachment.last_tx_total_bytes ?? 0));
+
+    if (isCounterChanged || isCounterReset) {
+      try {
+        await trackTrafficDelta(
+          db,
+          nodeId,
+          sampleRx,
+          sampleTx,
+          sampleCounterId,
+          currentAttachment.traffic_reset_day,
+          currentAttachment.last_rx_total_bytes,
+          currentAttachment.last_tx_total_bytes
+        );
+      } catch (err) {
+        console.error(`[Ingest] Immediate traffic reset settlement failed for node ${nodeId}:`, err);
+      }
+      currentAttachment.bucket_start_rx_bytes = sampleRx;
+      currentAttachment.bucket_start_tx_bytes = sampleTx;
+    } else if (currentAttachment.bucket_start_rx_bytes === null) {
+      currentAttachment.bucket_start_rx_bytes = sampleRx;
+      currentAttachment.bucket_start_tx_bytes = sampleTx;
+    }
+
+    currentAttachment.last_counter_id = sampleCounterId;
+    currentAttachment.last_rx_total_bytes = sampleRx;
+    currentAttachment.last_tx_total_bytes = sampleTx;
+
+    // B. Minute Accumulator
     if (!currentAttachment.current_minute) {
       currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s);
     } else if (sampleBucket === currentAttachment.current_minute.bucket_start_ms) {
@@ -344,9 +348,10 @@ export async function ingestReportCore(
     }
   }
 
-  // On stateless HTTP fallback, if this is a standalone report without continuous connection,
-  // we can also finalize the current accumulator if bucket_start_ms > last_persist_bucket_ms
-  if (!attachment && currentAttachment.current_minute) {
+  // On stateless HTTP fallback, if this is a standalone report with completed historical buckets,
+  // finalize any past minute bucket
+  const currentServerBucketStartMs = Math.floor(serverTimeMs / 60000) * 60000;
+  if (!attachment && currentAttachment.current_minute && currentAttachment.current_minute.bucket_start_ms < currentServerBucketStartMs) {
     const finalized = finalizeAccumulator(currentAttachment.current_minute);
     bucketsToPersist.push(finalized);
     maxDurableCandidateSeq = Math.max(maxDurableCandidateSeq, currentAttachment.current_minute.last_sample_seq);
@@ -374,35 +379,42 @@ export async function ingestReportCore(
         currentAttachment.last_persist_bucket_ms,
         ...bucketsToPersist.map((b) => b.bucketStartMs)
       );
-      currentAttachment.bucket_start_rx_bytes = currentRx;
-      currentAttachment.bucket_start_tx_bytes = currentTx;
+      currentAttachment.bucket_start_rx_bytes = currentAttachment.last_rx_total_bytes;
+      currentAttachment.bucket_start_tx_bytes = currentAttachment.last_tx_total_bytes;
     } catch (err: any) {
       console.error(`[Ingest] D1 Checkpoint failed for node ${nodeId}:`, err);
-    }
-
-    // Traffic delta tracking is separately safeguarded
-    try {
-      await trackTrafficDelta(
-        db,
-        nodeId,
-        currentRx,
-        currentTx,
-        currentCounterId,
-        currentAttachment.traffic_reset_day,
-        currentAttachment.last_rx_total_bytes,
-        currentAttachment.last_tx_total_bytes
-      );
-    } catch (err: any) {
-      console.error(`[Ingest] Traffic delta tracking error for node ${nodeId}:`, err);
+      // P0-1: D1 persistence failed! Return error so RealtimeHub closes WSS to trigger Agent replay!
+      return {
+        result: {
+          accepted: false,
+          persisted: false,
+          error: 'PERSISTENCE_FAILED',
+          isHiddenNode: currentAttachment.is_hidden,
+        },
+        updatedAttachment: currentAttachment,
+      };
     }
   }
 
-  // 7. Update Runtime Attachment State
+  // Final traffic tracking in steady state
+  try {
+    await trackTrafficDelta(
+      db,
+      nodeId,
+      currentAttachment.last_rx_total_bytes ?? latestMetrics.network.rx_total_bytes,
+      currentAttachment.last_tx_total_bytes ?? latestMetrics.network.tx_total_bytes,
+      currentAttachment.last_counter_id,
+      currentAttachment.traffic_reset_day,
+      currentAttachment.last_rx_total_bytes,
+      currentAttachment.last_tx_total_bytes
+    );
+  } catch (err) {
+    console.error(`[Ingest] Traffic delta tracking error for node ${nodeId}:`, err);
+  }
+
+  // 6. Update Runtime Attachment State
   currentAttachment.last_seq = seq;
   currentAttachment.last_report_received_at_ms = serverTimeMs;
-  currentAttachment.last_counter_id = currentCounterId;
-  currentAttachment.last_rx_total_bytes = currentRx;
-  currentAttachment.last_tx_total_bytes = currentTx;
 
   return {
     result: {

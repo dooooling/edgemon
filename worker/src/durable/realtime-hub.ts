@@ -302,7 +302,11 @@ export class RealtimeHub extends DurableObject<Env> {
       );
 
       if (!result.accepted) {
-        this.sendError(ws, result.error || 'REPORT_REJECTED', 'Report failed validation', envelope.seq);
+        if (result.error === 'PERSISTENCE_FAILED') {
+          ws.close(CloseCodes.SERVER_RECONNECT, 'D1 persistence failure, force replay');
+        } else {
+          this.sendError(ws, result.error || 'REPORT_REJECTED', 'Report failed validation', envelope.seq);
+        }
         return;
       }
 

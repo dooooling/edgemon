@@ -213,7 +213,7 @@ export function validateReportPayload(data: ReportPayload): boolean {
   if (!data || typeof data !== 'object') return false;
 
   if (Array.isArray(data.samples)) {
-    if (data.samples.length > 32) return false; // MAX_SAMPLES_PER_REPORT guard
+    if (data.samples.length > 300) return false; // MAX_SAMPLES_PER_REPORT guard (allows full 300-sample buffer replay)
     for (const s of data.samples) {
       if (!s || typeof s !== 'object') return false;
       if (typeof s.sample_seq !== 'number' || s.sample_seq <= 0) return false;

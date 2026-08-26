@@ -801,7 +801,7 @@ fn main() -> Result<()> {
                                 .samples
                                 .iter()
                                 .filter(|s| s.sample_seq > buf.persisted_sample_seq)
-                                .take(16)
+                                .take(300)
                                 .cloned()
                                 .collect();
                             (unsent, buf.dropped_samples)

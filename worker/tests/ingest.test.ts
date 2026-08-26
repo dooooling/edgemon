@@ -68,6 +68,11 @@ function createMockDb(persistedInstanceId: string | null = null, persistedSample
             updateCalled = true;
             updatedRx = args[0];
             updatedTx = args[1];
+            period.finalized_rx_bytes = args[0];
+            period.finalized_tx_bytes = args[1];
+            period.active_counter_id = args[2];
+            period.active_rx_base_bytes = args[3];
+            period.active_tx_base_bytes = args[4];
           }
           return this;
         },
@@ -223,9 +228,9 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     );
 
     expect(res.result.accepted).toBe(true);
-    // Watermark advances from 1, NOT 5000
-    expect(res.result.persisted_sample_seq).toBe(1);
-    expect(res.updatedAttachment.persisted_sample_seq).toBe(1);
+    // Watermark does NOT inherit old instance's 5000
+    expect(res.result.persisted_sample_seq).toBe(0);
+    expect(res.updatedAttachment.persisted_sample_seq).toBe(0);
   });
 
   it('P0: normal 2s reports accumulate into MinuteAccumulator and finalize on rollover with strict watermark', async () => {
@@ -321,5 +326,100 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     expect(mockDb.insertedBuckets[0].cpuUsagePct).toBe(15.0); // (10 + 20) / 2
     expect(mockDb.insertedBuckets[1].bucketStartMs).toBe(t1);
     expect(mockDb.insertedBuckets[1].cpuUsagePct).toBe(30.0);
+  });
+
+  it('P0-1: D1 checkpoint failure returns PERSISTENCE_FAILED to trigger clean socket reconnect replay', async () => {
+    const failingDb = createMockDb('instance-1', 0);
+    failingDb.batch = async () => {
+      throw new Error('D1_INTERNAL_LOCK_ERROR');
+    };
+
+    let attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    const t1200 = Math.floor(1700000000000 / 60000) * 60000;
+    const t1201 = t1200 + 60000;
+
+    // Report 1 in 12:00
+    const r1 = await ingestReportCore(
+      failingDb, 'node-1', 'Node 1', 'instance-1', 1,
+      { samples: [{ sample_seq: 1, sampled_at_ms: t1200 + 2000, metrics: baseMetrics }] },
+      mockGeo, attachment
+    );
+    attachment = r1.updatedAttachment;
+
+    // Report 2 in 12:01 (Triggers rollover persistence which FAILS)
+    const r2 = await ingestReportCore(
+      failingDb, 'node-1', 'Node 1', 'instance-1', 2,
+      { samples: [{ sample_seq: 2, sampled_at_ms: t1201, metrics: baseMetrics }] },
+      mockGeo, attachment
+    );
+
+    expect(r2.result.accepted).toBe(false);
+    expect(r2.result.error).toBe('PERSISTENCE_FAILED');
+    expect(r2.result.persisted).toBe(false);
+  });
+
+  it('P0-3: sequential sample-by-sample counter reset captures peak reading before reset', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    attachment.last_counter_id = 'cnt-1';
+    attachment.last_rx_total_bytes = 1000;
+    attachment.last_tx_total_bytes = 500;
+    attachment.bucket_start_rx_bytes = 1000;
+    attachment.bucket_start_tx_bytes = 500;
+
+    const t0 = Math.floor(1700000000000 / 60000) * 60000;
+
+    // Batch contains: 1100 -> 1200 (peak) -> counter reset to 50 -> 100
+    const samples: MetricSample[] = [
+      {
+        sample_seq: 101,
+        sampled_at_ms: t0 + 2000,
+        metrics: {
+          ...baseMetrics,
+          network: { ...baseMetrics.network, counter_id: 'cnt-1', rx_total_bytes: 1100, tx_total_bytes: 550 },
+        },
+      },
+      {
+        sample_seq: 102,
+        sampled_at_ms: t0 + 4000,
+        metrics: {
+          ...baseMetrics,
+          network: { ...baseMetrics.network, counter_id: 'cnt-1', rx_total_bytes: 1200, tx_total_bytes: 600 },
+        },
+      },
+      {
+        sample_seq: 103,
+        sampled_at_ms: t0 + 6000,
+        metrics: {
+          ...baseMetrics,
+          network: { ...baseMetrics.network, counter_id: 'cnt-2', rx_total_bytes: 50, tx_total_bytes: 20 },
+        },
+      },
+      {
+        sample_seq: 104,
+        sampled_at_ms: t0 + 8000,
+        metrics: {
+          ...baseMetrics,
+          network: { ...baseMetrics.network, counter_id: 'cnt-2', rx_total_bytes: 100, tx_total_bytes: 40 },
+        },
+      },
+    ];
+
+    const res = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      { samples },
+      mockGeo,
+      attachment
+    );
+
+    expect(res.result.accepted).toBe(true);
+    // Settle old counter at peak (1200 - 100 = 1100 delta)
+    expect(mockDb.updateCalled).toBe(true);
+    expect(mockDb.updatedRx).toBe(2100); // 1000 previous finalized + 1100 delta from peak 1200 = 2100
+    expect(mockDb.updatedTx).toBe(1050); // 500 previous finalized + 550 delta from peak 600 = 1050
   });
 });

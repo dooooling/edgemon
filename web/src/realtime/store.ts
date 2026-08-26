@@ -87,9 +87,9 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
         try {
           const data = JSON.parse(event.data);
           if (data.node_id && data.metrics) {
-            const ts = data.ts_ms || Date.now();
+            const receivedAt = data.received_at_ms || data.ts_ms || Date.now();
             const overlay: RealtimeMetricsOverlay = {
-              last_seen_at_ms: ts,
+              last_seen_at_ms: receivedAt,
               cpu_usage_pct: data.metrics.cpu?.usage_pct,
               cpu_throttled_pct: data.metrics.cpu?.throttled_pct,
               memory_used_bytes: data.metrics.memory?.used_bytes,
@@ -108,20 +108,38 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               probes: data.metrics.probes || [],
             };
 
-            const point: RealtimePoint = {
-              ts_ms: ts,
-              cpu_usage_pct: data.metrics.cpu?.usage_pct ?? null,
-              memory_used_bytes: data.metrics.memory?.used_bytes ?? null,
-              rx_bps: data.metrics.network?.rx_bps ?? null,
-              tx_bps: data.metrics.network?.tx_bps ?? null,
-              edge_rtt_ms: data.geo?.edge_rtt_ms ?? null,
-            };
+            const pointsToInsert: RealtimePoint[] = Array.isArray(data.samples) && data.samples.length > 0
+              ? data.samples.map((s: any) => ({
+                  ts_ms: s.sampled_at_ms,
+                  cpu_usage_pct: s.metrics?.cpu?.usage_pct ?? null,
+                  memory_used_bytes: s.metrics?.memory?.used_bytes ?? null,
+                  rx_bps: s.metrics?.network?.rx_bps ?? null,
+                  tx_bps: s.metrics?.network?.tx_bps ?? null,
+                  edge_rtt_ms: data.geo?.edge_rtt_ms ?? null,
+                }))
+              : [
+                  {
+                    ts_ms: receivedAt,
+                    cpu_usage_pct: data.metrics.cpu?.usage_pct ?? null,
+                    memory_used_bytes: data.metrics.memory?.used_bytes ?? null,
+                    rx_bps: data.metrics.network?.rx_bps ?? null,
+                    tx_bps: data.metrics.network?.tx_bps ?? null,
+                    edge_rtt_ms: data.geo?.edge_rtt_ms ?? null,
+                  },
+                ];
 
             set((state) => {
               const cutoff = Date.now() - 10 * 60_000;
               const existingSeries = state.realtimeSeries[data.node_id] || [];
-              const nextSeries = [...existingSeries, point]
-                .filter((p) => p.ts_ms >= cutoff)
+              const pointMap = new Map<number, RealtimePoint>();
+              for (const p of existingSeries) {
+                if (p.ts_ms >= cutoff) pointMap.set(p.ts_ms, p);
+              }
+              for (const p of pointsToInsert) {
+                if (p.ts_ms >= cutoff) pointMap.set(p.ts_ms, p);
+              }
+              const nextSeries = Array.from(pointMap.values())
+                .sort((a, b) => a.ts_ms - b.ts_ms)
                 .slice(-300);
 
               return {

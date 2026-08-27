@@ -95,41 +95,55 @@ adminRoutes.patch('/api/admin/nodes/:id', async (c) => {
   }
 
   // 2. Once DO runtime synchronization succeeds, persist modifications into D1
-  await c.env.DB
-    .prepare(
-      `UPDATE nodes SET
-        name = COALESCE(?, name),
-        sort_order = COALESCE(?, sort_order),
-        hidden = COALESCE(?, hidden),
-        note = COALESCE(?, note),
-        traffic_reset_day = COALESCE(?, traffic_reset_day),
-        traffic_quota_bytes = COALESCE(?, traffic_quota_bytes),
-        location_mode = COALESCE(?, location_mode),
-        manual_country = COALESCE(?, manual_country),
-        manual_city = COALESCE(?, manual_city),
-        manual_lat = COALESCE(?, manual_lat),
-        manual_lon = COALESCE(?, manual_lon),
-        expires_at_ms = COALESCE(?, expires_at_ms),
-        updated_at_ms = ?
-      WHERE id = ?`
-    )
-    .bind(
-      body.name ?? null,
-      body.sort_order ?? null,
-      body.hidden ?? null,
-      body.note ?? null,
-      body.traffic_reset_day ?? null,
-      body.traffic_quota_bytes ?? null,
-      body.location_mode ?? null,
-      body.manual_country ?? null,
-      body.manual_city ?? null,
-      body.manual_lat ?? null,
-      body.manual_lon ?? null,
-      body.expires_at_ms ?? null,
-      now,
-      id
-    )
-    .run();
+  try {
+    await c.env.DB
+      .prepare(
+        `UPDATE nodes SET
+          name = COALESCE(?, name),
+          sort_order = COALESCE(?, sort_order),
+          hidden = COALESCE(?, hidden),
+          note = COALESCE(?, note),
+          traffic_reset_day = COALESCE(?, traffic_reset_day),
+          traffic_quota_bytes = COALESCE(?, traffic_quota_bytes),
+          location_mode = COALESCE(?, location_mode),
+          manual_country = COALESCE(?, manual_country),
+          manual_city = COALESCE(?, manual_city),
+          manual_lat = COALESCE(?, manual_lat),
+          manual_lon = COALESCE(?, manual_lon),
+          expires_at_ms = COALESCE(?, expires_at_ms),
+          updated_at_ms = ?
+        WHERE id = ?`
+      )
+      .bind(
+        body.name ?? null,
+        body.sort_order ?? null,
+        body.hidden ?? null,
+        body.note ?? null,
+        body.traffic_reset_day ?? null,
+        body.traffic_quota_bytes ?? null,
+        body.location_mode ?? null,
+        body.manual_country ?? null,
+        body.manual_city ?? null,
+        body.manual_lat ?? null,
+        body.manual_lon ?? null,
+        body.expires_at_ms ?? null,
+        now,
+        id
+      )
+      .run();
+  } catch (d1Err) {
+    console.error('[Admin] D1 update failed, rolling back DO runtime state:', d1Err);
+    // Rollback DO runtime state to existing values on D1 failure
+    try {
+      if (body.hidden !== undefined || body.name !== undefined) {
+        await (hubStub as any).updateNodeRuntime(id, {
+          is_hidden: existing.hidden === 1,
+          node_name: existing.name,
+        });
+      }
+    } catch (_) {}
+    return c.json({ error: 'Database update failed' }, 500);
+  }
 
   const updated = await getNodeById(c.env.DB, id);
   return c.json({ node: updated });

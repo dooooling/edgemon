@@ -328,7 +328,13 @@ export async function ingestReportCore(
   let durableCut: DurableCut | null = null;
 
   for (const s of validSamples) {
-    const sampleBucket = Math.floor(s.sampled_at_ms / 60000) * 60000;
+    const rawBucket = Math.floor(s.sampled_at_ms / 60000) * 60000;
+    // P0-1: A minute bucket that has already been persisted to D1 (<= last_persist_bucket_ms)
+    // is permanently sealed and must NEVER be reopened or overwritten.
+    // For forward accumulation of new samples, advance bucket to be strictly greater than last_persist_bucket_ms.
+    const sampleBucket = currentAttachment.last_persist_bucket_ms > 0 && rawBucket <= currentAttachment.last_persist_bucket_ms
+      ? currentAttachment.last_persist_bucket_ms + 60000
+      : rawBucket;
     const sampleCounterId = s.metrics.network?.counter_id || null;
     const sampleRx = s.metrics.network?.rx_total_bytes ?? null;
     const sampleTx = s.metrics.network?.tx_total_bytes ?? null;

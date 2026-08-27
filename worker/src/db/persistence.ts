@@ -144,8 +144,8 @@ export async function persist60sCheckpoint(
             disk_write_bps = excluded.disk_write_bps,
             rx_bps = excluded.rx_bps,
             tx_bps = excluded.tx_bps,
-            rx_bytes_delta = metrics_raw.rx_bytes_delta + excluded.rx_bytes_delta,
-            tx_bytes_delta = metrics_raw.tx_bytes_delta + excluded.tx_bytes_delta,
+            rx_bytes_delta = excluded.rx_bytes_delta,
+            tx_bytes_delta = excluded.tx_bytes_delta,
             edge_rtt_ms = excluded.edge_rtt_ms,
             probe_data_json = excluded.probe_data_json`
         )

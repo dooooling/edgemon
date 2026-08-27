@@ -120,6 +120,7 @@ adminRoutes.patch('/api/admin/nodes/:id', async (c) => {
       await (hubStub as any).disconnectAgent(id, 4005, 'TRAFFIC_RESET_DAY_CHANGED');
     } catch (e) {
       console.error('[Admin] Failed to disconnect agent on traffic_reset_day change:', e);
+      return c.json({ error: 'Failed to synchronize runtime state with RealtimeHub' }, 500);
     }
   } else {
     try {
@@ -129,6 +130,7 @@ adminRoutes.patch('/api/admin/nodes/:id', async (c) => {
       });
     } catch (e) {
       console.error('[Admin] Failed to update node runtime state:', e);
+      return c.json({ error: 'Failed to synchronize runtime state with RealtimeHub' }, 500);
     }
   }
 
@@ -146,6 +148,7 @@ adminRoutes.delete('/api/admin/nodes/:id', async (c) => {
     await (hubStub as any).disconnectAgent(id, CloseCodes.NODE_DISABLED, 'NODE_DISABLED');
   } catch (e) {
     console.error('[Admin] Failed to disconnect agent on node deletion:', e);
+    return c.json({ error: 'Failed to disconnect active agent connection' }, 500);
   }
 
   await c.env.DB.prepare('DELETE FROM nodes WHERE id = ?').bind(id).run();
@@ -167,6 +170,7 @@ adminRoutes.post('/api/admin/nodes/:id/token', async (c) => {
     await (hubStub as any).disconnectAgent(id, CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED');
   } catch (e) {
     console.error('[Admin] Failed to disconnect agent on token rotation:', e);
+    return c.json({ error: 'Failed to disconnect active agent connection' }, 500);
   }
 
   return c.json({ rawToken });

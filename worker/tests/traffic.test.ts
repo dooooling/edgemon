@@ -145,7 +145,7 @@ describe('Traffic Period Calculation', () => {
                   // New period (e.g. Aug 15) does NOT exist yet!
                   return null;
                 }
-                if (sql.includes('period_start_ms < ?')) {
+                if (sql.includes('ORDER BY period_start_ms DESC LIMIT 1')) {
                   // Return previous period (July 15)
                   return {
                     node_id: 'node-1',

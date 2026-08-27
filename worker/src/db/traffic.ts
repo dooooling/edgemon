@@ -133,24 +133,22 @@ export async function loadTrafficRuntimeState(
     };
   }
 
-  // 2. If no exact row for currentPeriodStartMs exists, return the latest previous period (< currentPeriodStartMs).
-  // This allows the next incoming sample to naturally trigger applySampleTrafficTransition's billing rollover,
-  // accurately settling the previous period and establishing the correct new active base! (P0-2)
-  const prevPeriod = await db
-    .prepare(
-      'SELECT * FROM traffic_periods WHERE node_id = ? AND period_start_ms < ? ORDER BY period_start_ms DESC LIMIT 1'
-    )
-    .bind(nodeId, currentPeriodStartMs)
+  // 2. If no exact row for currentPeriodStartMs exists, return the latest existing period in D1.
+  // This allows applySampleTrafficTransition on the next incoming sample to naturally detect the billing boundary
+  // or reset_day change, accurately settle the previous active period, and establish the correct active base for currentPeriodStartMs.
+  const latestPeriod = await db
+    .prepare('SELECT * FROM traffic_periods WHERE node_id = ? ORDER BY period_start_ms DESC LIMIT 1')
+    .bind(nodeId)
     .first<TrafficPeriodRow>();
 
-  if (prevPeriod) {
+  if (latestPeriod) {
     return {
-      period_start_ms: prevPeriod.period_start_ms,
-      finalized_rx_bytes: prevPeriod.finalized_rx_bytes,
-      finalized_tx_bytes: prevPeriod.finalized_tx_bytes,
-      active_counter_id: prevPeriod.active_counter_id,
-      active_rx_base_bytes: prevPeriod.active_rx_base_bytes,
-      active_tx_base_bytes: prevPeriod.active_tx_base_bytes,
+      period_start_ms: latestPeriod.period_start_ms,
+      finalized_rx_bytes: latestPeriod.finalized_rx_bytes,
+      finalized_tx_bytes: latestPeriod.finalized_tx_bytes,
+      active_counter_id: latestPeriod.active_counter_id,
+      active_rx_base_bytes: latestPeriod.active_rx_base_bytes,
+      active_tx_base_bytes: latestPeriod.active_tx_base_bytes,
       dirty: false,
     };
   }

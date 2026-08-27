@@ -751,19 +751,19 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
     const t0 = Math.floor(Date.now() / 60000) * 60000;
 
-    // First, sample at t0 + 60000 (minute 1) creates current_minute
+    // First, sample at t0 + 60000 (minute 1) creates current_minute with seq=10
     await ingestReportCore(
       mockDb,
       'node-1',
       'Node 1',
       'instance-1',
       1,
-      { samples: [{ sample_seq: 1, sampled_at_ms: t0 + 60000, metrics: baseMetrics }] },
+      { samples: [{ sample_seq: 10, sampled_at_ms: t0 + 60000, metrics: baseMetrics }] },
       mockGeo,
       attachment
     );
 
-    // Now, two historical samples arrive for past minute t0 (< minute 1)
+    // Now, two historical samples from prior buffer replay (< seq 10) arrive for past minute t0 (< minute 1)
     const res2 = await ingestReportCore(
       mockDb,
       'node-1',
@@ -796,6 +796,7 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
 
     expect(res2.result.accepted).toBe(true);
     expect(res2.result.persisted).toBe(true);
+    expect(attachment.persisted_sample_seq).toBe(3); // Watermark safely advanced to seq 3 (finalized historical prefix)
     // Verified that historical samples were aggregated into exactly 1 bucket for t0
     const histBuckets = mockDb.insertedBuckets.filter((b) => b.bucketStartMs === t0);
     expect(histBuckets.length).toBe(1);

@@ -458,12 +458,12 @@ export async function ingestReportCore(
   let actuallyPersisted = false;
 
   // 6. Atomic Persistence Checkpoint (P0-1: single durable cut alignment)
-  // Checkpoint is written to D1 whenever completed minute buckets (forward rollover or historical) are finalized.
+  // Checkpoint is written to D1 ONLY when a durable cut is established (closed minute or finalized historical prefix).
   // Live samples for the unclosed active minute remain strictly in DO RAM and Agent buffer.
-  if (bucketsToPersist.length > 0) {
-    const cutReport = durableCut?.report ?? validSamples[validSamples.length - 1].metrics;
-    const cutTrafficState = durableCut?.trafficState ?? cloneTrafficRuntimeState(currentAttachment.traffic_state);
-    const cutSampleSeq = durableCut?.sampleSeq ?? currentAttachment.persisted_sample_seq;
+  if (bucketsToPersist.length > 0 && durableCut !== null) {
+    const cutReport = durableCut.report;
+    const cutTrafficState = durableCut.trafficState;
+    const cutSampleSeq = durableCut.sampleSeq;
 
     const trafficStatements = buildTrafficD1Statements(db, nodeId, cutTrafficState, serverTimeMs);
 

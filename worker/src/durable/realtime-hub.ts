@@ -234,7 +234,14 @@ export class RealtimeHub extends DurableObject<Env> {
         attachment.last_rx_total_bytes = stateRow.rx_total_bytes;
         attachment.last_tx_total_bytes = stateRow.tx_total_bytes;
         attachment.last_counter_id = stateRow.network_counter_id;
-        attachment.last_persist_bucket_ms = Math.floor((stateRow.persisted_at_ms || 0) / 60000) * 60000;
+
+        // Load true last persisted bucket timestamp from metrics_raw (P0-1)
+        const lastBucketRow = await this.env.DB
+          .prepare('SELECT MAX(bucket_start_ms) AS last_bucket FROM metrics_raw WHERE node_id = ?')
+          .bind(nodeId)
+          .first<{ last_bucket: number | null }>();
+        attachment.last_persist_bucket_ms = lastBucketRow?.last_bucket ?? 0;
+
         // P0-1: Only restore watermark if state.persisted_instance_id === current instance_id!
         if (stateRow.persisted_instance_id === attachment.instance_id && stateRow.persisted_sample_seq) {
           attachment.persisted_sample_seq = stateRow.persisted_sample_seq;

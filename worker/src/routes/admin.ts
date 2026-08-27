@@ -157,18 +157,18 @@ adminRoutes.delete('/api/admin/nodes/:id', async (c) => {
     return c.json({ error: 'Node not found' }, 404);
   }
 
-  // 1. Disconnect any active WSS agent connection immediately BEFORE deleting in D1
-  const hubId = c.env.REALTIME.idFromName('main');
-  const hubStub = c.env.REALTIME.get(hubId);
+  // 1. Delete from D1 first (P1: if D1 fails, Agent is not fatal-disconnected)
+  await c.env.DB.prepare('DELETE FROM nodes WHERE id = ?').bind(id).run();
+
+  // 2. Once D1 delete succeeds, disconnect active WSS agent connection
   try {
+    const hubId = c.env.REALTIME.idFromName('main');
+    const hubStub = c.env.REALTIME.get(hubId);
     await (hubStub as any).disconnectAgent(id, CloseCodes.NODE_DISABLED, 'NODE_DISABLED');
   } catch (e) {
-    console.error('[Admin] Failed to disconnect agent on node deletion:', e);
-    return c.json({ error: 'Failed to disconnect active agent connection' }, 500);
+    console.error('[Admin] Best-effort disconnect agent on node deletion:', e);
   }
 
-  // 2. Delete from D1
-  await c.env.DB.prepare('DELETE FROM nodes WHERE id = ?').bind(id).run();
   return c.json({ status: 'deleted', id });
 });
 
@@ -180,20 +180,19 @@ adminRoutes.post('/api/admin/nodes/:id/token', async (c) => {
     return c.json({ error: 'Node not found' }, 404);
   }
 
-  // 1. Disconnect any active WSS agent connection immediately BEFORE rotating in D1
-  const hubId = c.env.REALTIME.idFromName('main');
-  const hubStub = c.env.REALTIME.get(hubId);
-  try {
-    await (hubStub as any).disconnectAgent(id, CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED');
-  } catch (e) {
-    console.error('[Admin] Failed to disconnect agent on token rotation:', e);
-    return c.json({ error: 'Failed to disconnect active agent connection' }, 500);
-  }
-
-  // 2. Rotate token in D1
+  // 1. Rotate token in D1 first (P1: if D1 fails, Agent is not fatal-disconnected)
   const rawToken = await rotateNodeToken(c.env.DB, id);
   if (!rawToken) {
     return c.json({ error: 'Node not found' }, 404);
+  }
+
+  // 2. Once D1 rotation succeeds, disconnect active agent connection so it reconnects with new token
+  try {
+    const hubId = c.env.REALTIME.idFromName('main');
+    const hubStub = c.env.REALTIME.get(hubId);
+    await (hubStub as any).disconnectAgent(id, CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED');
+  } catch (e) {
+    console.error('[Admin] Best-effort disconnect agent on token rotation:', e);
   }
 
   return c.json({ rawToken });

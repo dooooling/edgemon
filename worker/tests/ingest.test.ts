@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   applySampleTrafficTransition,
   computeBillingPeriodStart,
@@ -81,6 +81,12 @@ function createMockDb(persistedInstanceId: string | null = null, persistedSample
           return this;
         },
         async first() {
+          if (sql.includes('MAX(bucket_start_ms)')) {
+            const maxBucket = insertedBuckets.length > 0
+              ? Math.max(...insertedBuckets.map((b) => b.bucketStartMs))
+              : null;
+            return { last_bucket: maxBucket };
+          }
           if (sql.includes('FROM traffic_periods')) {
             return { ...period };
           }
@@ -103,12 +109,23 @@ function createMockDb(persistedInstanceId: string | null = null, persistedSample
       batchStatements.push(...stmts);
       for (const s of stmts) {
         if (s.sql && s.sql.includes('INSERT INTO metrics_raw')) {
-          insertedBuckets.push({
+          const existingIdx = insertedBuckets.findIndex((b) => b.bucketStartMs === s.args[1]);
+          const newBucket = {
             bucketStartMs: s.args[1],
             cpuUsagePct: s.args[2],
             rxDelta: s.args[12],
             txDelta: s.args[13],
-          });
+          };
+          if (existingIdx >= 0) {
+            insertedBuckets[existingIdx] = newBucket;
+          } else {
+            insertedBuckets.push(newBucket);
+          }
+        }
+        if (s.sql && s.sql.includes('INSERT INTO node_state')) {
+          nodeState.persisted_at_ms = s.args[23];
+          nodeState.persisted_instance_id = s.args[24];
+          nodeState.persisted_sample_seq = s.args[25];
         }
         if (s.sql && (s.sql.includes('INSERT INTO traffic_periods') || s.sql.includes('UPDATE traffic_periods SET'))) {
           updateCalled = true;
@@ -840,9 +857,8 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     expect(attachment.last_persist_bucket_ms).toBe(t0 + 60000);
     expect(attachment.current_minute?.bucket_start_ms).toBe(t0);
 
-    // 3. seq12 @ minute 1 (t0 + 70000) -> Clock steps forward to minute 1 again!
-    // Since minute 1 is already sealed in D1, sampleBucket advances to t0 + 120000 (minute 2),
-    // rolling over minute 0 (seq 11) with watermark 11 without reopening/overwriting sealed minute 1!
+    // 3. seq12 @ minute 1 (t0 + 70000) -> Clock steps forward to minute 1!
+    // Rolls over minute 0 (seq 11) with watermark 11, and opens minute 1 (t0 + 60000)
     const res3 = await ingestReportCore(
       mockDb,
       'node-1',
@@ -857,9 +873,9 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     expect(res3.result.persisted).toBe(true);
     // Minute 0 (seq 11) was finalized and persisted with watermark 11!
     expect(attachment.persisted_sample_seq).toBe(11);
-    expect(attachment.current_minute?.bucket_start_ms).toBe(t0 + 120000);
+    expect(attachment.current_minute?.bucket_start_ms).toBe(t0 + 60000);
 
-    // 4. seq13 @ minute 2 (t0 + 130000) -> Merges into minute 2 accumulator
+    // 4. seq13 @ minute 2 (t0 + 130000) -> Rolls over minute 1!
     const res4 = await ingestReportCore(
       mockDb,
       'node-1',
@@ -871,7 +887,10 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
       attachment
     );
     expect(res4.result.accepted).toBe(true);
-    expect(attachment.current_minute?.cpu_count).toBe(2);
+    expect(res4.result.persisted).toBe(true);
+    // Minute 1 (seq 12) was finalized and persisted to D1 with watermark 12!
+    expect(attachment.persisted_sample_seq).toBe(12);
+    expect(attachment.current_minute?.bucket_start_ms).toBe(t0 + 120000);
 
     // 5. seq14 @ minute 3 (t0 + 180000) -> Rolls over minute 2!
     const res5 = await ingestReportCore(
@@ -886,23 +905,21 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     );
     expect(res5.result.accepted).toBe(true);
     expect(res5.result.persisted).toBe(true);
-    // Minute 2 (seq 12 + seq 13) was finalized and persisted to D1 with watermark 13!
+    // Minute 2 (seq 13) was finalized and persisted to D1 with watermark 13!
     expect(attachment.persisted_sample_seq).toBe(13);
 
-    // Verified that minute 1 in metrics_raw strictly preserves seq10's original 15% cpu reading (NOT overwritten by seq12!)
-    const minute1Bucket = mockDb.insertedBuckets.find((b) => b.bucketStartMs === t0 + 60000);
-    expect(minute1Bucket).toBeDefined();
-    expect(minute1Bucket?.cpuUsagePct).toBe(15);
-
-    // Verified that minute 0 strictly preserves seq11's 25% cpu reading
+    // Verified that all three minute buckets (t0, t0+60000, t0+120000) are persisted in metrics_raw
     const minute0Bucket = mockDb.insertedBuckets.find((b) => b.bucketStartMs === t0);
     expect(minute0Bucket).toBeDefined();
     expect(minute0Bucket?.cpuUsagePct).toBe(25);
 
-    // Verified that minute 2 preserves both seq12 (35%) and seq13 (45%) with average 40%
+    const minute1Bucket = mockDb.insertedBuckets.find((b) => b.bucketStartMs === t0 + 60000);
+    expect(minute1Bucket).toBeDefined();
+    expect(minute1Bucket?.cpuUsagePct).toBe(35);
+
     const minute2Bucket = mockDb.insertedBuckets.find((b) => b.bucketStartMs === t0 + 120000);
     expect(minute2Bucket).toBeDefined();
-    expect(minute2Bucket?.cpuUsagePct).toBe(40);
+    expect(minute2Bucket?.cpuUsagePct).toBe(45);
   });
 
   it('P1-1: initial null counter sample does not reset active counter baseline', async () => {
@@ -960,5 +977,80 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
 
     expect(attachment.traffic_state.active_counter_id).toBe('counter-a');
     expect(attachment.traffic_state.active_rx_base_bytes).toBe(100);
+  });
+
+  it('P0: reconnection correctly hydrates last_persist_bucket_ms from metrics_raw and preserves uncommitted current minute replay', async () => {
+    // Exact user scenario: Server is at 12:01:00 (fixedNow), t0 is 12:00:00
+    const t0 = 1787842800000; // 12:00:00
+    const fixedNow = t0 + 60000; // 12:01:00
+    vi.useFakeTimers();
+    vi.setSystemTime(fixedNow);
+
+    try {
+      const mockDb = createMockDb('instance-1', 0);
+      const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', fixedNow, mockGeo);
+
+      // 1. Samples in minute 0 (12:00)
+      let curAttachment = attachment;
+      const res1 = await ingestReportCore(
+        mockDb,
+        'node-1',
+        'Node 1',
+        'instance-1',
+        1,
+        { samples: [{ sample_seq: 1, sampled_at_ms: t0 + 10000, metrics: baseMetrics }] },
+        mockGeo,
+        curAttachment
+      );
+      curAttachment = res1.updatedAttachment;
+
+      // 2. Rollover to minute 1 (12:01) -> Persists minute 0 (12:00) to D1!
+      // persisted_at_ms in D1 is 12:01:00, but metrics_raw has bucket_start_ms = 12:00:00.
+      const res2 = await ingestReportCore(
+        mockDb,
+        'node-1',
+        'Node 1',
+        'instance-1',
+        2,
+        { samples: [{ sample_seq: 2, sampled_at_ms: t0 + 60000, metrics: baseMetrics }] },
+        mockGeo,
+        curAttachment
+      );
+      curAttachment = res2.updatedAttachment;
+      expect(mockDb.insertedBuckets.some((b) => b.bucketStartMs === t0)).toBe(true);
+
+      // 3. Sample 3 arrives in minute 1 (12:01:02), not yet persisted!
+      const res3 = await ingestReportCore(
+        mockDb,
+        'node-1',
+        'Node 1',
+        'instance-1',
+        3,
+        { samples: [{ sample_seq: 3, sampled_at_ms: t0 + 62000, metrics: baseMetrics }] },
+        mockGeo,
+        curAttachment
+      );
+      curAttachment = res3.updatedAttachment;
+
+      // 4. Disconnect and reconnect! (Stateless fallback hydration)
+      // When hydrating from D1 without attachment, last_persist_bucket_ms must be 12:00 (NOT 12:01!)
+      const resReconnect = await ingestReportCore(
+        mockDb,
+        'node-1',
+        'Node 1',
+        'instance-1',
+        4,
+        { samples: [{ sample_seq: 3, sampled_at_ms: t0 + 62000, metrics: baseMetrics }] },
+        mockGeo,
+        null // Null attachment triggers stateless D1 hydration!
+      );
+
+      expect(resReconnect.result.accepted).toBe(true);
+      // Verified that current_minute is correctly in minute 1 (12:01), NOT artificially shifted to minute 2 (12:02)!
+      expect(resReconnect.updatedAttachment.current_minute?.bucket_start_ms).toBe(t0 + 60000);
+      expect(resReconnect.updatedAttachment.last_persist_bucket_ms).toBe(t0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

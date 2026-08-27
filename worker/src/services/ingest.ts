@@ -253,6 +253,26 @@ export async function ingestReportCore(
   );
   currentAttachment.last_seq = seq;
 
+  // Hydrate D1 state on stateless HTTP fallback BEFORE filtering samples (P0-2)
+  if (!attachment) {
+    const lastDbState = await getNodeState(db, nodeId);
+    if (lastDbState) {
+      if (lastDbState.persisted_instance_id === instanceId && lastDbState.persisted_sample_seq) {
+        currentAttachment.persisted_sample_seq = lastDbState.persisted_sample_seq;
+      }
+      // Load true last persisted bucket from metrics_raw (P0-1)
+      const lastBucketRow = await db
+        .prepare('SELECT MAX(bucket_start_ms) AS last_bucket FROM metrics_raw WHERE node_id = ?')
+        .bind(nodeId)
+        .first<{ last_bucket: number | null }>();
+      currentAttachment.last_persist_bucket_ms = lastBucketRow?.last_bucket ?? 0;
+      currentAttachment.last_rx_total_bytes = lastDbState.rx_total_bytes;
+      currentAttachment.last_tx_total_bytes = lastDbState.tx_total_bytes;
+      currentAttachment.last_counter_id = lastDbState.network_counter_id;
+    }
+    currentAttachment.traffic_state = await loadTrafficRuntimeState(db, nodeId, trafficResetDay);
+  }
+
   // 3. Extract and filter valid samples
   const rawSamples = report.samples || [{
     sample_seq: seq,
@@ -307,34 +327,13 @@ export async function ingestReportCore(
     is_hidden: currentAttachment.is_hidden,
   };
 
-  // Hydrate D1 state on stateless HTTP fallback (P0-2)
-  if (!attachment) {
-    const lastDbState = await getNodeState(db, nodeId);
-    if (lastDbState) {
-      if (lastDbState.persisted_instance_id === instanceId && lastDbState.persisted_sample_seq) {
-        currentAttachment.persisted_sample_seq = lastDbState.persisted_sample_seq;
-      }
-      currentAttachment.last_persist_bucket_ms = Math.floor((lastDbState.persisted_at_ms || 0) / 60000) * 60000;
-      currentAttachment.last_rx_total_bytes = lastDbState.rx_total_bytes;
-      currentAttachment.last_tx_total_bytes = lastDbState.tx_total_bytes;
-      currentAttachment.last_counter_id = lastDbState.network_counter_id;
-    }
-    currentAttachment.traffic_state = await loadTrafficRuntimeState(db, nodeId, trafficResetDay);
-  }
-
   // 5. Sample-by-Sample Traffic State Transition & Minute Accumulator (P0-1, P0-2, P0-3, P1-1, P1-2, P2)
   const bucketsToPersist: RawBucketMetric[] = [];
   const historicalAccumulators = new Map<number, MinuteAccumulator>();
   let durableCut: DurableCut | null = null;
 
   for (const s of validSamples) {
-    const rawBucket = Math.floor(s.sampled_at_ms / 60000) * 60000;
-    // P0-1: A minute bucket that has already been persisted to D1 (<= last_persist_bucket_ms)
-    // is permanently sealed and must NEVER be reopened or overwritten.
-    // For forward accumulation of new samples, advance bucket to be strictly greater than last_persist_bucket_ms.
-    const sampleBucket = currentAttachment.last_persist_bucket_ms > 0 && rawBucket <= currentAttachment.last_persist_bucket_ms
-      ? currentAttachment.last_persist_bucket_ms + 60000
-      : rawBucket;
+    const sampleBucket = Math.floor(s.sampled_at_ms / 60000) * 60000;
     const sampleCounterId = s.metrics.network?.counter_id || null;
     const sampleRx = s.metrics.network?.rx_total_bytes ?? null;
     const sampleTx = s.metrics.network?.tx_total_bytes ?? null;

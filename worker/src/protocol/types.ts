@@ -186,6 +186,10 @@ export function validateFiniteMetric(val: number | null | undefined, min?: numbe
 
 export function validateReportMetrics(data: ReportMetrics): boolean {
   if (!data || typeof data !== 'object') return false;
+  if (!data.network || typeof data.network !== 'object') return false;
+  if (typeof data.network.interface !== 'string' || !data.network.interface) return false;
+  if (typeof data.network.rx_total_bytes !== 'number' || data.network.rx_total_bytes < 0) return false;
+  if (typeof data.network.tx_total_bytes !== 'number' || data.network.tx_total_bytes < 0) return false;
   if (!validateFiniteMetric(data.cpu?.usage_pct, 0, 100)) return false;
   if (!validateFiniteMetric(data.cpu?.throttled_pct, 0, 100)) return false;
   if (!validateFiniteMetric(data.memory?.used_bytes, 0)) return false;
@@ -196,8 +200,6 @@ export function validateReportMetrics(data: ReportMetrics): boolean {
   if (!validateFiniteMetric(data.io?.write_bps, 0)) return false;
   if (!validateFiniteMetric(data.network?.rx_bps, 0)) return false;
   if (!validateFiniteMetric(data.network?.tx_bps, 0)) return false;
-  if (!validateFiniteMetric(data.network?.rx_total_bytes, 0)) return false;
-  if (!validateFiniteMetric(data.network?.tx_total_bytes, 0)) return false;
   if (!validateFiniteMetric(data.uptime_sec, 0)) return false;
 
   if (Array.isArray(data.probes)) {
@@ -213,7 +215,7 @@ export function validateReportPayload(data: ReportPayload): boolean {
   if (!data || typeof data !== 'object') return false;
 
   if (Array.isArray(data.samples)) {
-    if (data.samples.length > 300) return false; // MAX_SAMPLES_PER_REPORT guard (allows full 300-sample buffer replay)
+    if (data.samples.length === 0 || data.samples.length > 300) return false; // Non-empty array guard
     for (const s of data.samples) {
       if (!s || typeof s !== 'object') return false;
       if (typeof s.sample_seq !== 'number' || s.sample_seq <= 0) return false;

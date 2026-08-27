@@ -105,19 +105,31 @@ adminRoutes.patch('/api/admin/nodes/:id', async (c) => {
       now,
       id
     )
+    .run();
+
   const updated = await getNodeById(c.env.DB, id);
 
-  // Sync runtime state changes (hidden, traffic_reset_day, name) to RealtimeHub DO immediately (P0-2, P1-4)
+  // Sync runtime state changes (P0-2, P1-4):
+  // If traffic_reset_day changed, disconnect agent so it cleanly re-authenticates and hydrates from D1
+  // If only display/privacy metadata (hidden, name) changed, update socket attachment in-place
   const hubId = c.env.REALTIME.idFromName('main');
   const hubStub = c.env.REALTIME.get(hubId);
-  try {
-    await (hubStub as any).updateNodeRuntime(id, {
-      is_hidden: body.hidden !== undefined ? Boolean(body.hidden) : undefined,
-      traffic_reset_day: body.traffic_reset_day !== undefined ? Number(body.traffic_reset_day) : undefined,
-      node_name: body.name !== undefined ? String(body.name) : undefined,
-    });
-  } catch {
-    // best-effort
+
+  if (body.traffic_reset_day !== undefined && body.traffic_reset_day !== existing.traffic_reset_day) {
+    try {
+      await (hubStub as any).disconnectAgent(id, 4005, 'TRAFFIC_RESET_DAY_CHANGED');
+    } catch {
+      // best-effort
+    }
+  } else {
+    try {
+      await (hubStub as any).updateNodeRuntime(id, {
+        is_hidden: body.hidden !== undefined ? Boolean(body.hidden) : undefined,
+        node_name: body.name !== undefined ? String(body.name) : undefined,
+      });
+    } catch {
+      // best-effort
+    }
   }
 
   return c.json({ node: updated });

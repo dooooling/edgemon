@@ -371,7 +371,7 @@ fn read_cgroup_cpu_stats(cgroup_ctx: Option<&CgroupContext>) -> (Option<u64>, Op
         None => return (None, None),
     };
 
-    let stat_file = ctx.base_path.join("cpu.stat");
+    let stat_file = ctx.cpu_path.join("cpu.stat");
     if let Ok(content) = fs::read_to_string(&stat_file) {
         let mut usage_usec = None;
         let mut throttled_usec = None;
@@ -392,7 +392,7 @@ fn read_cgroup_cpu_stats(cgroup_ctx: Option<&CgroupContext>) -> (Option<u64>, Op
     }
 
     // Fallback to cgroup v1: cpuacct.usage (nanoseconds)
-    let acct_file = ctx.base_path.join("cpuacct.usage");
+    let acct_file = ctx.cpu_path.join("cpuacct.usage");
     if let Ok(content) = fs::read_to_string(&acct_file) {
         if let Ok(ns) = content.trim().parse::<u64>() {
             return (Some(ns / 1000), Some(0));

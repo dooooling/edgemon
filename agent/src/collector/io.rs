@@ -65,36 +65,68 @@ impl IoCollector {
 
 fn read_cgroup_io_counters(cgroup_ctx: Option<&CgroupContext>) -> Option<IoCounters> {
     let ctx = cgroup_ctx?;
-    let content = fs::read_to_string(ctx.base_path.join("io.stat")).ok()?;
 
-    let mut total_rbytes = 0u64;
-    let mut total_wbytes = 0u64;
-    let mut found = false;
+    // cgroup v2: io.stat
+    if let Ok(content) = fs::read_to_string(ctx.io_path.join("io.stat")) {
+        let mut total_rbytes = 0u64;
+        let mut total_wbytes = 0u64;
+        let mut found = false;
 
-    for line in content.lines() {
-        for part in line.split_whitespace() {
-            if let Some(val) = part.strip_prefix("rbytes=") {
-                if let Ok(v) = val.parse::<u64>() {
-                    total_rbytes += v;
-                    found = true;
+        for line in content.lines() {
+            for part in line.split_whitespace() {
+                if let Some(val) = part.strip_prefix("rbytes=") {
+                    if let Ok(v) = val.parse::<u64>() {
+                        total_rbytes += v;
+                        found = true;
+                    }
+                } else if let Some(val) = part.strip_prefix("wbytes=") {
+                    if let Ok(v) = val.parse::<u64>() {
+                        total_wbytes += v;
+                        found = true;
+                    }
                 }
-            } else if let Some(val) = part.strip_prefix("wbytes=") {
-                if let Ok(v) = val.parse::<u64>() {
-                    total_wbytes += v;
-                    found = true;
+            }
+        }
+
+        if found {
+            return Some(IoCounters {
+                read_bytes: total_rbytes,
+                write_bytes: total_wbytes,
+            });
+        }
+    }
+
+    // cgroup v1: blkio.throttle.io_service_bytes / blkio.io_service_bytes
+    for filename in &["blkio.throttle.io_service_bytes", "blkio.io_service_bytes"] {
+        if let Ok(content) = fs::read_to_string(ctx.io_path.join(filename)) {
+            let mut total_rbytes = 0u64;
+            let mut total_wbytes = 0u64;
+            let mut found = false;
+            for line in content.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 3 {
+                    let op = parts[1];
+                    if let Ok(bytes) = parts[2].parse::<u64>() {
+                        if op.eq_ignore_ascii_case("read") {
+                            total_rbytes += bytes;
+                            found = true;
+                        } else if op.eq_ignore_ascii_case("write") {
+                            total_wbytes += bytes;
+                            found = true;
+                        }
+                    }
                 }
+            }
+            if found {
+                return Some(IoCounters {
+                    read_bytes: total_rbytes,
+                    write_bytes: total_wbytes,
+                });
             }
         }
     }
 
-    if found {
-        Some(IoCounters {
-            read_bytes: total_rbytes,
-            write_bytes: total_wbytes,
-        })
-    } else {
-        None
-    }
+    None
 }
 
 fn read_host_diskstats() -> Option<IoCounters> {

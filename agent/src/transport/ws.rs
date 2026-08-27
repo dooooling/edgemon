@@ -188,12 +188,22 @@ impl WsTransport {
                     self.last_ping_sent = None;
                 }
                 Ok(Message::Close(frame)) => {
-                    let reason = frame
-                        .map(|f| format!("{}: {}", f.code, f.reason))
-                        .unwrap_or_default();
+                    let (code, reason) = frame
+                        .map(|f| (u16::from(f.code), f.reason.to_string()))
+                        .unwrap_or((1000, String::new()));
+                    if code == 4002 || code == 4003 || code == 4004 {
+                        error!(
+                            "[WSS] Fatal close from server during hello ({}: {}). Terminating.",
+                            code, reason
+                        );
+                        return Err(AgentError::Fatal(format!(
+                            "Fatal server close {}: {}",
+                            code, reason
+                        )));
+                    }
                     return Err(AgentError::Transport(format!(
-                        "Server closed socket during hello: {}",
-                        reason
+                        "Server closed socket during hello: {}: {}",
+                        code, reason
                     )));
                 }
                 Err(tungstenite::Error::Io(ref e))
@@ -341,7 +351,7 @@ impl WsTransport {
                 if let Some(f) = frame {
                     let code: u16 = f.code.into();
                     let reason = f.reason.to_string();
-                    if code == 4003 || code == 4004 {
+                    if code == 4002 || code == 4003 || code == 4004 {
                         error!(
                             "[WSS] Fatal auth/policy close from server ({}: {}). Terminating.",
                             code, reason

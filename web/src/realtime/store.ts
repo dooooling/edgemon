@@ -129,14 +129,16 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
                 ];
 
             set((state) => {
-              const cutoff = Date.now() - 10 * 60_000;
+              const now = Date.now();
+              const cutoff = now - 10 * 60_000;
+              const maxFuture = now + 60_000;
               const existingSeries = state.realtimeSeries[data.node_id] || [];
               const pointMap = new Map<number, RealtimePoint>();
               for (const p of existingSeries) {
-                if (p.ts_ms >= cutoff) pointMap.set(p.ts_ms, p);
+                if (p.ts_ms >= cutoff && p.ts_ms <= maxFuture) pointMap.set(p.ts_ms, p);
               }
               for (const p of pointsToInsert) {
-                if (p.ts_ms >= cutoff) pointMap.set(p.ts_ms, p);
+                if (p.ts_ms >= cutoff && p.ts_ms <= maxFuture) pointMap.set(p.ts_ms, p);
               }
               const nextSeries = Array.from(pointMap.values())
                 .sort((a, b) => a.ts_ms - b.ts_ms)

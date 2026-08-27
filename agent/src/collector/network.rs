@@ -18,6 +18,7 @@ pub struct NetworkCollector {
     latest_metrics: NetworkMetrics,
     last_counters: Option<NetCounters>,
     last_sample_instant: Option<Instant>,
+    has_successful_read: bool,
 }
 
 impl NetworkCollector {
@@ -45,6 +46,7 @@ impl NetworkCollector {
             },
             last_counters: None,
             last_sample_instant: None,
+            has_successful_read: false,
         }
     }
 
@@ -67,6 +69,7 @@ impl NetworkCollector {
             self.counter_id = generate_counter_id(self.boot_id.as_deref(), &self.active_interface);
             self.last_counters = None;
             self.last_sample_instant = None;
+            self.has_successful_read = false;
         }
     }
 
@@ -90,6 +93,8 @@ impl NetworkCollector {
                     self.counter_id =
                         generate_counter_id(self.boot_id.as_deref(), &self.active_interface);
                     self.last_counters = None;
+                    self.last_sample_instant = None;
+                    self.has_successful_read = false;
                 }
             }
         }
@@ -122,25 +127,34 @@ impl NetworkCollector {
             _ => (None, None),
         };
 
-        let (rx_total, tx_total) = match current_counters {
+        let (rx_total, tx_total, counter_id_to_report) = match current_counters {
             Some(c) => {
+                self.has_successful_read = true;
                 self.last_counters = Some(c);
-                (c.rx_bytes, c.tx_bytes)
+                self.last_sample_instant = Some(now);
+                (c.rx_bytes, c.tx_bytes, self.counter_id.clone())
             }
             None => {
-                // If reading failed transiently, retain last valid readings to prevent fake 0 counter resets
-                (
-                    self.latest_metrics.rx_total_bytes,
-                    self.latest_metrics.tx_total_bytes,
-                )
+                // If reading failed, invalidate last_counters & instant to prevent inflated rate spikes (P1-2)
+                self.last_counters = None;
+                self.last_sample_instant = None;
+
+                if self.has_successful_read {
+                    (
+                        self.latest_metrics.rx_total_bytes,
+                        self.latest_metrics.tx_total_bytes,
+                        self.counter_id.clone(),
+                    )
+                } else {
+                    // Initial reading failed (P0-4): Report None counter_id to avoid fake 0 -> big delta
+                    (0, 0, None)
+                }
             }
         };
 
-        self.last_sample_instant = Some(now);
-
         let metrics = NetworkMetrics {
             interface: self.active_interface.clone(),
-            counter_id: self.counter_id.clone(),
+            counter_id: counter_id_to_report,
             rx_bps,
             tx_bps,
             rx_total_bytes: rx_total,
@@ -158,7 +172,7 @@ impl NetworkCollector {
 pub fn read_network_counters(target_iface: &str) -> Option<NetCounters> {
     #[cfg(windows)]
     {
-        if let Some(c) = read_windows_network_counters() {
+        if let Some(c) = read_windows_network_counters(target_iface) {
             return Some(c);
         }
     }
@@ -167,7 +181,7 @@ pub fn read_network_counters(target_iface: &str) -> Option<NetCounters> {
 }
 
 #[cfg(windows)]
-fn read_windows_network_counters() -> Option<NetCounters> {
+fn read_windows_network_counters(target_iface: &str) -> Option<NetCounters> {
     use windows_sys::Win32::NetworkManagement::IpHelper::{
         FreeMibTable, GetIfTable2, MIB_IF_TABLE2,
     };
@@ -179,17 +193,34 @@ fn read_windows_network_counters() -> Option<NetCounters> {
             let entries_slice = std::slice::from_raw_parts(table.Table.as_ptr(), num_entries);
             let mut total_rx = 0u64;
             let mut total_tx = 0u64;
+            let mut found = false;
+
             for entry in entries_slice {
                 if entry.OperStatus == 1 && entry.Type != 24 {
-                    total_rx += entry.InOctets;
-                    total_tx += entry.OutOctets;
+                    let alias = String::from_utf16_lossy(&entry.Alias);
+                    let alias_trimmed = alias.trim_matches('\0').trim();
+                    let desc = String::from_utf16_lossy(&entry.Description);
+                    let desc_trimmed = desc.trim_matches('\0').trim();
+
+                    let is_match = target_iface == "auto"
+                        || target_iface == "Ethernet/Wi-Fi"
+                        || alias_trimmed == target_iface
+                        || desc_trimmed == target_iface;
+
+                    if is_match {
+                        total_rx += entry.InOctets;
+                        total_tx += entry.OutOctets;
+                        found = true;
+                    }
                 }
             }
             FreeMibTable(table_ptr as *const _);
-            return Some(NetCounters {
-                rx_bytes: total_rx,
-                tx_bytes: total_tx,
-            });
+            if found {
+                return Some(NetCounters {
+                    rx_bytes: total_rx,
+                    tx_bytes: total_tx,
+                });
+            }
         }
     }
     None

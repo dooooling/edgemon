@@ -19,6 +19,9 @@ pub struct EffectiveLimits {
 pub struct CgroupContext {
     pub version: CgroupVersion,
     pub base_path: PathBuf,
+    pub cpu_path: PathBuf,
+    pub memory_path: PathBuf,
+    pub io_path: PathBuf,
     pub relative_path: String,
     pub limits: EffectiveLimits,
 }
@@ -30,6 +33,7 @@ pub fn resolve_cgroup_context(is_container: bool) -> Option<CgroupContext> {
         CgroupVersion::V2
     } else if Path::new("/sys/fs/cgroup/memory").exists()
         || Path::new("/sys/fs/cgroup/cpu").exists()
+        || Path::new("/sys/fs/cgroup/cpu,cpuacct").exists()
     {
         CgroupVersion::V1
     } else {
@@ -101,9 +105,11 @@ fn resolve_cgroup_v2(is_container: bool) -> Option<CgroupContext> {
             }
         }
 
-        // Read cpuset.cpus.effective (from innermost child only)
+        // Read cpuset.cpus.effective / cpuset.cpus
         if effective_cpuset.is_none() {
-            if let Ok(content) = fs::read_to_string(d.join("cpuset.cpus.effective")) {
+            let cpus_content = fs::read_to_string(d.join("cpuset.cpus.effective"))
+                .or_else(|_| fs::read_to_string(d.join("cpuset.cpus")));
+            if let Ok(content) = cpus_content {
                 if let Some(count) = parse_cpuset_count(&content) {
                     effective_cpuset = Some(count as f64);
                 }
@@ -118,7 +124,10 @@ fn resolve_cgroup_v2(is_container: bool) -> Option<CgroupContext> {
 
     Some(CgroupContext {
         version: CgroupVersion::V2,
-        base_path: current,
+        base_path: current.clone(),
+        cpu_path: current.clone(),
+        memory_path: current.clone(),
+        io_path: current.clone(),
         relative_path: rel_path,
         limits: EffectiveLimits {
             cpu_quota_cores: min_cpu_quota_cores,
@@ -130,18 +139,31 @@ fn resolve_cgroup_v2(is_container: bool) -> Option<CgroupContext> {
 }
 
 fn resolve_cgroup_v1(is_container: bool) -> Option<CgroupContext> {
-    let cpu_root = PathBuf::from("/sys/fs/cgroup/cpu");
+    let cpu_root = if Path::new("/sys/fs/cgroup/cpu,cpuacct").exists() {
+        PathBuf::from("/sys/fs/cgroup/cpu,cpuacct")
+    } else {
+        PathBuf::from("/sys/fs/cgroup/cpu")
+    };
     let mem_root = PathBuf::from("/sys/fs/cgroup/memory");
+    let blkio_root = PathBuf::from("/sys/fs/cgroup/blkio");
 
     let rel_path = get_cgroup_v1_path(is_container).unwrap_or_else(|| "/".to_string());
     let cpu_dir = cpu_root.join(rel_path.trim_start_matches('/'));
     let mem_dir = mem_root.join(rel_path.trim_start_matches('/'));
+    let blkio_dir = blkio_root.join(rel_path.trim_start_matches('/'));
+
+    let target_cpu = if cpu_dir.exists() { cpu_dir } else { cpu_root };
+    let target_mem = if mem_dir.exists() { mem_dir } else { mem_root };
+    let target_blkio = if blkio_dir.exists() {
+        blkio_dir
+    } else {
+        blkio_root
+    };
 
     let mut min_cpu_quota_cores: Option<f64> = None;
     let mut min_memory_max: Option<u64> = None;
 
     // Check cpu quota
-    let target_cpu = if cpu_dir.exists() { cpu_dir } else { cpu_root };
     if let (Ok(q_str), Ok(p_str)) = (
         fs::read_to_string(target_cpu.join("cpu.cfs_quota_us")),
         fs::read_to_string(target_cpu.join("cpu.cfs_period_us")),
@@ -154,7 +176,6 @@ fn resolve_cgroup_v1(is_container: bool) -> Option<CgroupContext> {
     }
 
     // Check memory limit
-    let target_mem = if mem_dir.exists() { mem_dir } else { mem_root };
     if let Ok(m_str) = fs::read_to_string(target_mem.join("memory.limit_in_bytes")) {
         if let Ok(bytes) = m_str.trim().parse::<u64>() {
             // Check if not infinite (> 1PB is typically unlimited)
@@ -166,7 +187,10 @@ fn resolve_cgroup_v1(is_container: bool) -> Option<CgroupContext> {
 
     Some(CgroupContext {
         version: CgroupVersion::V1,
-        base_path: PathBuf::from("/sys/fs/cgroup"),
+        base_path: target_mem.clone(),
+        cpu_path: target_cpu,
+        memory_path: target_mem,
+        io_path: target_blkio,
         relative_path: rel_path,
         limits: EffectiveLimits {
             cpu_quota_cores: min_cpu_quota_cores,

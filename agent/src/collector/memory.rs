@@ -109,14 +109,20 @@ impl MemoryCollector {
     fn sample_container(&self) -> MemoryMetrics {
         let ctx = match &self.cgroup_ctx {
             Some(c) => c,
-            None => return self.sample_host(),
+            None => {
+                return MemoryMetrics {
+                    used_bytes: None,
+                    working_set_bytes: None,
+                    swap_used_bytes: None,
+                };
+            }
         };
 
         // cgroup v2: memory.current, memory.stat
-        let current_file = ctx.base_path.join("memory.current");
+        let current_file = ctx.memory_path.join("memory.current");
         if let Ok(content) = fs::read_to_string(&current_file) {
             if let Ok(current_bytes) = content.trim().parse::<u64>() {
-                let stat_file = ctx.base_path.join("memory.stat");
+                let stat_file = ctx.memory_path.join("memory.stat");
                 let inactive_file_bytes = if let Ok(stat_content) = fs::read_to_string(&stat_file) {
                     parse_memory_stat_inactive_file(&stat_content)
                 } else {
@@ -126,7 +132,7 @@ impl MemoryCollector {
                 let working_set_bytes = current_bytes.saturating_sub(inactive_file_bytes);
 
                 let swap_used_bytes = if let Ok(swap_content) =
-                    fs::read_to_string(ctx.base_path.join("memory.swap.current"))
+                    fs::read_to_string(ctx.memory_path.join("memory.swap.current"))
                 {
                     swap_content.trim().parse::<u64>().ok()
                 } else {
@@ -142,10 +148,10 @@ impl MemoryCollector {
         }
 
         // cgroup v1: memory.usage_in_bytes, memory.stat
-        let v1_usage_file = ctx.base_path.join("memory.usage_in_bytes");
+        let v1_usage_file = ctx.memory_path.join("memory.usage_in_bytes");
         if let Ok(content) = fs::read_to_string(&v1_usage_file) {
             if let Ok(usage_bytes) = content.trim().parse::<u64>() {
-                let stat_file = ctx.base_path.join("memory.stat");
+                let stat_file = ctx.memory_path.join("memory.stat");
                 let inactive_file_bytes = if let Ok(stat_content) = fs::read_to_string(&stat_file) {
                     parse_memory_stat_inactive_file(&stat_content)
                 } else {
@@ -161,7 +167,12 @@ impl MemoryCollector {
             }
         }
 
-        self.sample_host()
+        // Golden Rule 1: Never report host false data when in container scope
+        MemoryMetrics {
+            used_bytes: None,
+            working_set_bytes: None,
+            swap_used_bytes: None,
+        }
     }
 }
 

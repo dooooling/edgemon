@@ -178,12 +178,12 @@ export function finalizeAccumulator(acc: MinuteAccumulator): RawBucketMetric {
       write_bps: avgWrite,
     },
     network: {
-      interface: last.network.interface,
-      counter_id: last.network.counter_id,
+      interface: last.network?.interface || 'eth0',
+      counter_id: last.network?.counter_id ?? null,
       rx_bps: avgRxBps,
       tx_bps: avgTxBps,
-      rx_total_bytes: last.network.rx_total_bytes,
-      tx_total_bytes: last.network.tx_total_bytes,
+      rx_total_bytes: last.network?.rx_total_bytes ?? 0,
+      tx_total_bytes: last.network?.tx_total_bytes ?? 0,
     },
     uptime_sec: last.uptime_sec,
     probes: last.probes,
@@ -241,21 +241,27 @@ export async function ingestReportCore(
     }
   }
 
-  const currentAttachment: AgentAttachment =
-    attachment || createDefaultAttachment(nodeId, nodeName, instanceId, serverTimeMs, geo, trafficResetDay, isHidden);
+  // Resolve or initialize in-memory connection state
+  const currentAttachment: AgentAttachment = attachment || createDefaultAttachment(
+    nodeId,
+    nodeName,
+    instanceId,
+    serverTimeMs,
+    geo,
+    trafficResetDay,
+    isHidden
+  );
+  currentAttachment.last_seq = seq;
 
-  // 3. Extract MetricSamples (support both samples[] array and single-metric fallback)
-  const rawSamples: MetricSample[] = Array.isArray(report.samples) && report.samples.length > 0
-    ? report.samples
-    : [
-        {
-          sample_seq: seq,
-          sampled_at_ms: serverTimeMs,
-          metrics: report as unknown as ReportMetrics,
-        },
-      ];
+  // 3. Extract and filter valid samples
+  const rawSamples = report.samples || [{
+    sample_seq: seq,
+    sampled_at_ms: serverTimeMs,
+    metrics: report as unknown as ReportMetrics,
+  }];
 
-  const validSamples = rawSamples.filter((s) => s && s.metrics && s.sample_seq > 0);
+  const validSamples = rawSamples.filter((s) => s.sample_seq > currentAttachment.persisted_sample_seq);
+
   if (validSamples.length === 0) {
     return {
       result: { accepted: false, persisted: false, error: 'EMPTY_OR_INVALID_SAMPLES', isHiddenNode: isHidden },
@@ -266,10 +272,25 @@ export async function ingestReportCore(
   // Sort samples by sample_seq ASC
   validSamples.sort((a, b) => a.sample_seq - b.sample_seq);
 
+  // Clock Sanity Check (P1-3): Clamp future timestamps BEFORE constructing live broadcast payload
+  const currentServerBucket = Math.floor(serverTimeMs / 60000) * 60000;
+  const maxAllowedFutureMs = serverTimeMs + 60000;
+
+  for (const s of validSamples) {
+    if (s.sampled_at_ms > maxAllowedFutureMs) {
+      s.sampled_at_ms = serverTimeMs;
+    }
+  }
+
+  // Guard against corrupted current_minute accumulator stuck in the far future
+  if (currentAttachment.current_minute && currentAttachment.current_minute.bucket_start_ms > currentServerBucket + 60000) {
+    currentAttachment.current_minute = null;
+  }
+
   const latestSample = validSamples[validSamples.length - 1];
   const latestMetrics = latestSample.metrics;
 
-  // 4. Construct Live Broadcast Payload with true received_at_ms and full samples array
+  // 4. Construct Live Broadcast Payload with true received_at_ms and sanitized samples array
   const livePayload = {
     node_id: nodeId,
     name: nodeName,
@@ -298,21 +319,6 @@ export async function ingestReportCore(
       currentAttachment.last_counter_id = lastDbState.network_counter_id;
     }
     currentAttachment.traffic_state = await loadTrafficRuntimeState(db, nodeId, trafficResetDay);
-  }
-
-  // Clock Sanity Check (P1-3): Clamp future timestamps to max 1 minute ahead
-  const currentServerBucket = Math.floor(serverTimeMs / 60000) * 60000;
-  const maxAllowedFutureMs = serverTimeMs + 60000;
-
-  for (const s of validSamples) {
-    if (s.sampled_at_ms > maxAllowedFutureMs) {
-      s.sampled_at_ms = serverTimeMs;
-    }
-  }
-
-  // Guard against corrupted current_minute accumulator stuck in the far future
-  if (currentAttachment.current_minute && currentAttachment.current_minute.bucket_start_ms > currentServerBucket + 60000) {
-    currentAttachment.current_minute = null;
   }
 
   // 5. Sample-by-Sample Traffic State Transition & Minute Accumulator (P0-1, P0-2, P0-3, P1-1, P1-2)
@@ -356,9 +362,14 @@ export async function ingestReportCore(
       } else if (sampleBucket === currentAttachment.current_minute.bucket_start_ms) {
         mergeIntoAccumulator(currentAttachment.current_minute, s, rxDelta, txDelta);
       } else {
-        // Historical sample prior to current accumulator (e.g. from buffer replay)
+        // Historical sample prior to current accumulator (e.g. from buffer replay or clock adjustment - P0-5)
         const histAcc = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
         bucketsToPersist.push(finalizeAccumulator(histAcc));
+        durableCut = {
+          sampleSeq: s.sample_seq,
+          report: s.metrics,
+          trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
+        };
       }
     } else {
       currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);

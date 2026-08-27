@@ -16,7 +16,7 @@ use edgemon_agent::config::{AgentConfig, CliArgs};
 use edgemon_agent::env::cgroup::{resolve_cgroup_context, CgroupVersion};
 use edgemon_agent::env::detect::{detect_environment, EnvType};
 use edgemon_agent::env::scope::determine_resource_scope;
-use edgemon_agent::error::Result;
+use edgemon_agent::error::{AgentError, Result};
 use edgemon_agent::probe::icmp::execute_icmp_probe;
 use edgemon_agent::probe::tcp::execute_tcp_probe;
 use edgemon_agent::protocol::*;
@@ -725,10 +725,24 @@ fn main() -> Result<()> {
                             thread::sleep(Duration::from_millis(50));
                         }
                     }
+                    Err(AgentError::Fatal(msg)) => {
+                        error!(
+                            "[WSS] Fatal error from server: {}. Terminating agent process.",
+                            msg
+                        );
+                        return Ok(());
+                    }
                     Err(e) => {
                         warn!("[WSS] Hello failed: {}", e);
                     }
                 }
+            }
+            Err(AgentError::Fatal(msg)) => {
+                error!(
+                    "[WSS] Fatal connection error: {}. Terminating agent process.",
+                    msg
+                );
+                return Ok(());
             }
             Err(e) => {
                 warn!("[WSS] Connection failed: {}", e);

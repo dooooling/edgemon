@@ -443,7 +443,7 @@ export class RealtimeHub extends DurableObject<Env> {
 
   async updateNodeRuntime(
     nodeId: string,
-    updates: { is_hidden?: boolean; traffic_reset_day?: number; node_name?: string }
+    updates: { is_hidden?: boolean; node_name?: string }
   ): Promise<void> {
     const sockets = this.ctx.getWebSockets(`agent:${nodeId}`);
     for (const ws of sockets) {
@@ -454,11 +454,6 @@ export class RealtimeHub extends DurableObject<Env> {
         }
         if (updates.node_name !== undefined) {
           attachment.node_name = updates.node_name;
-        }
-        if (updates.traffic_reset_day !== undefined && updates.traffic_reset_day !== attachment.traffic_reset_day) {
-          attachment.traffic_reset_day = updates.traffic_reset_day;
-          const now = Date.now();
-          attachment.traffic_state.period_start_ms = computeBillingPeriodStart(now, updates.traffic_reset_day);
         }
         ws.serializeAttachment(attachment);
       }

@@ -56,14 +56,16 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
     let mergedPoints: Array<{ ts_ms: number; value: number | null }> = [];
 
     if (range === '10m') {
-      const cutoff = Date.now() - 10 * 60_000;
-      const filteredHistory = historyPoints.filter((p) => p.ts_ms >= cutoff);
+      const now = Date.now();
+      const cutoff = now - 10 * 60_000;
+      const maxFuture = now + 60_000;
+      const filteredHistory = historyPoints.filter((p) => p.ts_ms >= cutoff && p.ts_ms <= maxFuture);
       const filteredLive = realtimeSeries
         .map((rt) => ({
           ts_ms: rt.ts_ms,
           value: extractVal(rt),
         }))
-        .filter((p) => p.ts_ms >= cutoff);
+        .filter((p) => p.ts_ms >= cutoff && p.ts_ms <= maxFuture);
 
       const map = new Map<number, number | null>();
       for (const p of filteredHistory) {

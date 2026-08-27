@@ -735,4 +735,44 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     // Accumulator was clamped to server time, not far future
     expect(attachment.current_minute?.bucket_start_ms).toBeLessThanOrEqual(now + 60000);
   });
+
+  it('P1-4: validateReportPayload rejects empty samples array or missing network metrics', () => {
+    expect(validateReportPayload({ samples: [] } as any)).toBe(false);
+    expect(validateReportPayload({ samples: [{ sample_seq: 1, sampled_at_ms: 1000, metrics: {} as any }] })).toBe(false);
+    expect(validateReportPayload({ samples: [{ sample_seq: 1, sampled_at_ms: 1000, metrics: { ...baseMetrics, network: undefined as any } }] })).toBe(false);
+  });
+
+  it('P0-5: historical sample prior to current accumulator establishes durableCut and persists', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    const t0 = Math.floor(Date.now() / 60000) * 60000;
+
+    // First, sample at t0 + 60000 (minute 1) creates current_minute
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      { samples: [{ sample_seq: 1, sampled_at_ms: t0 + 60000, metrics: baseMetrics }] },
+      mockGeo,
+      attachment
+    );
+
+    // Now, late/replayed sample at t0 (minute 0 < minute 1) arrives
+    const res2 = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      2,
+      { samples: [{ sample_seq: 2, sampled_at_ms: t0 + 10000, metrics: baseMetrics }] },
+      mockGeo,
+      attachment
+    );
+
+    expect(res2.result.accepted).toBe(true);
+    expect(res2.result.persisted).toBe(true);
+    expect(mockDb.insertedBuckets.some((b) => b.bucketStartMs === t0)).toBe(true);
+  });
 });

@@ -9,6 +9,7 @@ pub enum EdgeMonError {
     Network(String),
     Transport(String),
     Security(String),
+    Fatal(String),
 }
 
 impl fmt::Display for EdgeMonError {
@@ -21,6 +22,7 @@ impl fmt::Display for EdgeMonError {
             Self::Network(msg) => write!(f, "Network error: {msg}"),
             Self::Transport(msg) => write!(f, "Transport error: {msg}"),
             Self::Security(msg) => write!(f, "Security violation: {msg}"),
+            Self::Fatal(msg) => write!(f, "Fatal shutdown: {msg}"),
         }
     }
 }

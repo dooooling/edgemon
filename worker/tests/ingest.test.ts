@@ -653,4 +653,86 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     // After June 1 00:00 checkpoint committed the settlement, now it is cleanly null
     expect(attachment.traffic_state.prev_period_settlement).toBeNull();
   });
+
+  it('P0-3: transient 0 reading on the same counter does NOT trigger counter reset or fake traffic spike', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    const t0 = Math.floor(Date.now() / 60000) * 60000;
+
+    // Sample 1: normal 1 GB (1073741824 bytes)
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      { samples: [{ sample_seq: 1, sampled_at_ms: t0 + 2000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1073741824, tx_total_bytes: 500000 } } }] },
+      mockGeo,
+      attachment
+    );
+
+    // Sample 2: sensor transient read failure: rx=0, tx=0 on same counter c1
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      2,
+      { samples: [{ sample_seq: 2, sampled_at_ms: t0 + 4000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 0, tx_total_bytes: 0 } } }] },
+      mockGeo,
+      attachment
+    );
+
+    // Traffic state MUST NOT be reset to 0
+    expect(attachment.traffic_state.finalized_rx_bytes).toBe(0);
+    expect(attachment.traffic_state.active_rx_base_bytes).toBe(1073741824);
+    expect(attachment.last_rx_total_bytes).toBe(1073741824); // Kept previous valid reading
+
+    // Sample 3: reading recovered: rx=1073742824 (+1000 bytes delta)
+    // Sample 4: rolls over minute
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      3,
+      {
+        samples: [
+          { sample_seq: 3, sampled_at_ms: t0 + 6000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1073742824, tx_total_bytes: 501000 } } },
+          { sample_seq: 4, sampled_at_ms: t0 + 60000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1073742824, tx_total_bytes: 501000 } } },
+        ],
+      },
+      mockGeo,
+      attachment
+    );
+
+    // Finalized minute delta MUST be exactly 1000 bytes (NOT 1 GB fake spike!)
+    const b0 = mockDb.insertedBuckets.find((b) => b.bucketStartMs === t0);
+    expect(b0).toBeDefined();
+    expect(b0?.rxDelta).toBe(1000);
+    expect(b0?.txDelta).toBe(1000);
+  });
+
+  it('P1-3: future clock jump does not permanently block minute accumulator', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    const now = Date.now();
+    const farFuture = now + 10 * 3600000; // 10 hours into the future
+
+    // Sample with bad future clock
+    const res1 = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      { samples: [{ sample_seq: 1, sampled_at_ms: farFuture, metrics: baseMetrics }] },
+      mockGeo,
+      attachment
+    );
+
+    expect(res1.result.accepted).toBe(true);
+    // Accumulator was clamped to server time, not far future
+    expect(attachment.current_minute?.bucket_start_ms).toBeLessThanOrEqual(now + 60000);
+  });
 });

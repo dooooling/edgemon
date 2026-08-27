@@ -66,6 +66,15 @@ agentRoutes.post('/api/agent/v1/hello', async (c) => {
     .bind(body.instance_id, now, now, creds.nodeId)
     .run();
 
+  // Evict any existing WSS agent connection with REPLACED_BY_NEW_INSTANCE (P0-4)
+  const hubId = c.env.REALTIME.idFromName('main');
+  const hubStub = c.env.REALTIME.get(hubId);
+  try {
+    await (hubStub as any).disconnectAgent(creds.nodeId, 4002, 'Replaced by new HTTP hello instance');
+  } catch {
+    // best-effort
+  }
+
   // Load config
   const configRow = await c.env.DB
     .prepare('SELECT revision, config_json FROM node_config WHERE node_id = ?')

@@ -143,6 +143,17 @@ publicRoutes.get('/api/public/nodes', async (c) => {
 // GET /api/public/nodes/:id/history
 publicRoutes.get('/api/public/nodes/:id/history', async (c) => {
   const nodeId = c.req.param('id');
+
+  // Verify node exists and is public (P0-1: protect hidden nodes history)
+  const node = await c.env.DB
+    .prepare('SELECT id, hidden FROM nodes WHERE id = ?')
+    .bind(nodeId)
+    .first<{ id: string; hidden: number }>();
+
+  if (!node || node.hidden === 1) {
+    return c.json({ error: 'Node not found' }, 404);
+  }
+
   const range = c.req.query('range') || '24h';
   const nowMs = Date.now();
 

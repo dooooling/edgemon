@@ -300,6 +300,21 @@ export async function ingestReportCore(
     currentAttachment.traffic_state = await loadTrafficRuntimeState(db, nodeId, trafficResetDay);
   }
 
+  // Clock Sanity Check (P1-3): Clamp future timestamps to max 1 minute ahead
+  const currentServerBucket = Math.floor(serverTimeMs / 60000) * 60000;
+  const maxAllowedFutureMs = serverTimeMs + 60000;
+
+  for (const s of validSamples) {
+    if (s.sampled_at_ms > maxAllowedFutureMs) {
+      s.sampled_at_ms = serverTimeMs;
+    }
+  }
+
+  // Guard against corrupted current_minute accumulator stuck in the far future
+  if (currentAttachment.current_minute && currentAttachment.current_minute.bucket_start_ms > currentServerBucket + 60000) {
+    currentAttachment.current_minute = null;
+  }
+
   // 5. Sample-by-Sample Traffic State Transition & Minute Accumulator (P0-1, P0-2, P0-3, P1-1, P1-2)
   const bucketsToPersist: RawBucketMetric[] = [];
   let durableCut: DurableCut | null = null;
@@ -315,10 +330,13 @@ export async function ingestReportCore(
     const prevRx = currentAttachment.last_rx_total_bytes;
     const prevTx = currentAttachment.last_tx_total_bytes;
 
-    const rxDelta = (sameCounter && prevRx !== null && sampleRx !== null && sampleRx >= prevRx)
+    // Guard against transient fake 0 read failure on the same counter (P0-3)
+    const isTransientZero = sampleRx === 0 && sampleTx === 0 && prevRx !== null && prevRx > 0 && sameCounter;
+
+    const rxDelta = (sameCounter && !isTransientZero && prevRx !== null && sampleRx !== null && sampleRx >= prevRx)
       ? sampleRx - prevRx
       : 0;
-    const txDelta = (sameCounter && prevTx !== null && sampleTx !== null && sampleTx >= prevTx)
+    const txDelta = (sameCounter && !isTransientZero && prevTx !== null && sampleTx !== null && sampleTx >= prevTx)
       ? sampleTx - prevTx
       : 0;
 
@@ -359,8 +377,8 @@ export async function ingestReportCore(
     );
 
     currentAttachment.last_counter_id = sampleCounterId;
-    if (sampleRx !== null) currentAttachment.last_rx_total_bytes = sampleRx;
-    if (sampleTx !== null) currentAttachment.last_tx_total_bytes = sampleTx;
+    if (sampleRx !== null && !isTransientZero) currentAttachment.last_rx_total_bytes = sampleRx;
+    if (sampleTx !== null && !isTransientZero) currentAttachment.last_tx_total_bytes = sampleTx;
   }
 
   // On stateless HTTP fallback, if this is a standalone report with completed past minute bucket,

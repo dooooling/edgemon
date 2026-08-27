@@ -196,7 +196,30 @@ export async function getRawHistory(db: D1Database, nodeId: string, fromMs: numb
 export async function getHourlyHistory(db: D1Database, nodeId: string, fromMs: number, toMs: number): Promise<unknown[]> {
   const rows = await db
     .prepare(
-      `SELECT * FROM metrics_hourly
+      `SELECT
+        node_id,
+        bucket_start_ms,
+        cpu_avg_pct,
+        cpu_max_pct,
+        cpu_avg_pct AS cpu_usage_pct,
+        memory_avg_bytes,
+        memory_max_bytes,
+        memory_avg_bytes AS memory_used_bytes,
+        rootfs_used_last_bytes,
+        rootfs_used_last_bytes AS rootfs_used_bytes,
+        disk_read_avg_bps,
+        disk_write_avg_bps,
+        disk_read_avg_bps AS disk_read_bps,
+        disk_write_avg_bps AS disk_write_bps,
+        rx_bytes,
+        tx_bytes,
+        CAST(rx_bytes / 3600 AS INTEGER) AS rx_bps,
+        CAST(tx_bytes / 3600 AS INTEGER) AS tx_bps,
+        edge_rtt_avg_ms,
+        edge_rtt_max_ms,
+        edge_rtt_avg_ms AS edge_rtt_ms,
+        probe_data_json
+       FROM metrics_hourly
        WHERE node_id = ? AND bucket_start_ms >= ? AND bucket_start_ms <= ?
        ORDER BY bucket_start_ms ASC`
     )
@@ -217,23 +240,31 @@ export async function executeHourlyRollup(db: D1Database, targetHourStartMs: num
         edge_rtt_avg_ms, edge_rtt_max_ms, probe_data_json
       )
       SELECT
-        node_id,
+        r.node_id,
         ? AS bucket_start_ms,
-        AVG(cpu_usage_pct) AS cpu_avg_pct,
-        MAX(cpu_usage_pct) AS cpu_max_pct,
-        CAST(AVG(memory_used_bytes) AS INTEGER) AS memory_avg_bytes,
-        MAX(memory_used_bytes) AS memory_max_bytes,
-        MAX(rootfs_used_bytes) AS rootfs_used_last_bytes,
-        CAST(AVG(disk_read_bps) AS INTEGER) AS disk_read_avg_bps,
-        CAST(AVG(disk_write_bps) AS INTEGER) AS disk_write_avg_bps,
-        SUM(COALESCE(rx_bytes_delta, 0)) AS rx_bytes,
-        SUM(COALESCE(tx_bytes_delta, 0)) AS tx_bytes,
-        AVG(edge_rtt_ms) AS edge_rtt_avg_ms,
-        MAX(edge_rtt_ms) AS edge_rtt_max_ms,
+        AVG(r.cpu_usage_pct) AS cpu_avg_pct,
+        MAX(r.cpu_usage_pct) AS cpu_max_pct,
+        CAST(AVG(r.memory_used_bytes) AS INTEGER) AS memory_avg_bytes,
+        MAX(r.memory_used_bytes) AS memory_max_bytes,
+        (
+          SELECT r2.rootfs_used_bytes
+          FROM metrics_raw r2
+          WHERE r2.node_id = r.node_id
+            AND r2.bucket_start_ms >= ? AND r2.bucket_start_ms < ?
+            AND r2.rootfs_used_bytes IS NOT NULL
+          ORDER BY r2.bucket_start_ms DESC
+          LIMIT 1
+        ) AS rootfs_used_last_bytes,
+        CAST(AVG(r.disk_read_bps) AS INTEGER) AS disk_read_avg_bps,
+        CAST(AVG(r.disk_write_bps) AS INTEGER) AS disk_write_avg_bps,
+        SUM(COALESCE(r.rx_bytes_delta, 0)) AS rx_bytes,
+        SUM(COALESCE(r.tx_bytes_delta, 0)) AS tx_bytes,
+        AVG(r.edge_rtt_ms) AS edge_rtt_avg_ms,
+        MAX(r.edge_rtt_ms) AS edge_rtt_max_ms,
         NULL AS probe_data_json
-      FROM metrics_raw
-      WHERE bucket_start_ms >= ? AND bucket_start_ms < ?
-      GROUP BY node_id
+      FROM metrics_raw r
+      WHERE r.bucket_start_ms >= ? AND r.bucket_start_ms < ?
+      GROUP BY r.node_id
       ON CONFLICT(node_id, bucket_start_ms) DO UPDATE SET
         cpu_avg_pct = excluded.cpu_avg_pct,
         cpu_max_pct = excluded.cpu_max_pct,
@@ -247,7 +278,13 @@ export async function executeHourlyRollup(db: D1Database, targetHourStartMs: num
         edge_rtt_avg_ms = excluded.edge_rtt_avg_ms,
         edge_rtt_max_ms = excluded.edge_rtt_max_ms`
     )
-    .bind(targetHourStartMs, targetHourStartMs, targetHourEndMs)
+    .bind(
+      targetHourStartMs,
+      targetHourStartMs,
+      targetHourEndMs,
+      targetHourStartMs,
+      targetHourEndMs
+    )
     .run();
 }
 

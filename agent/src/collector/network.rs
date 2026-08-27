@@ -122,11 +122,20 @@ impl NetworkCollector {
             _ => (None, None),
         };
 
-        let (rx_total, tx_total) = current_counters
-            .map(|c| (c.rx_bytes, c.tx_bytes))
-            .unwrap_or((0, 0));
+        let (rx_total, tx_total) = match current_counters {
+            Some(c) => {
+                self.last_counters = Some(c);
+                (c.rx_bytes, c.tx_bytes)
+            }
+            None => {
+                // If reading failed transiently, retain last valid readings to prevent fake 0 counter resets
+                (
+                    self.latest_metrics.rx_total_bytes,
+                    self.latest_metrics.tx_total_bytes,
+                )
+            }
+        };
 
-        self.last_counters = current_counters;
         self.last_sample_instant = Some(now);
 
         let metrics = NetworkMetrics {
@@ -138,7 +147,7 @@ impl NetworkCollector {
             tx_total_bytes: tx_total,
         };
 
-        if metrics.rx_bps.is_some() {
+        if metrics.rx_bps.is_some() || current_counters.is_some() {
             self.latest_metrics = metrics.clone();
         }
 

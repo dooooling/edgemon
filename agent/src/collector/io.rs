@@ -128,12 +128,66 @@ fn read_host_diskstats() -> Option<IoCounters> {
     }
 }
 
-fn is_primary_disk(dev: &str) -> bool {
-    (dev.starts_with("sd")
+pub fn is_primary_disk(dev: &str) -> bool {
+    // Standard SCSI/VirtIO/IDE disks: sda, sdb, vda, xvda, hda (ends with alphabetic char, no partition digit)
+    if (dev.starts_with("sd")
         || dev.starts_with("vd")
         || dev.starts_with("xvd")
         || dev.starts_with("hd"))
         && dev.chars().last().is_some_and(|c| c.is_ascii_alphabetic())
-        || (dev.starts_with("nvme") && dev.ends_with("n1"))
-        || (dev.starts_with("mmcblk") && dev.ends_with("p0"))
+    {
+        return true;
+    }
+
+    // NVMe namespaces: nvme0n1, nvme1n1, nvme0n2... (contains 'n' with digit, but NOT partition 'p<digit>')
+    // Partition format is nvme0n1p1, nvme0n1p2
+    if dev.starts_with("nvme") {
+        if let Some(pos) = dev.rfind('n') {
+            let after_n = &dev[pos + 1..];
+            if !after_n.is_empty()
+                && after_n.chars().all(|c| c.is_ascii_digit())
+                && !dev.contains('p')
+            {
+                return true;
+            }
+        }
+    }
+
+    // MMC/eMMC block devices: mmcblk0, mmcblk1... (ends with digit, does NOT contain partition 'p<digit>' or 'boot<digit>')
+    // Partition format is mmcblk0p1, mmcblk0p2, mmcblk0boot0
+    if let Some(after) = dev.strip_prefix("mmcblk") {
+        if !after.is_empty() && after.chars().all(|c| c.is_ascii_digit()) {
+            return true;
+        }
+    }
+
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_primary_disk() {
+        assert!(is_primary_disk("sda"));
+        assert!(is_primary_disk("sdb"));
+        assert!(is_primary_disk("vda"));
+        assert!(is_primary_disk("xvda"));
+        assert!(is_primary_disk("hda"));
+        assert!(!is_primary_disk("sda1"));
+        assert!(!is_primary_disk("vda2"));
+
+        assert!(is_primary_disk("nvme0n1"));
+        assert!(is_primary_disk("nvme0n2"));
+        assert!(is_primary_disk("nvme1n1"));
+        assert!(!is_primary_disk("nvme0n1p1"));
+        assert!(!is_primary_disk("nvme0n1p2"));
+
+        assert!(is_primary_disk("mmcblk0"));
+        assert!(is_primary_disk("mmcblk1"));
+        assert!(!is_primary_disk("mmcblk0p1"));
+        assert!(!is_primary_disk("mmcblk0p2"));
+        assert!(!is_primary_disk("mmcblk0boot0"));
+    }
 }

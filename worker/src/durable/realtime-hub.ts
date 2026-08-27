@@ -19,7 +19,7 @@ import {
   createDefaultAttachment,
   ingestReportCore,
 } from '../services/ingest';
-import { loadTrafficRuntimeState } from '../db/traffic';
+import { loadTrafficRuntimeState, computeBillingPeriodStart } from '../db/traffic';
 import { verifyAdminSession } from '../services/session';
 
 export interface Env {
@@ -437,6 +437,30 @@ export class RealtimeHub extends DurableObject<Env> {
         ws.close(code, reason);
       } catch {
         // ignore
+      }
+    }
+  }
+
+  async updateNodeRuntime(
+    nodeId: string,
+    updates: { is_hidden?: boolean; traffic_reset_day?: number; node_name?: string }
+  ): Promise<void> {
+    const sockets = this.ctx.getWebSockets(`agent:${nodeId}`);
+    for (const ws of sockets) {
+      const attachment = ws.deserializeAttachment() as SocketAttachment | null;
+      if (attachment && attachment.kind === 'agent') {
+        if (updates.is_hidden !== undefined) {
+          attachment.is_hidden = updates.is_hidden;
+        }
+        if (updates.node_name !== undefined) {
+          attachment.node_name = updates.node_name;
+        }
+        if (updates.traffic_reset_day !== undefined && updates.traffic_reset_day !== attachment.traffic_reset_day) {
+          attachment.traffic_reset_day = updates.traffic_reset_day;
+          const now = Date.now();
+          attachment.traffic_state.period_start_ms = computeBillingPeriodStart(now, updates.traffic_reset_day);
+        }
+        ws.serializeAttachment(attachment);
       }
     }
   }

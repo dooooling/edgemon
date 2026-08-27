@@ -126,12 +126,7 @@ agentRoutes.post('/api/agent/v1/report', async (c) => {
   }
 
   // Active instance ownership verification (prevent stale/duplicate instances from overwriting)
-  const stateRow = await c.env.DB
-    .prepare('SELECT agent_instance_id FROM node_state WHERE node_id = ?')
-    .bind(creds.nodeId)
-    .first<{ agent_instance_id: string | null }>();
-
-  if (stateRow?.agent_instance_id && stateRow.agent_instance_id !== body.instance_id) {
+  if (node.active_instance_id && node.active_instance_id !== body.instance_id) {
     return errorResponse(
       'INSTANCE_MISMATCH',
       'Instance ID mismatch with currently active registered instance. Hello handshake required.',

@@ -46,6 +46,10 @@ export interface NodeRow {
   manual_lat: number | null;
   manual_lon: number | null;
   expires_at_ms: number | null;
+  active_instance_id: string | null;
+  active_instance_started_at_ms: number | null;
+  last_stream_connected_at_ms: number | null;
+  last_stream_disconnected_at_ms: number | null;
   created_at_ms: number;
   updated_at_ms: number;
 }

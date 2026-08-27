@@ -398,8 +398,13 @@ export async function ingestReportCore(
       });
 
       actuallyPersisted = true;
-      currentAttachment.traffic_state.dirty = false;
-      currentAttachment.traffic_state.prev_period_settlement = null;
+      const committedSettlement = durableCut.trafficState.prev_period_settlement;
+      if (
+        committedSettlement &&
+        currentAttachment.traffic_state.prev_period_settlement?.period_start_ms === committedSettlement.period_start_ms
+      ) {
+        currentAttachment.traffic_state.prev_period_settlement = null;
+      }
       currentAttachment.persisted_sample_seq = Math.max(currentAttachment.persisted_sample_seq, durableCut.sampleSeq);
       currentAttachment.last_persist_bucket_ms = Math.max(
         currentAttachment.last_persist_bucket_ms,

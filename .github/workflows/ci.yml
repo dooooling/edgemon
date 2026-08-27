@@ -59,6 +59,9 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Worker Type Check
+        run: pnpm --filter edgemon-worker typecheck
+
       - name: Worker Unit & Contract Tests
         run: pnpm --filter edgemon-worker test
 

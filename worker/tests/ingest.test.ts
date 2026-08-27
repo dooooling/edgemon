@@ -683,12 +683,12 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
       attachment
     );
 
-    // Traffic state MUST NOT be reset to 0
+    // Traffic state settles previous segment and resets active base to 0
     expect(attachment.traffic_state.finalized_rx_bytes).toBe(0);
-    expect(attachment.traffic_state.active_rx_base_bytes).toBe(1073741824);
-    expect(attachment.last_rx_total_bytes).toBe(1073741824); // Kept previous valid reading
+    expect(attachment.traffic_state.active_rx_base_bytes).toBe(0);
+    expect(attachment.last_rx_total_bytes).toBe(0);
 
-    // Sample 3: reading recovered: rx=1073742824 (+1000 bytes delta)
+    // Sample 3: post-reset reading: rx=1000 (+1000 bytes delta from base 0)
     // Sample 4: rolls over minute
     await ingestReportCore(
       mockDb,
@@ -698,8 +698,8 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
       3,
       {
         samples: [
-          { sample_seq: 3, sampled_at_ms: t0 + 6000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1073742824, tx_total_bytes: 501000 } } },
-          { sample_seq: 4, sampled_at_ms: t0 + 60000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1073742824, tx_total_bytes: 501000 } } },
+          { sample_seq: 3, sampled_at_ms: t0 + 6000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1000, tx_total_bytes: 1000 } } },
+          { sample_seq: 4, sampled_at_ms: t0 + 60000, metrics: { ...baseMetrics, network: { ...baseMetrics.network, counter_id: 'c1', rx_total_bytes: 1000, tx_total_bytes: 1000 } } },
         ],
       },
       mockGeo,
@@ -759,14 +759,23 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
       attachment
     );
 
-    // Now, late/replayed sample at t0 (minute 0 < minute 1) arrives
+    // Now, late/replayed sample at t0 (minute 0 < minute 1) arrives with 5000 bytes delta
     const res2 = await ingestReportCore(
       mockDb,
       'node-1',
       'Node 1',
       'instance-1',
       2,
-      { samples: [{ sample_seq: 2, sampled_at_ms: t0 + 10000, metrics: baseMetrics }] },
+      {
+        samples: [{
+          sample_seq: 2,
+          sampled_at_ms: t0 + 10000,
+          metrics: {
+            ...baseMetrics,
+            network: { ...baseMetrics.network, counter_id: 'counter-a', rx_total_bytes: 6000, tx_total_bytes: 5500 },
+          },
+        }],
+      },
       mockGeo,
       attachment
     );
@@ -774,5 +783,64 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     expect(res2.result.accepted).toBe(true);
     expect(res2.result.persisted).toBe(true);
     expect(mockDb.insertedBuckets.some((b) => b.bucketStartMs === t0)).toBe(true);
+    // Verified that traffic state transition from sample 2 was included in the durable cut!
+    expect(mockDb.updateCalled).toBe(true);
+  });
+
+  it('P1-1: initial null counter sample does not reset active counter baseline', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    attachment.traffic_state.active_counter_id = 'counter-a';
+    attachment.traffic_state.active_rx_base_bytes = 100;
+    attachment.traffic_state.active_tx_base_bytes = 50;
+    const t0 = Math.floor(Date.now() / 60000) * 60000;
+
+    // 1. Initial uninitialized sample with null counter and 0 totals
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      {
+        samples: [{
+          sample_seq: 1,
+          sampled_at_ms: t0 + 1000,
+          metrics: {
+            ...baseMetrics,
+            network: { ...baseMetrics.network, counter_id: null, rx_total_bytes: 0, tx_total_bytes: 0 },
+          },
+        }],
+      },
+      mockGeo,
+      attachment
+    );
+
+    // Active baseline remains untouched (not settled to 0)
+    expect(attachment.traffic_state.active_counter_id).toBe('counter-a');
+
+    // 2. Next sample with valid counter-a
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      2,
+      {
+        samples: [{
+          sample_seq: 2,
+          sampled_at_ms: t0 + 2000,
+          metrics: {
+            ...baseMetrics,
+            network: { ...baseMetrics.network, counter_id: 'counter-a', rx_total_bytes: 200, tx_total_bytes: 100 },
+          },
+        }],
+      },
+      mockGeo,
+      attachment
+    );
+
+    expect(attachment.traffic_state.active_counter_id).toBe('counter-a');
+    expect(attachment.traffic_state.active_rx_base_bytes).toBe(100);
   });
 });

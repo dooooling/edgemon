@@ -91,7 +91,11 @@ impl CpuCollector {
 
         let metrics = match self.scope {
             ResourceScope::Container => self.sample_container(now),
-            ResourceScope::Machine | ResourceScope::Unknown => self.sample_host(now),
+            ResourceScope::Machine => self.sample_host(now),
+            ResourceScope::Unknown => CpuMetrics {
+                usage_pct: None,
+                throttled_pct: None,
+            },
         };
 
         if metrics.usage_pct.is_some() {
@@ -122,72 +126,94 @@ impl CpuCollector {
                 self.last_sample_instant = Some(now);
                 return CpuMetrics {
                     usage_pct,
-                    throttled_pct: Some(0.0),
+                    throttled_pct: None,
                 };
             }
         }
 
-        let current_jiffies = read_proc_stat_cpu_jiffies();
-        let (usage_pct, throttled_pct) =
-            if let (Some(prev), Some(curr)) = (self.last_jiffies, current_jiffies) {
-                let total_delta = curr.total().saturating_sub(prev.total());
-                let busy_delta = curr.busy().saturating_sub(prev.busy());
-                let pct = if total_delta > 0 {
-                    ((busy_delta as f64) / (total_delta as f64)) * 100.0
-                } else {
-                    0.0
-                };
-                (Some(round_1_decimal(pct)), Some(0.0))
-            } else {
-                (None, None)
-            };
+        let current_jiffies = match read_proc_stat_cpu_jiffies() {
+            Some(j) => j,
+            None => {
+                return CpuMetrics {
+                    usage_pct: None,
+                    throttled_pct: None,
+                }
+            }
+        };
 
-        self.last_jiffies = current_jiffies;
+        let usage_pct = if let Some(ref prev) = self.last_jiffies {
+            let total_delta = current_jiffies.total().saturating_sub(prev.total());
+            let busy_delta = current_jiffies.busy().saturating_sub(prev.busy());
+
+            if total_delta > 0 {
+                let pct = ((busy_delta as f64) / (total_delta as f64)) * 100.0;
+                Some(round_1_decimal(pct.clamp(0.0, 100.0)))
+            } else {
+                self.latest_metrics.usage_pct.or(Some(0.0))
+            }
+        } else {
+            None
+        };
+
+        self.last_jiffies = Some(current_jiffies);
         self.last_sample_instant = Some(now);
+
         CpuMetrics {
             usage_pct,
-            throttled_pct,
+            throttled_pct: None,
         }
     }
 
     fn sample_container(&mut self, now: Instant) -> CpuMetrics {
-        let (curr_usage_usec, curr_throttled_usec) =
-            read_cgroup_cpu_stats(self.cgroup_ctx.as_ref());
+        let (usage_usec, throttled_usec) = read_cgroup_cpu_stats(self.cgroup_ctx.as_ref());
 
-        let (usage_pct, throttled_pct) = match (
-            self.last_usage_usec,
-            curr_usage_usec,
-            self.last_sample_instant,
-        ) {
-            (Some(prev_usage), Some(curr_usage), Some(prev_time)) => {
-                let elapsed_sec = now.duration_since(prev_time).as_secs_f64();
-                if elapsed_sec > 0.0 && self.effective_capacity > 0.0 {
-                    let delta_usage_sec =
-                        (curr_usage.saturating_sub(prev_usage) as f64) / 1_000_000.0;
-                    let raw_pct =
-                        (delta_usage_sec / (elapsed_sec * self.effective_capacity)) * 100.0;
-                    let usage_normalized = round_1_decimal(raw_pct.clamp(0.0, 100.0));
-
-                    let throttled = if let (Some(prev_th), Some(curr_th)) =
-                        (self.last_throttled_usec, curr_throttled_usec)
-                    {
-                        let delta_th_sec = (curr_th.saturating_sub(prev_th) as f64) / 1_000_000.0;
-                        let th_pct = (delta_th_sec / elapsed_sec) * 100.0;
-                        Some(round_1_decimal(th_pct.clamp(0.0, 100.0)))
-                    } else {
-                        None
-                    };
-
-                    (Some(usage_normalized), throttled)
-                } else {
-                    (None, None)
-                }
+        let current_usage = match usage_usec {
+            Some(u) => u,
+            None => {
+                return CpuMetrics {
+                    usage_pct: None,
+                    throttled_pct: None,
+                };
             }
-            _ => (None, None),
         };
 
-        self.last_usage_usec = curr_usage_usec;
-        self.last_throttled_usec = curr_throttled_usec;
+        let (usage_pct, throttled_pct) = if let (Some(prev_usage), Some(last_time)) =
+            (self.last_usage_usec, self.last_sample_instant)
+        {
+            let elapsed_sec = now.duration_since(last_time).as_secs_f64();
+            if elapsed_sec > 0.0 {
+                let delta_usage_sec =
+                    (current_usage.saturating_sub(prev_usage) as f64) / 1_000_000.0;
+                let cores = self.effective_capacity.max(0.01);
+                let raw_usage_pct = (delta_usage_sec / (elapsed_sec * cores)) * 100.0;
+                let usage = Some(round_1_decimal(raw_usage_pct.clamp(0.0, 100.0)));
+
+                let throttled = if let (Some(curr_throt), Some(prev_throt)) =
+                    (throttled_usec, self.last_throttled_usec)
+                {
+                    let delta_throt_sec =
+                        (curr_throt.saturating_sub(prev_throt) as f64) / 1_000_000.0;
+                    let raw_throt_pct = (delta_throt_sec / elapsed_sec) * 100.0;
+                    Some(round_1_decimal(raw_throt_pct.clamp(0.0, 100.0)))
+                } else {
+                    None
+                };
+
+                (usage, throttled)
+            } else {
+                (
+                    self.latest_metrics.usage_pct,
+                    self.latest_metrics.throttled_pct,
+                )
+            }
+        } else {
+            (None, None)
+        };
+
+        self.last_usage_usec = Some(current_usage);
+        if throttled_usec.is_some() {
+            self.last_throttled_usec = throttled_usec;
+        }
         self.last_sample_instant = Some(now);
 
         CpuMetrics {
@@ -222,6 +248,7 @@ pub fn get_cpu_model() -> Option<String> {
                 let mut buf_size = 512u32;
                 let mut buf = vec![0u8; 512];
                 let mut val_type = 0u32;
+
                 if RegQueryValueExW(
                     hkey,
                     name_utf16.as_ptr(),
@@ -232,39 +259,43 @@ pub fn get_cpu_model() -> Option<String> {
                 ) == 0
                     && val_type == REG_SZ
                 {
+                    RegCloseKey(hkey);
                     let wide_slice = std::slice::from_raw_parts(
                         buf.as_ptr() as *const u16,
                         (buf_size as usize) / 2,
                     );
                     let s = String::from_utf16_lossy(wide_slice);
                     let trimmed = s.trim_matches('\0').trim().to_string();
-                    RegCloseKey(hkey);
                     if !trimmed.is_empty() {
                         return Some(trimmed);
                     }
+                } else {
+                    RegCloseKey(hkey);
                 }
-                RegCloseKey(hkey);
             }
         }
-
-        if let Ok(val) = std::env::var("PROCESSOR_IDENTIFIER") {
-            return Some(val);
-        }
+        None
     }
 
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
         if let Ok(content) = fs::read_to_string("/proc/cpuinfo") {
             for line in content.lines() {
-                if line.starts_with("model name") {
-                    if let Some((_, model)) = line.split_once(':') {
-                        return Some(model.trim().to_string());
+                if line.starts_with("model name")
+                    || line.starts_with("Hardware")
+                    || line.starts_with("Processor")
+                {
+                    if let Some(pos) = line.find(':') {
+                        let model = line[pos + 1..].trim();
+                        if !model.is_empty() {
+                            return Some(model.to_string());
+                        }
                     }
                 }
             }
         }
+        None
     }
-    None
 }
 
 fn resolve_effective_capacity(scope: &ResourceScope, cgroup_ctx: Option<&CgroupContext>) -> f64 {
@@ -283,11 +314,11 @@ fn resolve_effective_capacity(scope: &ResourceScope, cgroup_ctx: Option<&CgroupC
 
     if *scope == ResourceScope::Container {
         if let Some(ctx) = cgroup_ctx {
-            if let Some(cores) = ctx.limits.cpu_quota_cores {
-                return cores;
-            }
-            if let Some(cores) = ctx.limits.cpuset_cores {
-                return cores;
+            match (ctx.limits.cpu_quota_cores, ctx.limits.cpuset_cores) {
+                (Some(quota), Some(cpuset)) => return quota.min(cpuset),
+                (Some(quota), None) => return quota,
+                (None, Some(cpuset)) => return cpuset,
+                (None, None) => {}
             }
         }
     }
@@ -372,10 +403,10 @@ fn read_cgroup_cpu_stats(cgroup_ctx: Option<&CgroupContext>) -> (Option<u64>, Op
     };
 
     let stat_file = ctx.cpu_path.join("cpu.stat");
-    if let Ok(content) = fs::read_to_string(&stat_file) {
-        let mut usage_usec = None;
-        let mut throttled_usec = None;
+    let mut usage_usec = None;
+    let mut throttled_usec = None;
 
+    if let Ok(content) = fs::read_to_string(&stat_file) {
         for line in content.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() == 2 {
@@ -383,6 +414,9 @@ fn read_cgroup_cpu_stats(cgroup_ctx: Option<&CgroupContext>) -> (Option<u64>, Op
                     usage_usec = parts[1].parse::<u64>().ok();
                 } else if parts[0] == "throttled_usec" {
                     throttled_usec = parts[1].parse::<u64>().ok();
+                } else if parts[0] == "throttled_time" {
+                    // cgroup v1: throttled_time is in nanoseconds -> convert to usec
+                    throttled_usec = parts[1].parse::<u64>().map(|ns| ns / 1000).ok();
                 }
             }
         }
@@ -395,7 +429,7 @@ fn read_cgroup_cpu_stats(cgroup_ctx: Option<&CgroupContext>) -> (Option<u64>, Op
     let acct_file = ctx.cpu_path.join("cpuacct.usage");
     if let Ok(content) = fs::read_to_string(&acct_file) {
         if let Ok(ns) = content.trim().parse::<u64>() {
-            return (Some(ns / 1000), Some(0));
+            return (Some(ns / 1000), throttled_usec);
         }
     }
 

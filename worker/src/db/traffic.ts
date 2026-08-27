@@ -187,8 +187,17 @@ export function applySampleTrafficTransition(
     };
   }
 
+  // If counterId is null (e.g. uninitialized initial sample), do not alter counter state (P1-1)
+  if (counterId === null) {
+    return currentState;
+  }
+
   // Initial base assignment if empty
-  if (currentState.active_rx_base_bytes === null || currentState.active_tx_base_bytes === null) {
+  if (
+    currentState.active_rx_base_bytes === null ||
+    currentState.active_tx_base_bytes === null ||
+    currentState.active_counter_id === null
+  ) {
     currentState.active_counter_id = counterId;
     currentState.active_rx_base_bytes = currentRxTotal;
     currentState.active_tx_base_bytes = currentTxTotal;
@@ -196,24 +205,11 @@ export function applySampleTrafficTransition(
     return currentState;
   }
 
-  // 2. Counter Reset / Change Detection (P0-3: peak settlement before reset)
+  // 2. Counter Reset / Change Detection (P0-3, P1-2: peak settlement before reset)
   const isCounterChanged = currentState.active_counter_id !== counterId;
-
-  // Defense-in-depth against transient fake 0 read failure on the same counter (P0-3)
-  if (
-    currentRxTotal === 0 &&
-    currentTxTotal === 0 &&
-    previousRxTotal !== null &&
-    previousRxTotal > 0 &&
-    !isCounterChanged
-  ) {
-    // Ignore transient zero drop, keep current active base
-    return currentState;
-  }
-
   const isCounterReset =
-    currentRxTotal < currentState.active_rx_base_bytes ||
-    currentTxTotal < currentState.active_tx_base_bytes ||
+    currentRxTotal < (currentState.active_rx_base_bytes ?? 0) ||
+    currentTxTotal < (currentState.active_tx_base_bytes ?? 0) ||
     (previousRxTotal !== null && currentRxTotal < previousRxTotal) ||
     (previousTxTotal !== null && currentTxTotal < previousTxTotal);
 

@@ -147,18 +147,26 @@ fn resolve_cgroup_v1(is_container: bool) -> Option<CgroupContext> {
     let mem_root = PathBuf::from("/sys/fs/cgroup/memory");
     let blkio_root = PathBuf::from("/sys/fs/cgroup/blkio");
 
-    let rel_path = get_cgroup_v1_path(is_container).unwrap_or_else(|| "/".to_string());
-    let cpu_dir = cpu_root.join(rel_path.trim_start_matches('/'));
-    let mem_dir = mem_root.join(rel_path.trim_start_matches('/'));
-    let blkio_dir = blkio_root.join(rel_path.trim_start_matches('/'));
+    let cpu_rel = get_cgroup_v1_subsystem_path(is_container, "cpu")
+        .or_else(|| get_cgroup_v1_subsystem_path(is_container, "cpuacct"));
+    let mem_rel = get_cgroup_v1_subsystem_path(is_container, "memory");
+    let blkio_rel = get_cgroup_v1_subsystem_path(is_container, "blkio");
 
-    let target_cpu = if cpu_dir.exists() { cpu_dir } else { cpu_root };
-    let target_mem = if mem_dir.exists() { mem_dir } else { mem_root };
-    let target_blkio = if blkio_dir.exists() {
-        blkio_dir
-    } else {
-        blkio_root
-    };
+    let target_cpu = cpu_rel
+        .as_ref()
+        .map(|r| cpu_root.join(r.trim_start_matches('/')))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| cpu_root.clone());
+    let target_mem = mem_rel
+        .as_ref()
+        .map(|r| mem_root.join(r.trim_start_matches('/')))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| mem_root.clone());
+    let target_blkio = blkio_rel
+        .as_ref()
+        .map(|r| blkio_root.join(r.trim_start_matches('/')))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| blkio_root.clone());
 
     let mut min_cpu_quota_cores: Option<f64> = None;
     let mut min_memory_max: Option<u64> = None;
@@ -191,7 +199,7 @@ fn resolve_cgroup_v1(is_container: bool) -> Option<CgroupContext> {
         cpu_path: target_cpu,
         memory_path: target_mem,
         io_path: target_blkio,
-        relative_path: rel_path,
+        relative_path: mem_rel.or(cpu_rel).unwrap_or_else(|| "/".to_string()),
         limits: EffectiveLimits {
             cpu_quota_cores: min_cpu_quota_cores,
             cpuset_cores: None,
@@ -213,14 +221,14 @@ fn get_cgroup_v2_path(is_container: bool) -> Option<String> {
 
     for line in content.lines() {
         let parts: Vec<&str> = line.split(':').collect();
-        if parts.len() == 3 && (parts[0] == "0" || parts[1].is_empty()) {
+        if parts.len() == 3 && parts[0] == "0" && parts[1].is_empty() {
             return Some(parts[2].to_string());
         }
     }
     None
 }
 
-fn get_cgroup_v1_path(is_container: bool) -> Option<String> {
+fn get_cgroup_v1_subsystem_path(is_container: bool, subsystem: &str) -> Option<String> {
     let path_file = if is_container {
         "/proc/1/cgroup"
     } else {
@@ -232,8 +240,14 @@ fn get_cgroup_v1_path(is_container: bool) -> Option<String> {
 
     for line in content.lines() {
         let parts: Vec<&str> = line.split(':').collect();
-        if parts.len() == 3 && (parts[1].contains("cpu") || parts[1].contains("memory")) {
-            return Some(parts[2].to_string());
+        if parts.len() == 3 {
+            let controllers: Vec<&str> = parts[1].split(',').collect();
+            if controllers.contains(&subsystem) {
+                let p = parts[2].trim();
+                if !p.is_empty() && p != "/" {
+                    return Some(p.to_string());
+                }
+            }
         }
     }
     None

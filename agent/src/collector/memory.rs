@@ -66,7 +66,12 @@ impl MemoryCollector {
     pub fn sample(&self) -> MemoryMetrics {
         match self.scope {
             ResourceScope::Container => self.sample_container(),
-            ResourceScope::Machine | ResourceScope::Unknown => self.sample_host(),
+            ResourceScope::Machine => self.sample_host(),
+            ResourceScope::Unknown => MemoryMetrics {
+                used_bytes: None,
+                working_set_bytes: None,
+                swap_used_bytes: None,
+            },
         }
     }
 

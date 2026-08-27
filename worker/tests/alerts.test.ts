@@ -101,4 +101,53 @@ describe('Alert Engine & State Machine', () => {
     expect(cpuTransitions[0].nodeId).toBe('node-1');
     expect(cpuTransitions[0].status).toBe('firing');
   });
+
+  it('P2-4: transitions firing alert to resolved when memory_used_bytes drops to exactly 0', async () => {
+    const node = {
+      id: 'node-1',
+      name: 'Tokyo-01',
+      hidden: 0,
+      expires_at_ms: null,
+      memory_limit_bytes: 1000,
+      rootfs_limit_bytes: 1000,
+      last_seen_at_ms: Date.now(),
+      cpu_usage_pct: 10,
+      memory_used_bytes: 0, // Dropped to exactly 0
+      rootfs_used_bytes: 100,
+    };
+    const rule = {
+      id: 201,
+      node_id: 'node-1',
+      type: 'memory',
+      threshold: 80,
+      duration_sec: 0,
+      enabled: 1,
+      config_json: null,
+    };
+    const mockDb = {
+      prepare(sql: string) {
+        return {
+          bind(...args: any[]) { return this; },
+          async all() {
+            if (sql.includes('FROM nodes')) return { results: [node] };
+            if (sql.includes('FROM alert_rules')) return { results: [rule] };
+            return { results: [] };
+          },
+          async first() {
+            if (sql.includes('FROM alert_states')) {
+              // Was active previously
+              return { state_key: 'rule:201:node-1', active: 1, pending_since_ms: null };
+            }
+            return null;
+          },
+          async run() { return { success: true }; },
+        };
+      },
+    } as any;
+
+    const transitions = await evaluateAlerts(mockDb, 90);
+    const memTrans = transitions.filter((t) => t.type === 'memory');
+    expect(memTrans.length).toBe(1);
+    expect(memTrans[0].status).toBe('resolved');
+  });
 });

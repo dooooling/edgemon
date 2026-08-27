@@ -158,7 +158,7 @@ fn read_windows_os_version() -> Option<String> {
             return Some(final_ver);
         }
     }
-    Some("Windows 11".to_string())
+    Some("Windows".to_string())
 }
 
 #[cfg(windows)]
@@ -242,7 +242,7 @@ fn read_windows_kernel_version() -> String {
             }
         }
     }
-    "10.0.26200".to_string()
+    "Windows NT".to_string()
 }
 
 fn get_os_version() -> Option<String> {
@@ -803,6 +803,16 @@ fn main() -> Result<()> {
                         }
                         Err(e) => {
                             warn!("[HTTP Fallback] Hello failed: {}", e);
+                            if e.to_string().contains("INSTANCE_MISMATCH")
+                                || e.to_string().contains("TOKEN_REVOKED")
+                                || e.to_string().contains("NODE_DISABLED")
+                            {
+                                error!(
+                                    "[HTTP Fallback] Fatal error during Hello ({}). Terminating agent process.",
+                                    e
+                                );
+                                return Ok(());
+                            }
                         }
                     }
                 }
@@ -854,8 +864,11 @@ fn main() -> Result<()> {
                             }
                             Err(e) => {
                                 warn!("[HTTP Fallback] Report failed: {}", e);
+                                if e.to_string().contains("INSTANCE_MISMATCH") {
+                                    error!("[HTTP Fallback] Instance mismatch: replaced by another agent instance. Terminating agent process.");
+                                    return Ok(());
+                                }
                                 if e.to_string().contains("HELLO_REQUIRED")
-                                    || e.to_string().contains("INSTANCE_MISMATCH")
                                     || e.to_string().contains("STALE_OR_DUPLICATE_SEQ")
                                     || e.to_string().contains("NON_MONOTONIC_SEQ")
                                 {

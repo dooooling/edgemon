@@ -17,9 +17,7 @@ impl UptimeCollector {
         #[cfg(not(windows))]
         {
             if self.env_type == EnvType::Container {
-                if let Some(container_uptime) = get_container_uptime_sec() {
-                    return Some(container_uptime);
-                }
+                return get_container_uptime_sec();
             }
         }
 

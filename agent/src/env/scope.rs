@@ -17,15 +17,9 @@ impl ResourceScope {
     }
 }
 
-pub fn determine_resource_scope(env_type: &EnvType, has_cgroup: bool) -> ResourceScope {
+pub fn determine_resource_scope(env_type: &EnvType, _has_cgroup: bool) -> ResourceScope {
     match env_type {
-        EnvType::Container => {
-            if has_cgroup {
-                ResourceScope::Container
-            } else {
-                ResourceScope::Unknown
-            }
-        }
+        EnvType::Container => ResourceScope::Container,
         EnvType::Vm | EnvType::Physical => ResourceScope::Machine,
         EnvType::Unknown => ResourceScope::Unknown,
     }

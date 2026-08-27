@@ -191,9 +191,6 @@ fn read_windows_network_counters(target_iface: &str) -> Option<NetCounters> {
             let table = &*table_ptr;
             let num_entries = table.NumEntries as usize;
             let entries_slice = std::slice::from_raw_parts(table.Table.as_ptr(), num_entries);
-            let mut total_rx = 0u64;
-            let mut total_tx = 0u64;
-            let mut found = false;
 
             for entry in entries_slice {
                 if entry.OperStatus == 1 && entry.Type != 24 {
@@ -202,25 +199,20 @@ fn read_windows_network_counters(target_iface: &str) -> Option<NetCounters> {
                     let desc = String::from_utf16_lossy(&entry.Description);
                     let desc_trimmed = desc.trim_matches('\0').trim();
 
-                    let is_match = target_iface == "auto"
-                        || target_iface == "Ethernet/Wi-Fi"
-                        || alias_trimmed == target_iface
-                        || desc_trimmed == target_iface;
+                    let is_match = alias_trimmed.eq_ignore_ascii_case(target_iface)
+                        || desc_trimmed.eq_ignore_ascii_case(target_iface);
 
                     if is_match {
-                        total_rx += entry.InOctets;
-                        total_tx += entry.OutOctets;
-                        found = true;
+                        let counters = NetCounters {
+                            rx_bytes: entry.InOctets,
+                            tx_bytes: entry.OutOctets,
+                        };
+                        FreeMibTable(table_ptr as *const _);
+                        return Some(counters);
                     }
                 }
             }
             FreeMibTable(table_ptr as *const _);
-            if found {
-                return Some(NetCounters {
-                    rx_bytes: total_rx,
-                    tx_bytes: total_tx,
-                });
-            }
         }
     }
     None
@@ -229,7 +221,37 @@ fn read_windows_network_counters(target_iface: &str) -> Option<NetCounters> {
 pub fn discover_default_interface() -> Option<String> {
     #[cfg(windows)]
     {
-        Some("Ethernet/Wi-Fi".to_string())
+        use windows_sys::Win32::NetworkManagement::IpHelper::{
+            FreeMibTable, GetIfTable2, MIB_IF_TABLE2,
+        };
+        unsafe {
+            let mut table_ptr: *mut MIB_IF_TABLE2 = std::ptr::null_mut();
+            if GetIfTable2(&mut table_ptr) == 0 && !table_ptr.is_null() {
+                let table = &*table_ptr;
+                let num_entries = table.NumEntries as usize;
+                let entries_slice = std::slice::from_raw_parts(table.Table.as_ptr(), num_entries);
+                let mut best_iface: Option<String> = None;
+                let mut max_bytes = 0u64;
+
+                for entry in entries_slice {
+                    // Type 6: Ethernet, Type 71: 802.11 Wireless
+                    if entry.OperStatus == 1 && (entry.Type == 6 || entry.Type == 71) {
+                        let alias = String::from_utf16_lossy(&entry.Alias);
+                        let alias_trimmed = alias.trim_matches('\0').trim().to_string();
+                        let bytes = entry.InOctets + entry.OutOctets;
+                        if bytes >= max_bytes || best_iface.is_none() {
+                            max_bytes = bytes;
+                            best_iface = Some(alias_trimmed);
+                        }
+                    }
+                }
+                FreeMibTable(table_ptr as *const _);
+                if let Some(iface) = best_iface {
+                    return Some(iface);
+                }
+            }
+        }
+        Some("Ethernet".to_string())
     }
 
     #[cfg(not(windows))]

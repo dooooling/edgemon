@@ -336,13 +336,10 @@ export async function ingestReportCore(
     const prevRx = currentAttachment.last_rx_total_bytes;
     const prevTx = currentAttachment.last_tx_total_bytes;
 
-    // Guard against transient fake 0 read failure on the same counter (P0-3)
-    const isTransientZero = sampleRx === 0 && sampleTx === 0 && prevRx !== null && prevRx > 0 && sameCounter;
-
-    const rxDelta = (sameCounter && !isTransientZero && prevRx !== null && sampleRx !== null && sampleRx >= prevRx)
+    const rxDelta = (sameCounter && prevRx !== null && sampleRx !== null && sampleRx >= prevRx)
       ? sampleRx - prevRx
       : 0;
-    const txDelta = (sameCounter && !isTransientZero && prevTx !== null && sampleTx !== null && sampleTx >= prevTx)
+    const txDelta = (sameCounter && prevTx !== null && sampleTx !== null && sampleTx >= prevTx)
       ? sampleTx - prevTx
       : 0;
 
@@ -359,12 +356,50 @@ export async function ingestReportCore(
 
         bucketsToPersist.push(finalizeAccumulator(currentAttachment.current_minute));
         currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
+
+        // Advance live in-memory traffic_state for this sample in the new minute
+        currentAttachment.traffic_state = applySampleTrafficTransition(
+          currentAttachment.traffic_state,
+          s.sampled_at_ms,
+          sampleRx ?? 0,
+          sampleTx ?? 0,
+          sampleCounterId,
+          currentAttachment.traffic_reset_day,
+          currentAttachment.last_rx_total_bytes,
+          currentAttachment.last_tx_total_bytes
+        );
       } else if (sampleBucket === currentAttachment.current_minute.bucket_start_ms) {
         mergeIntoAccumulator(currentAttachment.current_minute, s, rxDelta, txDelta);
+
+        // Advance live in-memory traffic_state for this sample in current minute
+        currentAttachment.traffic_state = applySampleTrafficTransition(
+          currentAttachment.traffic_state,
+          s.sampled_at_ms,
+          sampleRx ?? 0,
+          sampleTx ?? 0,
+          sampleCounterId,
+          currentAttachment.traffic_reset_day,
+          currentAttachment.last_rx_total_bytes,
+          currentAttachment.last_tx_total_bytes
+        );
       } else {
-        // Historical sample prior to current accumulator (e.g. from buffer replay or clock adjustment - P0-5)
+        // Historical sample prior to current accumulator (e.g. from buffer replay or clock adjustment - P0-2)
         const histAcc = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
         bucketsToPersist.push(finalizeAccumulator(histAcc));
+
+        // Advance traffic_state for sample s FIRST:
+        currentAttachment.traffic_state = applySampleTrafficTransition(
+          currentAttachment.traffic_state,
+          s.sampled_at_ms,
+          sampleRx ?? 0,
+          sampleTx ?? 0,
+          sampleCounterId,
+          currentAttachment.traffic_reset_day,
+          currentAttachment.last_rx_total_bytes,
+          currentAttachment.last_tx_total_bytes
+        );
+
+        // Snapshot durableCut which now accurately contains sample s's state:
         durableCut = {
           sampleSeq: s.sample_seq,
           report: s.metrics,
@@ -373,23 +408,25 @@ export async function ingestReportCore(
       }
     } else {
       currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
+
+      // Advance live in-memory traffic_state for this initial sample
+      currentAttachment.traffic_state = applySampleTrafficTransition(
+        currentAttachment.traffic_state,
+        s.sampled_at_ms,
+        sampleRx ?? 0,
+        sampleTx ?? 0,
+        sampleCounterId,
+        currentAttachment.traffic_reset_day,
+        currentAttachment.last_rx_total_bytes,
+        currentAttachment.last_tx_total_bytes
+      );
     }
 
-    // 5.3 Advance live in-memory traffic_state for this sample (Live DO RAM only)
-    currentAttachment.traffic_state = applySampleTrafficTransition(
-      currentAttachment.traffic_state,
-      s.sampled_at_ms,
-      sampleRx ?? 0,
-      sampleTx ?? 0,
-      sampleCounterId,
-      currentAttachment.traffic_reset_day,
-      currentAttachment.last_rx_total_bytes,
-      currentAttachment.last_tx_total_bytes
-    );
-
-    currentAttachment.last_counter_id = sampleCounterId;
-    if (sampleRx !== null && !isTransientZero) currentAttachment.last_rx_total_bytes = sampleRx;
-    if (sampleTx !== null && !isTransientZero) currentAttachment.last_tx_total_bytes = sampleTx;
+    if (sampleCounterId !== null) {
+      currentAttachment.last_counter_id = sampleCounterId;
+    }
+    if (sampleRx !== null && sampleCounterId !== null) currentAttachment.last_rx_total_bytes = sampleRx;
+    if (sampleTx !== null && sampleCounterId !== null) currentAttachment.last_tx_total_bytes = sampleTx;
   }
 
   // On stateless HTTP fallback, if this is a standalone report with completed past minute bucket,

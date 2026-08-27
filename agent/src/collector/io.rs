@@ -30,7 +30,8 @@ impl IoCollector {
     pub fn sample(&mut self) -> DiskIoMetrics {
         let current_counters = match self.scope {
             ResourceScope::Container => read_cgroup_io_counters(self.cgroup_ctx.as_ref()),
-            ResourceScope::Machine | ResourceScope::Unknown => read_host_diskstats(),
+            ResourceScope::Machine => read_host_diskstats(),
+            ResourceScope::Unknown => None,
         };
 
         let now = Instant::now();

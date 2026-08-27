@@ -253,7 +253,13 @@ export async function evaluateAlerts(
           rule.threshold,
           rule.duration_sec || 0
         );
-      } else if (rule.type === 'memory' && rule.threshold !== null && node.memory_used_bytes && node.memory_limit_bytes) {
+      } else if (
+        rule.type === 'memory' &&
+        rule.threshold !== null &&
+        typeof node.memory_used_bytes === 'number' &&
+        typeof node.memory_limit_bytes === 'number' &&
+        node.memory_limit_bytes > 0
+      ) {
         val = (node.memory_used_bytes / node.memory_limit_bytes) * 100;
         isMet = val >= rule.threshold;
         await checkTransition(
@@ -271,7 +277,13 @@ export async function evaluateAlerts(
           rule.threshold,
           rule.duration_sec || 0
         );
-      } else if (rule.type === 'disk' && rule.threshold !== null && node.rootfs_used_bytes && node.rootfs_limit_bytes) {
+      } else if (
+        rule.type === 'disk' &&
+        rule.threshold !== null &&
+        typeof node.rootfs_used_bytes === 'number' &&
+        typeof node.rootfs_limit_bytes === 'number' &&
+        node.rootfs_limit_bytes > 0
+      ) {
         val = (node.rootfs_used_bytes / node.rootfs_limit_bytes) * 100;
         isMet = val >= rule.threshold;
         await checkTransition(

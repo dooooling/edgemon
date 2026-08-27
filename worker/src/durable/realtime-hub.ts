@@ -134,9 +134,9 @@ export class RealtimeHub extends DurableObject<Env> {
       ? new TextEncoder().encode(message).byteLength
       : (message instanceof ArrayBuffer ? message.byteLength : 0);
 
-    // Frame size guard (max 64KB for batch report and control frames)
-    if (byteLength > 65536) {
-      ws.close(CloseCodes.MESSAGE_TOO_BIG, 'Frame exceeds 64KB limit');
+    // Frame size guard (max 256KB for batch report and control frames)
+    if (byteLength > 262144) {
+      ws.close(CloseCodes.MESSAGE_TOO_BIG, 'Frame exceeds 256KB limit');
       return;
     }
 
@@ -473,6 +473,17 @@ export class RealtimeHub extends DurableObject<Env> {
           attachment.node_name = updates.node_name;
         }
         ws.serializeAttachment(attachment);
+      }
+    }
+  }
+
+  async revokeAdminSessions(): Promise<void> {
+    const adminSockets = this.ctx.getWebSockets('role:browser:admin');
+    for (const ws of adminSockets) {
+      try {
+        ws.close(4001, 'ADMIN_LOGGED_OUT');
+      } catch {
+        // Closed socket will be cleaned by hibernation
       }
     }
   }

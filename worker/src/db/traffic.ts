@@ -133,23 +133,25 @@ export async function loadTrafficRuntimeState(
     };
   }
 
-  // 2. If no exact row for currentPeriodStartMs exists, check latest period <= currentPeriodStartMs to inherit active counter baselines
+  // 2. If no exact row for currentPeriodStartMs exists, return the latest previous period (< currentPeriodStartMs).
+  // This allows the next incoming sample to naturally trigger applySampleTrafficTransition's billing rollover,
+  // accurately settling the previous period and establishing the correct new active base! (P0-2)
   const prevPeriod = await db
     .prepare(
-      'SELECT * FROM traffic_periods WHERE node_id = ? AND period_start_ms <= ? ORDER BY period_start_ms DESC LIMIT 1'
+      'SELECT * FROM traffic_periods WHERE node_id = ? AND period_start_ms < ? ORDER BY period_start_ms DESC LIMIT 1'
     )
     .bind(nodeId, currentPeriodStartMs)
     .first<TrafficPeriodRow>();
 
   if (prevPeriod) {
     return {
-      period_start_ms: currentPeriodStartMs,
-      finalized_rx_bytes: 0,
-      finalized_tx_bytes: 0,
+      period_start_ms: prevPeriod.period_start_ms,
+      finalized_rx_bytes: prevPeriod.finalized_rx_bytes,
+      finalized_tx_bytes: prevPeriod.finalized_tx_bytes,
       active_counter_id: prevPeriod.active_counter_id,
       active_rx_base_bytes: prevPeriod.active_rx_base_bytes,
       active_tx_base_bytes: prevPeriod.active_tx_base_bytes,
-      dirty: true, // Needs initial insert for new period
+      dirty: false,
     };
   }
 

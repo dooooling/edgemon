@@ -763,7 +763,7 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
       attachment
     );
 
-    // Now, late/replayed sample at t0 (minute 0 < minute 1) arrives with 5000 bytes delta
+    // Now, two historical samples arrive for past minute t0 (< minute 1)
     const res2 = await ingestReportCore(
       mockDb,
       'node-1',
@@ -771,14 +771,24 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
       'instance-1',
       2,
       {
-        samples: [{
-          sample_seq: 2,
-          sampled_at_ms: t0 + 10000,
-          metrics: {
-            ...baseMetrics,
-            network: { ...baseMetrics.network, counter_id: 'counter-a', rx_total_bytes: 6000, tx_total_bytes: 5500 },
+        samples: [
+          {
+            sample_seq: 2,
+            sampled_at_ms: t0 + 10000,
+            metrics: {
+              ...baseMetrics,
+              network: { ...baseMetrics.network, counter_id: 'counter-a', rx_total_bytes: 5000, tx_total_bytes: 5000 },
+            },
           },
-        }],
+          {
+            sample_seq: 3,
+            sampled_at_ms: t0 + 20000,
+            metrics: {
+              ...baseMetrics,
+              network: { ...baseMetrics.network, counter_id: 'counter-a', rx_total_bytes: 6000, tx_total_bytes: 5500 },
+            },
+          },
+        ],
       },
       mockGeo,
       attachment
@@ -786,9 +796,10 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
 
     expect(res2.result.accepted).toBe(true);
     expect(res2.result.persisted).toBe(true);
-    expect(mockDb.insertedBuckets.some((b) => b.bucketStartMs === t0)).toBe(true);
-    // Verified that traffic state transition from sample 2 was included in the durable cut!
-    expect(mockDb.updateCalled).toBe(true);
+    // Verified that historical samples were aggregated into exactly 1 bucket for t0
+    const histBuckets = mockDb.insertedBuckets.filter((b) => b.bucketStartMs === t0);
+    expect(histBuckets.length).toBe(1);
+    expect(histBuckets[0].rxDelta).toBe(1000);
   });
 
   it('P1-1: initial null counter sample does not reset active counter baseline', async () => {

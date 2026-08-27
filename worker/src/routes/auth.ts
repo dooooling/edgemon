@@ -43,11 +43,21 @@ authRoutes.post('/api/auth/login', async (c) => {
   return c.json({ status: 'ok', authenticated: true });
 });
 
-authRoutes.post('/api/auth/logout', (c) => {
+authRoutes.post('/api/auth/logout', async (c) => {
   c.header(
     'Set-Cookie',
     'edgemon_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0'
   );
+
+  // Revoke all active admin WebSockets immediately
+  try {
+    const id = c.env.REALTIME.idFromName('main');
+    const stub = c.env.REALTIME.get(id);
+    await (stub as any).revokeAdminSessions();
+  } catch (e) {
+    console.error('[Auth] Failed to revoke admin WebSockets on logout:', e);
+  }
+
   return c.json({ status: 'ok', authenticated: false });
 });
 

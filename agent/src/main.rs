@@ -639,23 +639,22 @@ fn main() -> Result<()> {
                                 };
 
                                 if !batch_samples.is_empty() {
-                                    let max_batch_seq = batch_samples
-                                        .iter()
-                                        .map(|s| s.sample_seq)
-                                        .max()
-                                        .unwrap_or(0);
-                                    let payload = ReportPayload {
-                                        samples: batch_samples,
-                                        dropped_samples: dropped,
-                                    };
-                                    if let Err(e) = ws.send_report(seq, payload) {
-                                        warn!("[WSS] Failed to send 2s report frame: {}", e);
-                                        break;
-                                    }
-                                    seq += 1;
-                                    if let Ok(mut buf) = shared_buffer.lock() {
-                                        buf.last_sent_sample_seq =
-                                            buf.last_sent_sample_seq.max(max_batch_seq);
+                                    for chunk in batch_samples.chunks(48) {
+                                        let max_batch_seq =
+                                            chunk.iter().map(|s| s.sample_seq).max().unwrap_or(0);
+                                        let payload = ReportPayload {
+                                            samples: chunk.to_vec(),
+                                            dropped_samples: dropped,
+                                        };
+                                        if let Err(e) = ws.send_report(seq, payload) {
+                                            warn!("[WSS] Failed to send report frame: {}", e);
+                                            break;
+                                        }
+                                        seq += 1;
+                                        if let Ok(mut buf) = shared_buffer.lock() {
+                                            buf.last_sent_sample_seq =
+                                                buf.last_sent_sample_seq.max(max_batch_seq);
+                                        }
                                     }
                                 }
                             }

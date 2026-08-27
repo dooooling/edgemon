@@ -118,8 +118,8 @@ adminRoutes.patch('/api/admin/nodes/:id', async (c) => {
   if (body.traffic_reset_day !== undefined && body.traffic_reset_day !== existing.traffic_reset_day) {
     try {
       await (hubStub as any).disconnectAgent(id, 4005, 'TRAFFIC_RESET_DAY_CHANGED');
-    } catch {
-      // best-effort
+    } catch (e) {
+      console.error('[Admin] Failed to disconnect agent on traffic_reset_day change:', e);
     }
   } else {
     try {
@@ -127,8 +127,8 @@ adminRoutes.patch('/api/admin/nodes/:id', async (c) => {
         is_hidden: body.hidden !== undefined ? Boolean(body.hidden) : undefined,
         node_name: body.name !== undefined ? String(body.name) : undefined,
       });
-    } catch {
-      // best-effort
+    } catch (e) {
+      console.error('[Admin] Failed to update node runtime state:', e);
     }
   }
 
@@ -144,8 +144,8 @@ adminRoutes.delete('/api/admin/nodes/:id', async (c) => {
   const hubStub = c.env.REALTIME.get(hubId);
   try {
     await (hubStub as any).disconnectAgent(id, CloseCodes.NODE_DISABLED, 'NODE_DISABLED');
-  } catch {
-    // best-effort
+  } catch (e) {
+    console.error('[Admin] Failed to disconnect agent on node deletion:', e);
   }
 
   await c.env.DB.prepare('DELETE FROM nodes WHERE id = ?').bind(id).run();
@@ -165,8 +165,8 @@ adminRoutes.post('/api/admin/nodes/:id/token', async (c) => {
   const hubStub = c.env.REALTIME.get(hubId);
   try {
     await (hubStub as any).disconnectAgent(id, CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED');
-  } catch {
-    // best-effort
+  } catch (e) {
+    console.error('[Admin] Failed to disconnect agent on token rotation:', e);
   }
 
   return c.json({ rawToken });

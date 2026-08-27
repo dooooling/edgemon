@@ -321,8 +321,9 @@ export async function ingestReportCore(
     currentAttachment.traffic_state = await loadTrafficRuntimeState(db, nodeId, trafficResetDay);
   }
 
-  // 5. Sample-by-Sample Traffic State Transition & Minute Accumulator (P0-1, P0-2, P0-3, P1-1, P1-2)
+  // 5. Sample-by-Sample Traffic State Transition & Minute Accumulator (P0-1, P0-2, P0-3, P1-1, P1-2, P2)
   const bucketsToPersist: RawBucketMetric[] = [];
+  const historicalAccumulators = new Map<number, MinuteAccumulator>();
   let durableCut: DurableCut | null = null;
 
   for (const s of validSamples) {
@@ -346,8 +347,7 @@ export async function ingestReportCore(
     // 5.2 Minute Rollover Check BEFORE modifying live traffic_state for this new sample (P0-1)
     if (currentAttachment.current_minute) {
       if (sampleBucket > currentAttachment.current_minute.bucket_start_ms) {
-        // A previous minute just CLOSED!
-        // Snapshot the EXACT durable cut at the close of that minute:
+        // Forward Minute Rollover: previous minute is CLOSED and FINALIZED
         durableCut = {
           sampleSeq: currentAttachment.current_minute.last_sample_seq,
           report: currentAttachment.current_minute.last_metrics,
@@ -369,6 +369,7 @@ export async function ingestReportCore(
           currentAttachment.last_tx_total_bytes
         );
       } else if (sampleBucket === currentAttachment.current_minute.bucket_start_ms) {
+        // Same live minute: merge into live accumulator
         mergeIntoAccumulator(currentAttachment.current_minute, s, rxDelta, txDelta);
 
         // Advance live in-memory traffic_state for this sample in current minute
@@ -383,13 +384,16 @@ export async function ingestReportCore(
           currentAttachment.last_tx_total_bytes
         );
       } else {
-        // Historical sample prior to current accumulator (e.g. from buffer replay or clock adjustment - P0-1)
-        const histAcc = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
-        bucketsToPersist.push(finalizeAccumulator(histAcc));
-        // Also flush current_minute's accumulator to D1 so all prior in-memory samples are durably saved!
-        bucketsToPersist.push(finalizeAccumulator(currentAttachment.current_minute));
+        // Historical sample (earlier bucket): aggregate into historical minute map (P2)
+        let hist = historicalAccumulators.get(sampleBucket);
+        if (hist) {
+          mergeIntoAccumulator(hist, s, rxDelta, txDelta);
+        } else {
+          hist = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
+          historicalAccumulators.set(sampleBucket, hist);
+        }
 
-        // Advance traffic_state for sample s FIRST:
+        // Advance traffic_state for sample s:
         currentAttachment.traffic_state = applySampleTrafficTransition(
           currentAttachment.traffic_state,
           s.sampled_at_ms,
@@ -401,13 +405,15 @@ export async function ingestReportCore(
           currentAttachment.last_tx_total_bytes
         );
 
-        // Snapshot durableCut: all samples up to max(s.sample_seq, current_minute.last_sample_seq) are now in D1!
-        const maxSeq = Math.max(s.sample_seq, currentAttachment.current_minute.last_sample_seq);
-        durableCut = {
-          sampleSeq: maxSeq,
-          report: s.metrics,
-          trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
-        };
+        // Historical durable cut only advances up to samples whose entire minute is finalized (P0-1)
+        if (s.sample_seq < currentAttachment.current_minute.first_sample_seq) {
+          const prevCutSeq: number = durableCut ? (durableCut as DurableCut).sampleSeq : 0;
+          durableCut = {
+            sampleSeq: Math.max(prevCutSeq, s.sample_seq),
+            report: s.metrics,
+            trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
+          };
+        }
       }
     } else {
       currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
@@ -432,6 +438,11 @@ export async function ingestReportCore(
     if (sampleTx !== null && sampleCounterId !== null) currentAttachment.last_tx_total_bytes = sampleTx;
   }
 
+  // Push all aggregated historical buckets to bucketsToPersist
+  for (const hist of historicalAccumulators.values()) {
+    bucketsToPersist.push(finalizeAccumulator(hist));
+  }
+
   // On stateless HTTP fallback, if this is a standalone report with completed past minute bucket,
   // finalize any past minute bucket
   const currentServerBucketStartMs = Math.floor(serverTimeMs / 60000) * 60000;
@@ -447,34 +458,38 @@ export async function ingestReportCore(
   let actuallyPersisted = false;
 
   // 6. Atomic Persistence Checkpoint (P0-1: single durable cut alignment)
-  // Checkpoint is written to D1 ONLY when a full minute bucket closes.
+  // Checkpoint is written to D1 whenever completed minute buckets (forward rollover or historical) are finalized.
   // Live samples for the unclosed active minute remain strictly in DO RAM and Agent buffer.
-  if (bucketsToPersist.length > 0 && durableCut) {
-    const trafficStatements = buildTrafficD1Statements(db, nodeId, durableCut.trafficState, serverTimeMs);
+  if (bucketsToPersist.length > 0) {
+    const cutReport = durableCut?.report ?? validSamples[validSamples.length - 1].metrics;
+    const cutTrafficState = durableCut?.trafficState ?? cloneTrafficRuntimeState(currentAttachment.traffic_state);
+    const cutSampleSeq = durableCut?.sampleSeq ?? currentAttachment.persisted_sample_seq;
+
+    const trafficStatements = buildTrafficD1Statements(db, nodeId, cutTrafficState, serverTimeMs);
 
     try {
       await persist60sCheckpoint(db, {
         nodeId,
         instanceId,
         seq,
-        latestReport: durableCut.report,
+        latestReport: cutReport,
         geo,
         serverTimeMs,
-        persistedSampleSeq: durableCut.sampleSeq,
+        persistedSampleSeq: cutSampleSeq,
         droppedSamples: report.dropped_samples || 0,
         buckets: bucketsToPersist,
         trafficStatements,
       });
 
       actuallyPersisted = true;
-      const committedSettlement = durableCut.trafficState.prev_period_settlement;
+      const committedSettlement = cutTrafficState.prev_period_settlement;
       if (
         committedSettlement &&
         currentAttachment.traffic_state.prev_period_settlement?.period_start_ms === committedSettlement.period_start_ms
       ) {
         currentAttachment.traffic_state.prev_period_settlement = null;
       }
-      currentAttachment.persisted_sample_seq = Math.max(currentAttachment.persisted_sample_seq, durableCut.sampleSeq);
+      currentAttachment.persisted_sample_seq = Math.max(currentAttachment.persisted_sample_seq, cutSampleSeq);
       currentAttachment.last_persist_bucket_ms = Math.max(
         currentAttachment.last_persist_bucket_ms,
         ...bucketsToPersist.map((b) => b.bucketStartMs)

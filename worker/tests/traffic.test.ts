@@ -131,4 +131,45 @@ describe('Traffic Period Calculation', () => {
     expect(state.period_start_ms).toBe(aug01);
     expect(state.finalized_rx_bytes).toBe(5000);
   });
+
+  it('P0-2: loadTrafficRuntimeState returns previous period when new period row does not exist yet', async () => {
+    const jul15 = Date.UTC(2026, 6, 15, 0, 0, 0);
+
+    const mockDb = {
+      prepare(sql: string) {
+        return {
+          bind(...args: any[]) {
+            return {
+              async first() {
+                if (sql.includes('period_start_ms = ?')) {
+                  // New period (e.g. Aug 15) does NOT exist yet!
+                  return null;
+                }
+                if (sql.includes('period_start_ms < ?')) {
+                  // Return previous period (July 15)
+                  return {
+                    node_id: 'node-1',
+                    period_start_ms: jul15,
+                    finalized_rx_bytes: 10000,
+                    finalized_tx_bytes: 5000,
+                    active_counter_id: 'c1',
+                    active_rx_base_bytes: 1000,
+                    active_tx_base_bytes: 500,
+                  };
+                }
+                return null;
+              },
+            };
+          },
+        };
+      },
+    } as any;
+
+    const { loadTrafficRuntimeState } = await import('../src/db/traffic');
+    const state = await loadTrafficRuntimeState(mockDb, 'node-1', 15);
+
+    // Returns previous period's start (July 15) and active base (1000) so rollover can be triggered accurately
+    expect(state.period_start_ms).toBe(jul15);
+    expect(state.active_rx_base_bytes).toBe(1000);
+  });
 });

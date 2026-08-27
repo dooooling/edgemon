@@ -740,6 +740,10 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     expect(validateReportPayload({ samples: [] } as any)).toBe(false);
     expect(validateReportPayload({ samples: [{ sample_seq: 1, sampled_at_ms: 1000, metrics: {} as any }] })).toBe(false);
     expect(validateReportPayload({ samples: [{ sample_seq: 1, sampled_at_ms: 1000, metrics: { ...baseMetrics, network: undefined as any } }] })).toBe(false);
+    expect(validateReportPayload({ samples: [{ sample_seq: 1, sampled_at_ms: 1000, metrics: { ...baseMetrics, cpu: undefined as any } }] })).toBe(false);
+    expect(validateReportPayload({ samples: [{ sample_seq: 1, sampled_at_ms: 1000, metrics: { ...baseMetrics, memory: undefined as any } }] })).toBe(false);
+    expect(validateReportPayload({ samples: [{ sample_seq: 1, sampled_at_ms: 1000, metrics: { ...baseMetrics, rootfs: undefined as any } }] })).toBe(false);
+    expect(validateReportPayload({ samples: [{ sample_seq: 1, sampled_at_ms: 1000, metrics: { ...baseMetrics, io: undefined as any } }] })).toBe(false);
   });
 
   it('P0-5: historical sample prior to current accumulator establishes durableCut and persists', async () => {

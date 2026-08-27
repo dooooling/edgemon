@@ -91,4 +91,44 @@ describe('Traffic Period Calculation', () => {
     const totalMonthRx = finalizedRx + newActiveSegment;
     expect(totalMonthRx).toBe(170);
   });
+
+  it('P1-1: loadTrafficRuntimeState hydrates exact current period when reset_day changes backwards', async () => {
+    const aug01 = Date.UTC(2026, 7, 1, 0, 0, 0);
+    const aug15 = Date.UTC(2026, 7, 15, 0, 0, 0);
+
+    const mockDb = {
+      prepare(sql: string) {
+        return {
+          bind(...args: any[]) {
+            return {
+              async first() {
+                if (sql.includes('period_start_ms = ?')) {
+                  const targetStart = args[1];
+                  if (targetStart === aug01) {
+                    return {
+                      node_id: 'node-1',
+                      period_start_ms: aug01,
+                      finalized_rx_bytes: 5000,
+                      finalized_tx_bytes: 3000,
+                      active_counter_id: 'c1',
+                      active_rx_base_bytes: 100,
+                      active_tx_base_bytes: 50,
+                    };
+                  }
+                }
+                return null;
+              },
+            };
+          },
+        };
+      },
+    } as any;
+
+    const { loadTrafficRuntimeState } = await import('../src/db/traffic');
+    const state = await loadTrafficRuntimeState(mockDb, 'node-1', 1);
+
+    // Hydrated exact Aug 1 period (5000 bytes finalized), NOT Aug 15!
+    expect(state.period_start_ms).toBe(aug01);
+    expect(state.finalized_rx_bytes).toBe(5000);
+  });
 });

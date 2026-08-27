@@ -112,9 +112,13 @@ export async function loadTrafficRuntimeState(
   nodeId: string,
   resetDay = 1
 ): Promise<TrafficRuntimeState> {
+  const now = Date.now();
+  const currentPeriodStartMs = computeBillingPeriodStart(now, resetDay);
+
+  // 1. Look for the exact current period row matching current reset day
   const period = await db
-    .prepare('SELECT * FROM traffic_periods WHERE node_id = ? ORDER BY period_start_ms DESC LIMIT 1')
-    .bind(nodeId)
+    .prepare('SELECT * FROM traffic_periods WHERE node_id = ? AND period_start_ms = ?')
+    .bind(nodeId, currentPeriodStartMs)
     .first<TrafficPeriodRow>();
 
   if (period) {
@@ -129,11 +133,28 @@ export async function loadTrafficRuntimeState(
     };
   }
 
-  const now = Date.now();
-  const periodStartMs = computeBillingPeriodStart(now, resetDay);
+  // 2. If no exact row for currentPeriodStartMs exists, check latest period <= currentPeriodStartMs to inherit active counter baselines
+  const prevPeriod = await db
+    .prepare(
+      'SELECT * FROM traffic_periods WHERE node_id = ? AND period_start_ms <= ? ORDER BY period_start_ms DESC LIMIT 1'
+    )
+    .bind(nodeId, currentPeriodStartMs)
+    .first<TrafficPeriodRow>();
+
+  if (prevPeriod) {
+    return {
+      period_start_ms: currentPeriodStartMs,
+      finalized_rx_bytes: 0,
+      finalized_tx_bytes: 0,
+      active_counter_id: prevPeriod.active_counter_id,
+      active_rx_base_bytes: prevPeriod.active_rx_base_bytes,
+      active_tx_base_bytes: prevPeriod.active_tx_base_bytes,
+      dirty: true, // Needs initial insert for new period
+    };
+  }
 
   return {
-    period_start_ms: periodStartMs,
+    period_start_ms: currentPeriodStartMs,
     finalized_rx_bytes: 0,
     finalized_tx_bytes: 0,
     active_counter_id: null,

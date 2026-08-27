@@ -20,7 +20,7 @@ import {
   ingestReportCore,
 } from '../services/ingest';
 import { loadTrafficRuntimeState, computeBillingPeriodStart } from '../db/traffic';
-import { verifyAdminSession } from '../services/session';
+import { verifyAdminSession, getAdminSessionExpiry } from '../services/session';
 
 export interface Env {
   DB: D1Database;
@@ -33,6 +33,7 @@ export interface Env {
 export interface BrowserAttachment {
   kind: 'browser';
   authenticated: boolean;
+  admin_expires_at_ms: number | null;
 }
 
 type SocketAttachment = AgentAttachment | BrowserAttachment;
@@ -87,11 +88,13 @@ export class RealtimeHub extends DurableObject<Env> {
 
     // Role === 'browser'
     const cookieHeader = request.headers.get('Cookie');
-    const isAuthenticated = await verifyAdminSession(cookieHeader, this.env.SESSION_SECRET);
+    const adminExpiresAtMs = await getAdminSessionExpiry(cookieHeader, this.env.SESSION_SECRET);
+    const isAuthenticated = adminExpiresAtMs !== null;
 
     const browserAttachment: BrowserAttachment = {
       kind: 'browser',
       authenticated: isAuthenticated,
+      admin_expires_at_ms: adminExpiresAtMs,
     };
 
     const browserTags = ['role:browser'];
@@ -392,7 +395,21 @@ export class RealtimeHub extends DurableObject<Env> {
     // Hidden nodes broadcast ONLY to authenticated admin browsers!
     const targetTag = isHidden ? 'role:browser:admin' : 'role:browser';
     const browsers = this.ctx.getWebSockets(targetTag);
+    const now = Date.now();
+
     for (const ws of browsers) {
+      if (isHidden) {
+        const att = ws.deserializeAttachment() as BrowserAttachment | null;
+        if (att && att.admin_expires_at_ms && now > att.admin_expires_at_ms) {
+          try {
+            ws.close(4001, 'ADMIN_SESSION_EXPIRED');
+          } catch {
+            // Closed socket will be cleaned by hibernation
+          }
+          continue;
+        }
+      }
+
       try {
         ws.send(message);
       } catch {

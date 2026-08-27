@@ -629,7 +629,7 @@ fn main() -> Result<()> {
                                             .samples
                                             .iter()
                                             .filter(|s| s.sample_seq > buf.last_sent_sample_seq)
-                                            .take(16)
+                                            .take(300)
                                             .cloned()
                                             .collect();
                                         (unsent, buf.dropped_samples)

@@ -186,22 +186,33 @@ export function validateFiniteMetric(val: number | null | undefined, min?: numbe
 
 export function validateReportMetrics(data: ReportMetrics): boolean {
   if (!data || typeof data !== 'object') return false;
+
+  // 1. Mandatory metric group objects (P2-1)
+  if (!data.cpu || typeof data.cpu !== 'object') return false;
+  if (!data.memory || typeof data.memory !== 'object') return false;
+  if (!data.rootfs || typeof data.rootfs !== 'object') return false;
+  if (!data.io || typeof data.io !== 'object') return false;
   if (!data.network || typeof data.network !== 'object') return false;
+
+  // 2. Network mandatory fields
   if (typeof data.network.interface !== 'string' || !data.network.interface) return false;
   if (typeof data.network.rx_total_bytes !== 'number' || data.network.rx_total_bytes < 0) return false;
   if (typeof data.network.tx_total_bytes !== 'number' || data.network.tx_total_bytes < 0) return false;
-  if (!validateFiniteMetric(data.cpu?.usage_pct, 0, 100)) return false;
-  if (!validateFiniteMetric(data.cpu?.throttled_pct, 0, 100)) return false;
-  if (!validateFiniteMetric(data.memory?.used_bytes, 0)) return false;
-  if (!validateFiniteMetric(data.memory?.working_set_bytes, 0)) return false;
-  if (!validateFiniteMetric(data.memory?.swap_used_bytes, 0)) return false;
-  if (!validateFiniteMetric(data.rootfs?.used_bytes, 0)) return false;
-  if (!validateFiniteMetric(data.io?.read_bps, 0)) return false;
-  if (!validateFiniteMetric(data.io?.write_bps, 0)) return false;
-  if (!validateFiniteMetric(data.network?.rx_bps, 0)) return false;
-  if (!validateFiniteMetric(data.network?.tx_bps, 0)) return false;
+
+  // 3. Finite value & range validation
+  if (!validateFiniteMetric(data.cpu.usage_pct, 0, 100)) return false;
+  if (!validateFiniteMetric(data.cpu.throttled_pct, 0, 100)) return false;
+  if (!validateFiniteMetric(data.memory.used_bytes, 0)) return false;
+  if (!validateFiniteMetric(data.memory.working_set_bytes, 0)) return false;
+  if (!validateFiniteMetric(data.memory.swap_used_bytes, 0)) return false;
+  if (!validateFiniteMetric(data.rootfs.used_bytes, 0)) return false;
+  if (!validateFiniteMetric(data.io.read_bps, 0)) return false;
+  if (!validateFiniteMetric(data.io.write_bps, 0)) return false;
+  if (!validateFiniteMetric(data.network.rx_bps, 0)) return false;
+  if (!validateFiniteMetric(data.network.tx_bps, 0)) return false;
   if (!validateFiniteMetric(data.uptime_sec, 0)) return false;
 
+  if (data.probes !== undefined && !Array.isArray(data.probes)) return false;
   if (Array.isArray(data.probes)) {
     for (const p of data.probes) {
       if (!validateFiniteMetric(p.latency_ms, 0)) return false;

@@ -383,9 +383,11 @@ export async function ingestReportCore(
           currentAttachment.last_tx_total_bytes
         );
       } else {
-        // Historical sample prior to current accumulator (e.g. from buffer replay or clock adjustment - P0-2)
+        // Historical sample prior to current accumulator (e.g. from buffer replay or clock adjustment - P0-1)
         const histAcc = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
         bucketsToPersist.push(finalizeAccumulator(histAcc));
+        // Also flush current_minute's accumulator to D1 so all prior in-memory samples are durably saved!
+        bucketsToPersist.push(finalizeAccumulator(currentAttachment.current_minute));
 
         // Advance traffic_state for sample s FIRST:
         currentAttachment.traffic_state = applySampleTrafficTransition(
@@ -399,9 +401,10 @@ export async function ingestReportCore(
           currentAttachment.last_tx_total_bytes
         );
 
-        // Snapshot durableCut which now accurately contains sample s's state:
+        // Snapshot durableCut: all samples up to max(s.sample_seq, current_minute.last_sample_seq) are now in D1!
+        const maxSeq = Math.max(s.sample_seq, currentAttachment.current_minute.last_sample_seq);
         durableCut = {
-          sampleSeq: s.sample_seq,
+          sampleSeq: maxSeq,
           report: s.metrics,
           trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
         };

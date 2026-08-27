@@ -92,7 +92,7 @@ describe('Traffic Period Calculation', () => {
     expect(totalMonthRx).toBe(170);
   });
 
-  it('P1-1: loadTrafficRuntimeState loads latest existing period when reset_day roundtrips in the same month', async () => {
+  it('P1-1: loadTrafficRuntimeState loads latest existing period when reset_day roundtrips in the same month (first reconnect)', async () => {
     const aug01 = Date.UTC(2026, 7, 1, 0, 0, 0);
     const aug15 = Date.UTC(2026, 7, 15, 0, 0, 0);
 
@@ -102,8 +102,21 @@ describe('Traffic Period Calculation', () => {
           bind(...args: any[]) {
             return {
               async first() {
-                if (sql.includes('ORDER BY period_start_ms DESC LIMIT 1')) {
-                  // Latest period in D1 is Aug 15 (when node previously ran with reset_day=15)
+                if (sql.includes('period_start_ms = ?')) {
+                  // Old Aug 01 row from 3 weeks ago with older updated_at_ms (T1 = 1000)
+                  return {
+                    node_id: 'node-1',
+                    period_start_ms: aug01,
+                    finalized_rx_bytes: 2000,
+                    finalized_tx_bytes: 1000,
+                    active_counter_id: 'c1',
+                    active_rx_base_bytes: 100,
+                    active_tx_base_bytes: 50,
+                    updated_at_ms: 1000,
+                  };
+                }
+                if (sql.includes('ORDER BY updated_at_ms DESC LIMIT 1')) {
+                  // Most recently updated period is Aug 15 with newer updated_at_ms (T2 = 2000)
                   return {
                     node_id: 'node-1',
                     period_start_ms: aug15,
@@ -112,6 +125,7 @@ describe('Traffic Period Calculation', () => {
                     active_counter_id: 'c1',
                     active_rx_base_bytes: 6000,
                     active_tx_base_bytes: 3000,
+                    updated_at_ms: 2000,
                   };
                 }
                 return null;
@@ -131,8 +145,9 @@ describe('Traffic Period Calculation', () => {
     expect(state.active_rx_base_bytes).toBe(6000);
   });
 
-  it('P0-2: loadTrafficRuntimeState returns previous period when new period row does not exist yet', async () => {
-    const jul15 = Date.UTC(2026, 6, 15, 0, 0, 0);
+  it('P0-2: loadTrafficRuntimeState resumes active period on second reconnect after reset_day switch', async () => {
+    const aug01 = Date.UTC(2026, 7, 1, 0, 0, 0);
+    const aug15 = Date.UTC(2026, 7, 15, 0, 0, 0);
 
     const mockDb = {
       prepare(sql: string) {
@@ -141,19 +156,29 @@ describe('Traffic Period Calculation', () => {
             return {
               async first() {
                 if (sql.includes('period_start_ms = ?')) {
-                  // New period (e.g. Aug 15) does NOT exist yet!
-                  return null;
-                }
-                if (sql.includes('ORDER BY period_start_ms DESC LIMIT 1')) {
-                  // Return previous period (July 15)
+                  // New active Aug 01 row created after rollover, updated_at_ms = 3000
                   return {
                     node_id: 'node-1',
-                    period_start_ms: jul15,
-                    finalized_rx_bytes: 10000,
-                    finalized_tx_bytes: 5000,
+                    period_start_ms: aug01,
+                    finalized_rx_bytes: 0,
+                    finalized_tx_bytes: 0,
                     active_counter_id: 'c1',
-                    active_rx_base_bytes: 1000,
-                    active_tx_base_bytes: 500,
+                    active_rx_base_bytes: 7000,
+                    active_tx_base_bytes: 3500,
+                    updated_at_ms: 3000,
+                  };
+                }
+                if (sql.includes('ORDER BY updated_at_ms DESC LIMIT 1')) {
+                  // Most recently updated is also Aug 01 (updated_at_ms = 3000)
+                  return {
+                    node_id: 'node-1',
+                    period_start_ms: aug01,
+                    finalized_rx_bytes: 0,
+                    finalized_tx_bytes: 0,
+                    active_counter_id: 'c1',
+                    active_rx_base_bytes: 7000,
+                    active_tx_base_bytes: 3500,
+                    updated_at_ms: 3000,
                   };
                 }
                 return null;
@@ -165,10 +190,11 @@ describe('Traffic Period Calculation', () => {
     } as any;
 
     const { loadTrafficRuntimeState } = await import('../src/db/traffic');
-    const state = await loadTrafficRuntimeState(mockDb, 'node-1', 15);
+    // Second reconnect after reset_day switch:
+    const state = await loadTrafficRuntimeState(mockDb, 'node-1', 1);
 
-    // Returns previous period's start (July 15) and active base (1000) so rollover can be triggered accurately
-    expect(state.period_start_ms).toBe(jul15);
-    expect(state.active_rx_base_bytes).toBe(1000);
+    // Resumes active Aug 01 period with active base 7000 without resetting or rolling over!
+    expect(state.period_start_ms).toBe(aug01);
+    expect(state.active_rx_base_bytes).toBe(7000);
   });
 });

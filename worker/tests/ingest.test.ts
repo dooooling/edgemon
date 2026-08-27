@@ -657,7 +657,7 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
   it('P0-3: transient 0 reading on the same counter does NOT trigger counter reset or fake traffic spike', async () => {
     const mockDb = createMockDb('instance-1', 0);
     const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
-    const t0 = Math.floor(Date.now() / 60000) * 60000;
+    const t0 = Math.floor((Date.now() - 300000) / 60000) * 60000;
 
     // Sample 1: normal 1 GB (1073741824 bytes)
     await ingestReportCore(
@@ -749,7 +749,7 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
   it('P0-5: historical sample prior to current accumulator establishes durableCut and persists', async () => {
     const mockDb = createMockDb('instance-1', 0);
     const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
-    const t0 = Math.floor(Date.now() / 60000) * 60000;
+    const t0 = Math.floor((Date.now() - 300000) / 60000) * 60000;
 
     // First, sample at t0 + 60000 (minute 1) creates current_minute with seq=10
     await ingestReportCore(

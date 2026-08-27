@@ -272,18 +272,19 @@ export async function ingestReportCore(
   // Sort samples by sample_seq ASC
   validSamples.sort((a, b) => a.sample_seq - b.sample_seq);
 
-  // Clock Sanity Check (P1-3): Clamp future timestamps BEFORE constructing live broadcast payload
+  // Clock Sanity Check (P0-1): Clamp future timestamps strictly to serverTimeMs.
+  // This guarantees that an agent cannot prematurely open a future minute bucket ahead of real edge time,
+  // preventing false forward rollovers and duplicate bucket overwrites.
   const currentServerBucket = Math.floor(serverTimeMs / 60000) * 60000;
-  const maxAllowedFutureMs = serverTimeMs + 60000;
 
   for (const s of validSamples) {
-    if (s.sampled_at_ms > maxAllowedFutureMs) {
+    if (s.sampled_at_ms > serverTimeMs) {
       s.sampled_at_ms = serverTimeMs;
     }
   }
 
-  // Guard against corrupted current_minute accumulator stuck in the far future
-  if (currentAttachment.current_minute && currentAttachment.current_minute.bucket_start_ms > currentServerBucket + 60000) {
+  // Guard against corrupted current_minute accumulator stuck in the future
+  if (currentAttachment.current_minute && currentAttachment.current_minute.bucket_start_ms > currentServerBucket) {
     currentAttachment.current_minute = null;
   }
 

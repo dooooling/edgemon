@@ -115,24 +115,44 @@ export async function loadTrafficRuntimeState(
   const now = Date.now();
   const currentPeriodStartMs = computeBillingPeriodStart(now, resetDay);
 
-  // Load the single latest period row in D1.
-  // 1. If latestPeriod.period_start_ms === currentPeriodStartMs, continues the current active period.
-  // 2. If latestPeriod.period_start_ms !== currentPeriodStartMs (natural rollover OR reset_day change in either direction),
-  //    returning latestPeriod's state ensures applySampleTrafficTransition on the next incoming sample
-  //    accurately settles the true latest period and establishes the correct new baseline without resurrecting stale historical rows.
-  const latestPeriod = await db
-    .prepare('SELECT * FROM traffic_periods WHERE node_id = ? ORDER BY period_start_ms DESC LIMIT 1')
+  // 1. First check if a period row matching currentPeriodStartMs exists
+  const exactPeriod = await db
+    .prepare('SELECT * FROM traffic_periods WHERE node_id = ? AND period_start_ms = ?')
+    .bind(nodeId, currentPeriodStartMs)
+    .first<TrafficPeriodRow>();
+
+  // 2. Load the most recently updated period row in D1 (by updated_at_ms DESC)
+  const latestUpdatedPeriod = await db
+    .prepare('SELECT * FROM traffic_periods WHERE node_id = ? ORDER BY updated_at_ms DESC LIMIT 1')
     .bind(nodeId)
     .first<TrafficPeriodRow>();
 
-  if (latestPeriod) {
+  if (exactPeriod) {
+    // If exactPeriod is the most recently updated period row (or equal to latest), resume it! (P0-2)
+    if (!latestUpdatedPeriod || (exactPeriod.updated_at_ms ?? 0) >= (latestUpdatedPeriod.updated_at_ms ?? 0)) {
+      return {
+        period_start_ms: exactPeriod.period_start_ms,
+        finalized_rx_bytes: exactPeriod.finalized_rx_bytes,
+        finalized_tx_bytes: exactPeriod.finalized_tx_bytes,
+        active_counter_id: exactPeriod.active_counter_id,
+        active_rx_base_bytes: exactPeriod.active_rx_base_bytes,
+        active_tx_base_bytes: exactPeriod.active_tx_base_bytes,
+        dirty: false,
+      };
+    }
+  }
+
+  // 3. If exactPeriod doesn't exist OR was superseded by a more recently updated period (e.g. reset_day change),
+  // return latestUpdatedPeriod so applySampleTrafficTransition on the next sample can smoothly settle it
+  // and establish currentPeriodStartMs with accurate new baseline!
+  if (latestUpdatedPeriod) {
     return {
-      period_start_ms: latestPeriod.period_start_ms,
-      finalized_rx_bytes: latestPeriod.finalized_rx_bytes,
-      finalized_tx_bytes: latestPeriod.finalized_tx_bytes,
-      active_counter_id: latestPeriod.active_counter_id,
-      active_rx_base_bytes: latestPeriod.active_rx_base_bytes,
-      active_tx_base_bytes: latestPeriod.active_tx_base_bytes,
+      period_start_ms: latestUpdatedPeriod.period_start_ms,
+      finalized_rx_bytes: latestUpdatedPeriod.finalized_rx_bytes,
+      finalized_tx_bytes: latestUpdatedPeriod.finalized_tx_bytes,
+      active_counter_id: latestUpdatedPeriod.active_counter_id,
+      active_rx_base_bytes: latestUpdatedPeriod.active_rx_base_bytes,
+      active_tx_base_bytes: latestUpdatedPeriod.active_tx_base_bytes,
       dirty: false,
     };
   }

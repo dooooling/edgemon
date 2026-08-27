@@ -383,8 +383,33 @@ export async function ingestReportCore(
           currentAttachment.last_rx_total_bytes,
           currentAttachment.last_tx_total_bytes
         );
+      } else if (s.sample_seq > currentAttachment.current_minute.last_sample_seq) {
+        // Clock Jump Backwards with newer sample_seq (P0):
+        // The previous current_minute was started under a false future clock.
+        // Finalize and close the previous premature future minute:
+        durableCut = {
+          sampleSeq: currentAttachment.current_minute.last_sample_seq,
+          report: currentAttachment.current_minute.last_metrics,
+          trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
+        };
+        bucketsToPersist.push(finalizeAccumulator(currentAttachment.current_minute));
+
+        // Start new current_minute at the rolled-back time:
+        currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
+
+        // Advance live traffic_state for this sample:
+        currentAttachment.traffic_state = applySampleTrafficTransition(
+          currentAttachment.traffic_state,
+          s.sampled_at_ms,
+          sampleRx ?? 0,
+          sampleTx ?? 0,
+          sampleCounterId,
+          currentAttachment.traffic_reset_day,
+          currentAttachment.last_rx_total_bytes,
+          currentAttachment.last_tx_total_bytes
+        );
       } else {
-        // Historical sample (earlier bucket): aggregate into historical minute map (P2)
+        // True historical buffer replay from before current_minute (s.sample_seq < current_minute.first_sample_seq):
         let hist = historicalAccumulators.get(sampleBucket);
         if (hist) {
           mergeIntoAccumulator(hist, s, rxDelta, txDelta);

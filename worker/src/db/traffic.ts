@@ -115,27 +115,11 @@ export async function loadTrafficRuntimeState(
   const now = Date.now();
   const currentPeriodStartMs = computeBillingPeriodStart(now, resetDay);
 
-  // 1. Look for the exact current period row matching current reset day
-  const period = await db
-    .prepare('SELECT * FROM traffic_periods WHERE node_id = ? AND period_start_ms = ?')
-    .bind(nodeId, currentPeriodStartMs)
-    .first<TrafficPeriodRow>();
-
-  if (period) {
-    return {
-      period_start_ms: period.period_start_ms,
-      finalized_rx_bytes: period.finalized_rx_bytes,
-      finalized_tx_bytes: period.finalized_tx_bytes,
-      active_counter_id: period.active_counter_id,
-      active_rx_base_bytes: period.active_rx_base_bytes,
-      active_tx_base_bytes: period.active_tx_base_bytes,
-      dirty: false,
-    };
-  }
-
-  // 2. If no exact row for currentPeriodStartMs exists, return the latest existing period in D1.
-  // This allows applySampleTrafficTransition on the next incoming sample to naturally detect the billing boundary
-  // or reset_day change, accurately settle the previous active period, and establish the correct active base for currentPeriodStartMs.
+  // Load the single latest period row in D1.
+  // 1. If latestPeriod.period_start_ms === currentPeriodStartMs, continues the current active period.
+  // 2. If latestPeriod.period_start_ms !== currentPeriodStartMs (natural rollover OR reset_day change in either direction),
+  //    returning latestPeriod's state ensures applySampleTrafficTransition on the next incoming sample
+  //    accurately settles the true latest period and establishes the correct new baseline without resurrecting stale historical rows.
   const latestPeriod = await db
     .prepare('SELECT * FROM traffic_periods WHERE node_id = ? ORDER BY period_start_ms DESC LIMIT 1')
     .bind(nodeId)

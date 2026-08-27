@@ -71,6 +71,30 @@ adminRoutes.patch('/api/admin/nodes/:id', async (c) => {
     return c.json({ error: 'Node not found' }, 404);
   }
 
+  // 1. Sync runtime state changes with RealtimeHub DO FIRST (2-phase consistency - P1)
+  const hubId = c.env.REALTIME.idFromName('main');
+  const hubStub = c.env.REALTIME.get(hubId);
+
+  if (body.traffic_reset_day !== undefined && body.traffic_reset_day !== existing.traffic_reset_day) {
+    try {
+      await (hubStub as any).disconnectAgent(id, 4005, 'TRAFFIC_RESET_DAY_CHANGED');
+    } catch (e) {
+      console.error('[Admin] Failed to disconnect agent on traffic_reset_day change:', e);
+      return c.json({ error: 'Failed to synchronize runtime state with RealtimeHub' }, 500);
+    }
+  } else if (body.hidden !== undefined || body.name !== undefined) {
+    try {
+      await (hubStub as any).updateNodeRuntime(id, {
+        is_hidden: body.hidden !== undefined ? Boolean(body.hidden) : undefined,
+        node_name: body.name !== undefined ? String(body.name) : undefined,
+      });
+    } catch (e) {
+      console.error('[Admin] Failed to update node runtime state:', e);
+      return c.json({ error: 'Failed to synchronize runtime state with RealtimeHub' }, 500);
+    }
+  }
+
+  // 2. Once DO runtime synchronization succeeds, persist modifications into D1
   await c.env.DB
     .prepare(
       `UPDATE nodes SET
@@ -108,40 +132,18 @@ adminRoutes.patch('/api/admin/nodes/:id', async (c) => {
     .run();
 
   const updated = await getNodeById(c.env.DB, id);
-
-  // Sync runtime state changes (P0-2, P1-4):
-  // If traffic_reset_day changed, disconnect agent so it cleanly re-authenticates and hydrates from D1
-  // If only display/privacy metadata (hidden, name) changed, update socket attachment in-place
-  const hubId = c.env.REALTIME.idFromName('main');
-  const hubStub = c.env.REALTIME.get(hubId);
-
-  if (body.traffic_reset_day !== undefined && body.traffic_reset_day !== existing.traffic_reset_day) {
-    try {
-      await (hubStub as any).disconnectAgent(id, 4005, 'TRAFFIC_RESET_DAY_CHANGED');
-    } catch (e) {
-      console.error('[Admin] Failed to disconnect agent on traffic_reset_day change:', e);
-      return c.json({ error: 'Failed to synchronize runtime state with RealtimeHub' }, 500);
-    }
-  } else {
-    try {
-      await (hubStub as any).updateNodeRuntime(id, {
-        is_hidden: body.hidden !== undefined ? Boolean(body.hidden) : undefined,
-        node_name: body.name !== undefined ? String(body.name) : undefined,
-      });
-    } catch (e) {
-      console.error('[Admin] Failed to update node runtime state:', e);
-      return c.json({ error: 'Failed to synchronize runtime state with RealtimeHub' }, 500);
-    }
-  }
-
   return c.json({ node: updated });
 });
 
 // DELETE /api/admin/nodes/:id
 adminRoutes.delete('/api/admin/nodes/:id', async (c) => {
   const id = c.req.param('id');
+  const existing = await getNodeById(c.env.DB, id);
+  if (!existing) {
+    return c.json({ error: 'Node not found' }, 404);
+  }
 
-  // Disconnect any active WSS agent connection immediately
+  // 1. Disconnect any active WSS agent connection immediately BEFORE deleting in D1
   const hubId = c.env.REALTIME.idFromName('main');
   const hubStub = c.env.REALTIME.get(hubId);
   try {
@@ -151,6 +153,7 @@ adminRoutes.delete('/api/admin/nodes/:id', async (c) => {
     return c.json({ error: 'Failed to disconnect active agent connection' }, 500);
   }
 
+  // 2. Delete from D1
   await c.env.DB.prepare('DELETE FROM nodes WHERE id = ?').bind(id).run();
   return c.json({ status: 'deleted', id });
 });
@@ -158,12 +161,12 @@ adminRoutes.delete('/api/admin/nodes/:id', async (c) => {
 // POST /api/admin/nodes/:id/token
 adminRoutes.post('/api/admin/nodes/:id/token', async (c) => {
   const id = c.req.param('id');
-  const rawToken = await rotateNodeToken(c.env.DB, id);
-  if (!rawToken) {
+  const existing = await getNodeById(c.env.DB, id);
+  if (!existing) {
     return c.json({ error: 'Node not found' }, 404);
   }
 
-  // Disconnect any active WSS agent connection immediately on token rotation
+  // 1. Disconnect any active WSS agent connection immediately BEFORE rotating in D1
   const hubId = c.env.REALTIME.idFromName('main');
   const hubStub = c.env.REALTIME.get(hubId);
   try {
@@ -171,6 +174,12 @@ adminRoutes.post('/api/admin/nodes/:id/token', async (c) => {
   } catch (e) {
     console.error('[Admin] Failed to disconnect agent on token rotation:', e);
     return c.json({ error: 'Failed to disconnect active agent connection' }, 500);
+  }
+
+  // 2. Rotate token in D1
+  const rawToken = await rotateNodeToken(c.env.DB, id);
+  if (!rawToken) {
+    return c.json({ error: 'Node not found' }, 404);
   }
 
   return c.json({ rawToken });

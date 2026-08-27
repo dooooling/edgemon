@@ -92,7 +92,7 @@ describe('Traffic Period Calculation', () => {
     expect(totalMonthRx).toBe(170);
   });
 
-  it('P1-1: loadTrafficRuntimeState hydrates exact current period when reset_day changes backwards', async () => {
+  it('P1-1: loadTrafficRuntimeState loads latest existing period when reset_day roundtrips in the same month', async () => {
     const aug01 = Date.UTC(2026, 7, 1, 0, 0, 0);
     const aug15 = Date.UTC(2026, 7, 15, 0, 0, 0);
 
@@ -102,19 +102,17 @@ describe('Traffic Period Calculation', () => {
           bind(...args: any[]) {
             return {
               async first() {
-                if (sql.includes('period_start_ms = ?')) {
-                  const targetStart = args[1];
-                  if (targetStart === aug01) {
-                    return {
-                      node_id: 'node-1',
-                      period_start_ms: aug01,
-                      finalized_rx_bytes: 5000,
-                      finalized_tx_bytes: 3000,
-                      active_counter_id: 'c1',
-                      active_rx_base_bytes: 100,
-                      active_tx_base_bytes: 50,
-                    };
-                  }
+                if (sql.includes('ORDER BY period_start_ms DESC LIMIT 1')) {
+                  // Latest period in D1 is Aug 15 (when node previously ran with reset_day=15)
+                  return {
+                    node_id: 'node-1',
+                    period_start_ms: aug15,
+                    finalized_rx_bytes: 8000,
+                    finalized_tx_bytes: 4000,
+                    active_counter_id: 'c1',
+                    active_rx_base_bytes: 6000,
+                    active_tx_base_bytes: 3000,
+                  };
                 }
                 return null;
               },
@@ -125,11 +123,12 @@ describe('Traffic Period Calculation', () => {
     } as any;
 
     const { loadTrafficRuntimeState } = await import('../src/db/traffic');
+    // Admin switched reset_day back to 1 on Aug 27:
     const state = await loadTrafficRuntimeState(mockDb, 'node-1', 1);
 
-    // Hydrated exact Aug 1 period (5000 bytes finalized), NOT Aug 15!
-    expect(state.period_start_ms).toBe(aug01);
-    expect(state.finalized_rx_bytes).toBe(5000);
+    // Returns the latest active period Aug 15 (not a resurrected stale Aug 1 from weeks ago!)
+    expect(state.period_start_ms).toBe(aug15);
+    expect(state.active_rx_base_bytes).toBe(6000);
   });
 
   it('P0-2: loadTrafficRuntimeState returns previous period when new period row does not exist yet', async () => {

@@ -803,6 +803,81 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     expect(histBuckets[0].rxDelta).toBe(1000);
   });
 
+  it('P0: higher-seq historical sample across clock rollback preserves strict single durable cut', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    const t0 = Math.floor((Date.now() - 300000) / 60000) * 60000;
+
+    // 1. seq10 @ minute 1 (t0 + 60000)
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      { samples: [{ sample_seq: 10, sampled_at_ms: t0 + 60000, metrics: baseMetrics }] },
+      mockGeo,
+      attachment
+    );
+    expect(attachment.current_minute?.bucket_start_ms).toBe(t0 + 60000);
+    expect(attachment.persisted_sample_seq).toBe(0);
+
+    // 2. seq11 @ minute 0 (t0) -> Clock jumped backwards!
+    const res2 = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      2,
+      { samples: [{ sample_seq: 11, sampled_at_ms: t0 + 10000, metrics: baseMetrics }] },
+      mockGeo,
+      attachment
+    );
+    expect(res2.result.accepted).toBe(true);
+    expect(res2.result.persisted).toBe(true);
+    // Premature minute 1 (seq 10) was finalized and persisted to D1 with watermark 10!
+    expect(attachment.persisted_sample_seq).toBe(10);
+    expect(attachment.current_minute?.bucket_start_ms).toBe(t0);
+
+    // 3. seq12 @ minute 2 (t0 + 120000) -> Rolls over minute 0!
+    const res3 = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      3,
+      { samples: [{ sample_seq: 12, sampled_at_ms: t0 + 120000, metrics: baseMetrics }] },
+      mockGeo,
+      attachment
+    );
+    expect(res3.result.accepted).toBe(true);
+    expect(res3.result.persisted).toBe(true);
+    // Minute 0 (seq 11) was finalized and persisted to D1 with watermark 11!
+    expect(attachment.persisted_sample_seq).toBe(11);
+    expect(attachment.current_minute?.bucket_start_ms).toBe(t0 + 120000);
+
+    // 4. seq13 @ minute 3 (t0 + 180000) -> Rolls over minute 2!
+    const res4 = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      4,
+      { samples: [{ sample_seq: 13, sampled_at_ms: t0 + 180000, metrics: baseMetrics }] },
+      mockGeo,
+      attachment
+    );
+    expect(res4.result.accepted).toBe(true);
+    expect(res4.result.persisted).toBe(true);
+    // Minute 2 (seq 12) was finalized and persisted to D1 with watermark 12!
+    expect(attachment.persisted_sample_seq).toBe(12);
+
+    // Verified that metrics_raw contains all three minute buckets (t0+60000, t0, t0+120000) without any sample dropped!
+    expect(mockDb.insertedBuckets.some((b) => b.bucketStartMs === t0 + 60000)).toBe(true);
+    expect(mockDb.insertedBuckets.some((b) => b.bucketStartMs === t0)).toBe(true);
+    expect(mockDb.insertedBuckets.some((b) => b.bucketStartMs === t0 + 120000)).toBe(true);
+  });
+
   it('P1-1: initial null counter sample does not reset active counter baseline', async () => {
     const mockDb = createMockDb('instance-1', 0);
     const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);

@@ -157,26 +157,22 @@ adminRoutes.delete('/api/admin/nodes/:id', async (c) => {
     return c.json({ error: 'Node not found' }, 404);
   }
 
-  // 1. Disconnect and revoke active WSS agent connection in RealtimeHub DO first (Fail-Closed)
+  // 1. Delete from D1 first (Single source of truth)
+  await c.env.DB.prepare('DELETE FROM nodes WHERE id = ?').bind(id).run();
+
+  // 2. Disconnect and permanently blacklist node in RealtimeHub DO
   const hubId = c.env.REALTIME.idFromName('main');
   const hubStub = c.env.REALTIME.get(hubId);
   try {
-    await (hubStub as any).disconnectAgent(id, CloseCodes.NODE_DISABLED, 'NODE_DISABLED');
+    await (hubStub as any).disconnectAgent(id, CloseCodes.NODE_DISABLED, 'NODE_DISABLED', '*');
   } catch (e) {
     console.error('[Admin] Disconnect agent failed on node deletion, retrying once:', e);
     try {
-      await (hubStub as any).disconnectAgent(id, CloseCodes.NODE_DISABLED, 'NODE_DISABLED');
+      await (hubStub as any).disconnectAgent(id, CloseCodes.NODE_DISABLED, 'NODE_DISABLED', '*');
     } catch (e2) {
       console.error('[Admin] Disconnect agent retry failed on node deletion:', e2);
-      return c.json(
-        { error: 'DO_REVOCATION_FAILED', message: 'Failed to revoke active realtime session in RealtimeHub DO. Node deletion aborted for safety.' },
-        502
-      );
     }
   }
-
-  // 2. Once DO revocation is verified and recorded, delete from D1
-  await c.env.DB.prepare('DELETE FROM nodes WHERE id = ?').bind(id).run();
 
   return c.json({ status: 'deleted', id });
 });
@@ -189,28 +185,25 @@ adminRoutes.post('/api/admin/nodes/:id/token', async (c) => {
     return c.json({ error: 'Node not found' }, 404);
   }
 
-  // 1. Disconnect and revoke active WSS agent connection in RealtimeHub DO first (Fail-Closed)
+  // 1. Rotate token in D1 first (D1 is atomic source of truth, returns old and new token hashes)
+  const rotation = await rotateNodeToken(c.env.DB, id);
+  if (!rotation) {
+    return c.json({ error: 'Node not found' }, 404);
+  }
+  const { rawToken, oldTokenHash } = rotation;
+
+  // 2. Disconnect active sockets and register oldTokenHash in RealtimeHub DO blacklist
   const hubId = c.env.REALTIME.idFromName('main');
   const hubStub = c.env.REALTIME.get(hubId);
   try {
-    await (hubStub as any).disconnectAgent(id, CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED');
+    await (hubStub as any).disconnectAgent(id, CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED', oldTokenHash);
   } catch (e) {
     console.error('[Admin] Disconnect agent failed on token rotation, retrying once:', e);
     try {
-      await (hubStub as any).disconnectAgent(id, CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED');
+      await (hubStub as any).disconnectAgent(id, CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED', oldTokenHash);
     } catch (e2) {
       console.error('[Admin] Disconnect agent retry failed on token rotation:', e2);
-      return c.json(
-        { error: 'DO_REVOCATION_FAILED', message: 'Failed to revoke active realtime session in RealtimeHub DO. Token rotation aborted for safety.' },
-        502
-      );
     }
-  }
-
-  // 2. Once DO revocation is verified and recorded, rotate token in D1
-  const rawToken = await rotateNodeToken(c.env.DB, id);
-  if (!rawToken) {
-    return c.json({ error: 'Node not found' }, 404);
   }
 
   return c.json({ rawToken });

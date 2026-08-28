@@ -107,20 +107,24 @@ export async function createNode(
   return { node, rawToken };
 }
 
-export async function rotateNodeToken(db: D1Database, id: string): Promise<string | null> {
+export async function rotateNodeToken(
+  db: D1Database,
+  id: string
+): Promise<{ rawToken: string; oldTokenHash: string; newTokenHash: string } | null> {
   const node = await getNodeById(db, id);
   if (!node) return null;
 
+  const oldTokenHash = node.token_hash;
   const rawToken = generateRandomToken(32);
-  const tokenHash = await sha256(rawToken);
+  const newTokenHash = await sha256(rawToken);
   const now = Date.now();
 
   await db
     .prepare('UPDATE nodes SET token_hash = ?, updated_at_ms = ? WHERE id = ?')
-    .bind(tokenHash, now, id)
+    .bind(newTokenHash, now, id)
     .run();
 
-  return rawToken;
+  return { rawToken, oldTokenHash, newTokenHash };
 }
 
 export async function updateNodeMetadataFromHello(

@@ -54,7 +54,7 @@ function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): b
 }
 
 export class RealtimeHub extends DurableObject<Env> {
-  private revokedNodes = new Map<string, number>();
+  private revokedTokens = new Map<string, Set<string>>();
 
   async fetch(request: Request): Promise<Response> {
     const webSocketPair = new WebSocketPair();
@@ -181,8 +181,8 @@ export class RealtimeHub extends DurableObject<Env> {
     }
 
     // Revocation check (P1: immediately reject old connections if token was rotated or node deleted)
-    const revokedAt = this.revokedNodes.get(attachment.node_id);
-    if (revokedAt !== undefined && attachment.connected_at_ms <= revokedAt) {
+    const revokedSet = this.revokedTokens.get(attachment.node_id);
+    if (revokedSet && (revokedSet.has('*') || (attachment.token_hash && revokedSet.has(attachment.token_hash)))) {
       ws.close(CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED_OR_NODE_DELETED');
       return;
     }
@@ -193,6 +193,11 @@ export class RealtimeHub extends DurableObject<Env> {
     if (envelope.type === 'hello') {
       if (attachment.hello_ok) {
         this.sendError(ws, 'DUPLICATE_HELLO', 'Hello handshake already completed for this connection', envelope.seq);
+        return;
+      }
+
+      if (revokedSet && (revokedSet.has('*') || (attachment.token_hash && revokedSet.has(attachment.token_hash)))) {
+        ws.close(CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED_OR_NODE_DELETED');
         return;
       }
 
@@ -295,7 +300,12 @@ export class RealtimeHub extends DurableObject<Env> {
       attachment.hello_ok = true;
       attachment.config_rev = configRow?.revision || 1;
       attachment.last_seq = envelope.seq;
-      this.revokedNodes.delete(attachment.node_id);
+      if (attachment.token_hash && revokedSet) {
+        revokedSet.delete(attachment.token_hash);
+        if (revokedSet.size === 0) {
+          this.revokedTokens.delete(attachment.node_id);
+        }
+      }
       safeSerializeAttachment(ws, attachment);
 
       const isSameInstance = stateRow?.persisted_instance_id === attachment.instance_id;
@@ -495,8 +505,22 @@ export class RealtimeHub extends DurableObject<Env> {
     return true;
   }
 
-  async disconnectAgent(nodeId: string, code = CloseCodes.TOKEN_REVOKED, reason = 'TOKEN_REVOKED'): Promise<{ success: boolean; closedCount: number }> {
-    this.revokedNodes.set(nodeId, Date.now());
+  async disconnectAgent(
+    nodeId: string,
+    code = CloseCodes.TOKEN_REVOKED,
+    reason = 'TOKEN_REVOKED',
+    revokedTokenHash?: string
+  ): Promise<{ success: boolean; closedCount: number }> {
+    if (!this.revokedTokens.has(nodeId)) {
+      this.revokedTokens.set(nodeId, new Set<string>());
+    }
+    const tokenSet = this.revokedTokens.get(nodeId)!;
+    if (revokedTokenHash) {
+      tokenSet.add(revokedTokenHash);
+    } else {
+      tokenSet.add('*');
+    }
+
     let closedCount = 0;
     const sockets = this.ctx.getWebSockets(`agent:${nodeId}`);
     for (const ws of sockets) {

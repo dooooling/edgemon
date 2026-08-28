@@ -90,27 +90,7 @@ pub fn execute_icmp_probe(id: &str, host: &str, allow_private: bool) -> ProbeRes
 
                 let mut dest_addr: libc::sockaddr_in = std::mem::zeroed();
                 dest_addr.sin_family = libc::AF_INET as libc::sa_family_t;
-
-                let ip_str = ipv4_addr.to_string();
-                let ip_cstr = match std::ffi::CString::new(ip_str) {
-                    Ok(s) => s,
-                    Err(_) => {
-                        libc::close(fd);
-                        failed_samples += 1;
-                        continue;
-                    }
-                };
-
-                if libc::inet_pton(
-                    libc::AF_INET,
-                    ip_cstr.as_ptr(),
-                    &mut dest_addr.sin_addr as *mut _ as *mut libc::c_void,
-                ) <= 0
-                {
-                    libc::close(fd);
-                    failed_samples += 1;
-                    continue;
-                }
+                dest_addr.sin_addr.s_addr = u32::from_ne_bytes(ipv4_addr.octets());
 
                 let packet = IcmpHeader {
                     icmp_type: 8, // ICMP Echo Request

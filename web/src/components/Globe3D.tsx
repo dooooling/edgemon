@@ -213,13 +213,6 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
 
       ctx.clearRect(0, 0, width, height);
 
-      // Smooth pan interpolation
-      panXRef.current += (targetPanXRef.current - panXRef.current) * 0.2;
-      panYRef.current += (targetPanYRef.current - panYRef.current) * 0.2;
-
-      const centerX = width / 2 + panXRef.current;
-      const centerY = height / 2 + panYRef.current;
-
       // Apply Zoom Scale Interpolation
       scaleRef.current += (targetScaleRef.current - scaleRef.current) * 0.12;
       const scale = scaleRef.current;
@@ -230,6 +223,27 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
       const targetMorph = mode === '2d' ? 1.0 : 0.0;
       morphRef.current += (targetMorph - morphRef.current) * 0.06;
       const morph = morphRef.current;
+
+      // Strict Dynamic Pan Boundary Clamping (Prevents dragging into empty space when content fits)
+      if (morph > 0.3) {
+        const flatHalfWidth = radius * 2.3;
+        const flatHalfHeight = radius * 1.15;
+        const maxPanX = Math.max(0, flatHalfWidth - width / 2 + 24);
+        const maxPanY = Math.max(0, flatHalfHeight - height / 2 + 24);
+
+        targetPanXRef.current = Math.max(-maxPanX, Math.min(maxPanX, targetPanXRef.current));
+        targetPanYRef.current = Math.max(-maxPanY, Math.min(maxPanY, targetPanYRef.current));
+      } else {
+        targetPanXRef.current = 0;
+        targetPanYRef.current = 0;
+      }
+
+      // Smooth pan interpolation
+      panXRef.current += (targetPanXRef.current - panXRef.current) * 0.2;
+      panYRef.current += (targetPanYRef.current - panYRef.current) * 0.2;
+
+      const centerX = width / 2 + panXRef.current;
+      const centerY = height / 2 + panYRef.current;
 
       if (!isDraggingRef.current && morph < 0.8) {
         rotYRef.current += 0.002 * (1 - morph); // Slow spin when in 3D
@@ -471,9 +485,21 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         rotYRef.current += deltaX * 0.008;
         rotXRef.current = Math.max(-1.0, Math.min(1.0, rotXRef.current + deltaY * 0.008));
       } else {
-        // In 2D flat map mode (or morphed state), pan horizontally & vertically across the canvas
-        targetPanXRef.current += deltaX;
-        targetPanYRef.current += deltaY;
+        // In 2D flat map mode, calculate strict dynamic boundary based on current scale
+        const baseRadius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.36;
+        const radius = baseRadius * scaleRef.current;
+        const flatHalfWidth = radius * 2.3;
+        const flatHalfHeight = radius * 1.15;
+
+        const maxPanX = Math.max(0, flatHalfWidth - canvas.clientWidth / 2 + 24);
+        const maxPanY = Math.max(0, flatHalfHeight - canvas.clientHeight / 2 + 24);
+
+        if (maxPanX > 0 || maxPanY > 0) {
+          const nextPanX = targetPanXRef.current + deltaX;
+          const nextPanY = targetPanYRef.current + deltaY;
+          targetPanXRef.current = Math.max(-maxPanX, Math.min(maxPanX, nextPanX));
+          targetPanYRef.current = Math.max(-maxPanY, Math.min(maxPanY, nextPanY));
+        }
       }
       lastMouseRef.current = { x: e.clientX, y: e.clientY };
       return;

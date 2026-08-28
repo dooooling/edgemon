@@ -60,12 +60,6 @@ export const HeaderNav: React.FC = () => {
             </span>
           </div>
 
-          {location.pathname !== '/admin' && (
-            <Link to="/admin" className="button-ghost-on-dark button-ghost-sm">
-              {t('nav_provision')}
-            </Link>
-          )}
-
           {/* Top-Right i18n Switcher Pill */}
           <div className="range-capsules">
             <button

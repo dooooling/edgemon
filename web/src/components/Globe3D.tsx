@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { NodeItem } from '../api/client';
 import { useRealtimeStore } from '../realtime/store';
 import { useTranslation } from '../i18n/I18nContext';
@@ -9,6 +9,31 @@ import { OsIcon } from './OsIcon';
 interface Globe3DProps {
   nodes: NodeItem[];
   mode?: '3d' | '2d';
+}
+
+function formatBytes(bytes?: number | null): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes >= 1024 * 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2) + ' TB';
+  if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return (bytes / 1024).toFixed(0) + ' KB';
+}
+
+function formatBps(bps?: number | null): string {
+  if (!bps || bps <= 0) return '0 B/s';
+  if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(1) + ' MB/s';
+  if (bps >= 1024) return (bps / 1024).toFixed(0) + ' KB/s';
+  return bps.toFixed(0) + ' B/s';
+}
+
+function formatUptime(uptimeSec?: number | null): string {
+  if (!uptimeSec || uptimeSec <= 0) return 'N/A';
+  const days = Math.floor(uptimeSec / 86400);
+  const hours = Math.floor((uptimeSec % 86400) / 3600);
+  const mins = Math.floor((uptimeSec % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
 }
 
 // 6 Major Continent Vector Boundary Polygons [lat, lon][]
@@ -90,6 +115,7 @@ const LAND_POINTS: Array<[number, number]> = [
 
 export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const navigate = useNavigate();
   const [tooltipData, setTooltipData] = useState<{ node: NodeItem; x: number; y: number } | null>(null);
   const [currentZoom, setCurrentZoom] = useState<number>(100);
   const overlays = useRealtimeStore((s) => s.overlays);
@@ -479,8 +505,22 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     setTooltipData(null);
   };
 
+  const handleCanvasDoubleClick = () => {
+    if (tooltipData?.node) {
+      navigate(`/node/${tooltipData.node.id}`);
+    }
+  };
+
   return (
-    <div style={{ position: 'relative', width: '100%', height: '400px', cursor: mode === '3d' ? 'grab' : 'default', touchAction: 'none' }}>
+    <div
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: '400px',
+        cursor: tooltipData ? 'pointer' : (mode === '3d' ? 'grab' : 'default'),
+        touchAction: 'none',
+      }}
+    >
       {/* Zoom Control Buttons */}
       <div
         className="range-capsules"
@@ -509,57 +549,124 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
+        onDoubleClick={handleCanvasDoubleClick}
       />
 
-      {/* Dynamic Anchored Mission Radar Tooltip (Follows Node with Boundary Clamping) */}
-      {tooltipData && (
-        <div
-          className="radar-tooltip"
-          style={{
-            position: 'absolute',
-            left: `${tooltipData.x}px`,
-            top: `${tooltipData.y}px`,
-            transform: `translate(${
-              tooltipData.x > (canvasRef.current?.clientWidth || 800) - 230 ? '-105%' : '14px'
-            }, ${
-              tooltipData.y < 120 ? '14px' : '-105%'
-            })`,
-            backgroundColor: 'rgba(10, 10, 14, 0.94)',
-            backdropFilter: 'blur(12px)',
-            border: '1px solid var(--colors-hairline)',
-            borderRadius: '4px',
-            padding: '12px 14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '4px',
-            zIndex: 20,
-            pointerEvents: 'auto',
-            minWidth: '180px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.85)',
-          }}
-        >
-          <span className="button-cap" style={{ fontWeight: 700, fontSize: '13px', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <CountryFlag countryCode={tooltipData.node.geo.country} />
-            <span>{tooltipData.node.name}</span>
-          </span>
-          <span className="caption" style={{ color: 'var(--colors-body)', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <OsIcon os={tooltipData.node.system?.os} osVersion={tooltipData.node.system?.os_version} size={12} />
-            <span>{tooltipData.node.geo.city || tooltipData.node.geo.country || 'UNKNOWN'} · {tooltipData.node.geo.colo || 'CF'}</span>
-          </span>
-          {tooltipData.node.state?.edge_rtt_ms && (
-            <span className="caption" style={{ color: 'var(--colors-status-live)', fontWeight: 700, fontSize: '11px' }}>
-              RTT: {tooltipData.node.state.edge_rtt_ms} MS
-            </span>
-          )}
-          <Link
-            to={`/node/${tooltipData.node.id}`}
-            className="button-ghost-on-dark button-ghost-sm"
-            style={{ marginTop: '6px', fontSize: '10px', padding: '3px 10px', textAlign: 'center' }}
+      {/* Dynamic Anchored Mission Radar Tooltip with Rich Telemetry */}
+      {tooltipData && (() => {
+        const node = tooltipData.node;
+        const overlay = overlays[node.id];
+        const online = isOnline(node);
+        const cpuPct = overlay?.cpu_usage_pct ?? node.state?.cpu_usage_pct;
+        const cpuCores = node.resources?.cpu_capacity_cores || 1;
+        const memoryUsed = overlay?.memory_used_bytes ?? node.state?.memory_used_bytes;
+        const memoryLimit = node.resources?.memory_limit_bytes;
+        const rootfsUsed = overlay?.rootfs_used_bytes ?? node.state?.rootfs_used_bytes;
+        const rootfsLimit = node.resources?.rootfs_limit_bytes;
+        const rxBps = overlay?.rx_bps ?? node.state?.rx_bps;
+        const txBps = overlay?.tx_bps ?? node.state?.tx_bps;
+        const rttMs = overlay?.edge_rtt_ms ?? node.state?.edge_rtt_ms;
+        const uptimeSec = overlay?.uptime_sec ?? node.state?.uptime_sec;
+
+        return (
+          <div
+            className="radar-tooltip"
+            style={{
+              position: 'absolute',
+              left: `${tooltipData.x}px`,
+              top: `${tooltipData.y}px`,
+              transform: `translate(${
+                tooltipData.x > (canvasRef.current?.clientWidth || 800) - 250 ? '-105%' : '14px'
+              }, ${
+                tooltipData.y < 160 ? '14px' : '-105%'
+              })`,
+              backgroundColor: 'rgba(8, 8, 12, 0.96)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid var(--colors-hairline)',
+              borderRadius: '6px',
+              padding: '12px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              zIndex: 20,
+              pointerEvents: 'auto',
+              minWidth: '210px',
+              boxShadow: '0 12px 40px rgba(0, 0, 0, 0.9)',
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+            onDoubleClick={() => navigate(`/node/${node.id}`)}
           >
-            {t('inspect_node')}
-          </Link>
-        </div>
-      )}
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <CountryFlag countryCode={node.geo?.country} />
+                <span>{node.name}</span>
+              </span>
+              <span className="status-indicator-beacon" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <span className={`beacon-dot ${online ? 'beacon-live' : 'beacon-idle'}`}></span>
+                <span style={{ fontSize: '10px', color: online ? 'var(--colors-status-live)' : 'var(--colors-on-primary-mute)' }}>
+                  {online ? t('node_online') : t('node_offline')}
+                </span>
+              </span>
+            </div>
+
+            {/* System & Geo Subtext */}
+            <div style={{ fontSize: '11px', color: 'var(--colors-on-primary-mute)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={12} />
+              <span>{node.system?.os || 'Linux'} · {node.geo?.city || node.geo?.country || 'COLO'} ({node.geo?.colo || 'CF'})</span>
+            </div>
+
+            {/* Telemetry Metrics Stack */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '6px', fontSize: '11px' }}>
+              {/* CPU */}
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--colors-on-primary-mute)' }}>CPU ({cpuCores}C)</span>
+                <span style={{ color: '#ffffff', fontWeight: 600 }}>{online && cpuPct != null ? `${cpuPct}%` : 'N/A'}</span>
+              </div>
+
+              {/* RAM */}
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--colors-on-primary-mute)' }}>RAM</span>
+                <span style={{ color: '#ffffff', fontWeight: 600 }}>
+                  {online && memoryUsed ? `${formatBytes(memoryUsed)}${memoryLimit ? ` / ${formatBytes(memoryLimit)}` : ''}` : 'N/A'}
+                </span>
+              </div>
+
+              {/* DISK */}
+              {rootfsLimit && rootfsLimit > 0 ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--colors-on-primary-mute)' }}>DISK</span>
+                  <span style={{ color: '#ffffff', fontWeight: 600 }}>
+                    {rootfsUsed ? `${formatBytes(rootfsUsed)} / ${formatBytes(rootfsLimit)}` : `${formatBytes(rootfsLimit)} TOTAL`}
+                  </span>
+                </div>
+              ) : null}
+
+              {/* NET Speed */}
+              {online && (rxBps != null || txBps != null) ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--colors-on-primary-mute)' }}>NET</span>
+                  <span style={{ color: 'var(--colors-status-live)', fontWeight: 600 }}>
+                    ↓ {formatBps(rxBps)} · ↑ {formatBps(txBps)}
+                  </span>
+                </div>
+              ) : null}
+
+              {/* RTT & Uptime */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--colors-on-primary-mute)', fontSize: '10px', marginTop: '2px' }}>
+                <span>RTT: <strong style={{ color: rttMs ? 'var(--colors-status-live)' : 'inherit' }}>{rttMs ? `${rttMs} ms` : 'N/A'}</strong></span>
+                <span>UP: <strong style={{ color: '#ffffff' }}>{formatUptime(uptimeSec)}</strong></span>
+              </div>
+            </div>
+
+            {/* Double Click Hint */}
+            <div style={{ fontSize: '9px', color: 'var(--colors-on-primary-mute)', textAlign: 'center', marginTop: '2px', opacity: 0.8 }}>
+              ⚡ DOUBLE CLICK TO INSPECT
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

@@ -376,14 +376,25 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     };
   }, [geoNodes, overlays, mode]);
 
-  // Mouse Wheel Zoom Handler
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
-    const newScale = Math.max(0.6, Math.min(2.5, targetScaleRef.current * zoomFactor));
-    targetScaleRef.current = newScale;
-    setCurrentZoom(Math.round(newScale * 100));
-  };
+  // Native Non-Passive Wheel Event Listener (Fixes page scrolling when zooming map)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+      const newScale = Math.max(0.6, Math.min(2.5, targetScaleRef.current * zoomFactor));
+      targetScaleRef.current = newScale;
+      setCurrentZoom(Math.round(newScale * 100));
+    };
+
+    canvas.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => {
+      canvas.removeEventListener('wheel', handleNativeWheel);
+    };
+  }, []);
 
   const handleZoomIn = () => {
     const newScale = Math.min(2.5, targetScaleRef.current * 1.25);
@@ -462,7 +473,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
   };
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '400px', cursor: mode === '3d' ? 'grab' : 'default' }}>
+    <div style={{ position: 'relative', width: '100%', height: '400px', cursor: mode === '3d' ? 'grab' : 'default', touchAction: 'none' }}>
       {/* Zoom Control Buttons */}
       <div
         className="range-capsules"
@@ -486,8 +497,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
 
       <canvas
         ref={canvasRef}
-        style={{ width: '100%', height: '100%', display: 'block' }}
-        onWheel={handleWheel}
+        style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}

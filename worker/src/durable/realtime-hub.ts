@@ -38,19 +38,18 @@ export interface BrowserAttachment {
 
 type SocketAttachment = AgentAttachment | BrowserAttachment;
 
-function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): void {
+function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): boolean {
   try {
     ws.serializeAttachment(attachment);
+    return true;
   } catch (err) {
-    console.warn('[RealtimeHub] serializeAttachment exceeded limit or failed, pruning historical minutes to stay under 16 KiB limit:', err);
-    if (attachment && attachment.kind === 'agent') {
-      attachment.historical_minutes = {};
-      try {
-        ws.serializeAttachment(attachment);
-      } catch (err2) {
-        console.error('[RealtimeHub] serializeAttachment fatal error after pruning:', err2);
-      }
+    console.error('[RealtimeHub] serializeAttachment failed, closing connection to trigger clean Agent replay from last durable cut:', err);
+    try {
+      ws.close(CloseCodes.SERVER_RECONNECT, 'ATTACHMENT_LIMIT_EXCEEDED');
+    } catch {
+      // ignore
     }
+    return false;
   }
 }
 
@@ -341,7 +340,9 @@ export class RealtimeHub extends DurableObject<Env> {
       }
 
       // Save updated attachment state in WebSocket Hibernation
-      safeSerializeAttachment(ws, updatedAttachment);
+      if (!safeSerializeAttachment(ws, updatedAttachment)) {
+        return;
+      }
 
       // Realtime 0~2s broadcast (Public nodes to all browsers, hidden nodes to Admin browsers only!)
       if (result.livePayload) {

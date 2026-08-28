@@ -1289,4 +1289,97 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     // Combined CPU = (20 + 30) / 2 = 25
     expect(minute1Bucket?.cpuUsagePct).toBe(25);
   });
+
+  it('P0: 6 historical minutes clock rollback are fully preserved and committed during forward rollover without silent eviction', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    const t0 = Math.floor((Date.now() - 1000000) / 60000) * 60000;
+
+    // 1. seq 100 @ minute 10 (t0 + 600000)
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      {
+        samples: [
+          {
+            sample_seq: 100,
+            sampled_at_ms: t0 + 600000,
+            metrics: { ...baseMetrics, cpu: { ...baseMetrics.cpu, usage_pct: 10 } },
+          },
+        ],
+      },
+      mockGeo,
+      attachment
+    );
+
+    // 2. 6 consecutive historical minutes arriving backwards:
+    // seq 101 @ 12:09 (t0 + 540000)
+    // seq 102 @ 12:08 (t0 + 480000)
+    // seq 103 @ 12:07 (t0 + 420000)
+    // seq 104 @ 12:06 (t0 + 360000)
+    // seq 105 @ 12:05 (t0 + 300000)
+    // seq 106 @ 12:04 (t0 + 240000)
+    for (let i = 1; i <= 6; i++) {
+      const seq = 100 + i;
+      const bucketOffset = (10 - i) * 60000;
+      await ingestReportCore(
+        mockDb,
+        'node-1',
+        'Node 1',
+        'instance-1',
+        1 + i,
+        {
+          samples: [
+            {
+              sample_seq: seq,
+              sampled_at_ms: t0 + bucketOffset,
+              metrics: { ...baseMetrics, cpu: { ...baseMetrics.cpu, usage_pct: 10 + i } },
+            },
+          ],
+        },
+        mockGeo,
+        attachment
+      );
+    }
+
+    // 3. seq 107 @ minute 11 (t0 + 660000) -> Forward Rollover!
+    const resFinal = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      8,
+      {
+        samples: [
+          {
+            sample_seq: 107,
+            sampled_at_ms: t0 + 660000,
+            metrics: { ...baseMetrics, cpu: { ...baseMetrics.cpu, usage_pct: 50 } },
+          },
+        ],
+      },
+      mockGeo,
+      attachment
+    );
+
+    expect(resFinal.result.accepted).toBe(true);
+    expect(resFinal.result.persisted).toBe(true);
+    // Verified: Watermark advances strictly to 106 (all samples up to 106 are fully committed in D1)
+    expect(attachment.persisted_sample_seq).toBe(106);
+
+    // Verified: EVERY single minute bucket from 12:04 to 12:10 is in metrics_raw (no eviction of 12:05 seq 105!)
+    for (let i = 0; i <= 6; i++) {
+      const bucketStart = t0 + (4 + i) * 60000;
+      const b = mockDb.insertedBuckets.find((item) => item.bucketStartMs === bucketStart);
+      expect(b).toBeDefined();
+    }
+
+    // Specific check for seq 105 at 12:05 (t0 + 300000):
+    const bucket105 = mockDb.insertedBuckets.find((item) => item.bucketStartMs === t0 + 300000);
+    expect(bucket105).toBeDefined();
+    expect(bucket105?.cpuUsagePct).toBe(15);
+  });
 });

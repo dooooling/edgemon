@@ -421,12 +421,6 @@ export async function ingestReportCore(
           if (hist) {
             mergeIntoAccumulator(hist, s, rxDelta, txDelta);
           } else {
-            // Enforce max 5 historical minute accumulators to stay well under 16 KiB attachment limit (P1)
-            const keys = Object.keys(currentAttachment.historical_minutes);
-            if (keys.length >= 5) {
-              const oldestKey = keys.sort((a, b) => Number(a) - Number(b))[0];
-              delete currentAttachment.historical_minutes[oldestKey];
-            }
             hist = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
             currentAttachment.historical_minutes[histKey] = hist;
           }

@@ -152,9 +152,27 @@ export async function loadTrafficRuntimeState(
     };
   }
 
-  // 3. If exactPeriod doesn't exist (e.g. first connection or admin changed traffic_reset_day),
-  // set period_start_ms strictly to currentPeriodStartMs and inherit latest counter baseline (P0)
+  // 3. If exactPeriod doesn't exist (e.g. natural monthly rollover before new period is persisted,
+  // or admin changed traffic_reset_day), check latestUpdatedPeriod:
   if (latestUpdatedPeriod) {
+    // Natural rollover or forward progress: hydrate the latest persisted period (e.g. Aug 1)
+    // so that uncommitted replay samples spanning the billing boundary (Aug 31 -> Sep 1)
+    // correctly settle the previous period and initialize the new period base at the boundary counter.
+    if (latestUpdatedPeriod.period_start_ms <= currentPeriodStartMs) {
+      return {
+        period_start_ms: latestUpdatedPeriod.period_start_ms,
+        finalized_rx_bytes: latestUpdatedPeriod.finalized_rx_bytes,
+        finalized_tx_bytes: latestUpdatedPeriod.finalized_tx_bytes,
+        active_counter_id: latestUpdatedPeriod.active_counter_id,
+        active_rx_base_bytes: latestUpdatedPeriod.active_rx_base_bytes,
+        active_tx_base_bytes: latestUpdatedPeriod.active_tx_base_bytes,
+        dirty: false,
+      };
+    }
+
+    // Special case: Admin changed traffic_reset_day to an earlier day in the month (e.g. 15 -> 1),
+    // causing currentPeriodStartMs to be strictly earlier than latestUpdatedPeriod.period_start_ms.
+    // Set target period_start_ms to currentPeriodStartMs and inherit active counter baseline.
     return {
       period_start_ms: currentPeriodStartMs,
       finalized_rx_bytes: 0,

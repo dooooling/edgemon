@@ -159,7 +159,8 @@ agentRoutes.post('/api/agent/v1/report', async (c) => {
     body.data,
     geo,
     node.traffic_reset_day || 1,
-    Boolean(node.hidden)
+    Boolean(node.hidden),
+    node.token_hash
   );
 
   if (!res.accepted) {

@@ -331,11 +331,57 @@ fn main() -> Result<()> {
     // 3. Shared State across Threads
     let shared_buffer: Arc<Mutex<SampleBuffer>> = Arc::new(Mutex::new(SampleBuffer::default()));
     let shared_config = Arc::new(RwLock::new(config.clone()));
+    let shared_probes: Arc<RwLock<Vec<ProbeResult>>> = Arc::new(RwLock::new(Vec::new()));
 
-    // 4. Thread 1: Collector Loop (2s Sample, 60s Probes)
+    // 4. Thread 1: Dedicated Probe Background Thread (P1-2: completely decoupled from 2s sampling loop)
+    {
+        let probe_shared_config = Arc::clone(&shared_config);
+        let probe_results_cache = Arc::clone(&shared_probes);
+        thread::spawn(move || {
+            let mut last_probe_time = Instant::now() - Duration::from_secs(300);
+            loop {
+                let (probe_interval, probes, allow_private) = {
+                    let cfg = probe_shared_config.read().unwrap();
+                    (
+                        cfg.probe_interval_sec,
+                        cfg.probes.clone(),
+                        cfg.allow_private_probes,
+                    )
+                };
+
+                let now = Instant::now();
+                if now.duration_since(last_probe_time) >= Duration::from_secs(probe_interval) {
+                    let mut current_results = Vec::new();
+                    for target in &probes {
+                        let res = if target.method == "icmp" {
+                            execute_icmp_probe(&target.id, &target.host, allow_private)
+                        } else {
+                            execute_tcp_probe(
+                                &target.id,
+                                &target.host,
+                                target.port.unwrap_or(80),
+                                allow_private,
+                            )
+                        };
+                        current_results.push(res);
+                    }
+                    // Record finish time so interval timing is measured from probe completion
+                    last_probe_time = Instant::now();
+                    if let Ok(mut cache) = probe_results_cache.write() {
+                        *cache = current_results;
+                    }
+                }
+
+                thread::sleep(Duration::from_millis(500));
+            }
+        });
+    }
+
+    // 5. Thread 2: Collector Loop (2s Sample, non-blocking 0us probe reading)
     {
         let shared_buffer = Arc::clone(&shared_buffer);
         let shared_config = Arc::clone(&shared_config);
+        let shared_probes = Arc::clone(&shared_probes);
         let boot_id = boot_id.clone();
         let detection = detection.clone();
         let cgroup_ctx = cgroup_ctx.clone();
@@ -349,8 +395,6 @@ fn main() -> Result<()> {
             let uptime_collector = UptimeCollector::new(detection.env_type.clone());
 
             let mut last_sample_time = Instant::now() - Duration::from_secs(10);
-            let mut last_probe_time = Instant::now() - Duration::from_secs(300);
-            let mut probe_results: Vec<ProbeResult> = Vec::new();
             let mut current_interface = "auto".to_string();
 
             let mut mock_uptime = 1_245_600u64;
@@ -359,15 +403,12 @@ fn main() -> Result<()> {
 
             loop {
                 let now = Instant::now();
-                let (sample_interval, probe_interval, config_rev, probes, net_iface, allow_private) = {
+                let (sample_interval, config_rev, net_iface) = {
                     let cfg = shared_config.read().unwrap();
                     (
                         cfg.sample_interval_sec,
-                        cfg.probe_interval_sec,
                         cfg.config_rev,
-                        cfg.probes.clone(),
                         cfg.network_interface.clone(),
-                        cfg.allow_private_probes,
                     )
                 };
 
@@ -381,25 +422,7 @@ fn main() -> Result<()> {
                 // Fast System Metric Sampling (2s)
                 if now.duration_since(last_sample_time) >= Duration::from_secs(sample_interval) {
                     last_sample_time = now;
-
-                    // Network Probes (60s)
-                    if now.duration_since(last_probe_time) >= Duration::from_secs(probe_interval) {
-                        last_probe_time = now;
-                        probe_results.clear();
-                        for target in &probes {
-                            let res = if target.method == "icmp" {
-                                execute_icmp_probe(&target.id, &target.host, allow_private)
-                            } else {
-                                execute_tcp_probe(
-                                    &target.id,
-                                    &target.host,
-                                    target.port.unwrap_or(80),
-                                    allow_private,
-                                )
-                            };
-                            probe_results.push(res);
-                        }
-                    }
+                    let probe_results = shared_probes.read().map(|p| p.clone()).unwrap_or_default();
 
                     let snapshot = if is_mock {
                         mock_uptime += sample_interval;
@@ -550,7 +573,7 @@ fn main() -> Result<()> {
             rootfs: "statvfs".to_string(),
         },
         capabilities: CapabilitiesInfo {
-            icmp_probe: true,
+            icmp_probe: edgemon_agent::probe::icmp::can_use_icmp(),
             tcp_probe: true,
         },
         boot_id: boot_id.clone(),

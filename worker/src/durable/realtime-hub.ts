@@ -145,6 +145,14 @@ export class RealtimeHub extends DurableObject<Env> {
     }
   }
 
+  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
+    try {
+      ws.close(CloseCodes.POLICY_VIOLATION, 'Internal websocket error');
+    } catch {
+      // ignore
+    }
+  }
+
   private async handleAgentMessage(
     ws: WebSocket,
     attachment: AgentAttachment,
@@ -417,7 +425,13 @@ export class RealtimeHub extends DurableObject<Env> {
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
-    // Note: Do NOT call ws.close() inside webSocketClose callback!
+    // Under Cloudflare compatibility dates < 2026-04-07, explicitly reciprocate close to prevent 1006 abnormal closure
+    try {
+      ws.close(code, reason);
+    } catch {
+      // ignore
+    }
+
     const attachment = ws.deserializeAttachment() as SocketAttachment | null;
     if (attachment && attachment.kind === 'agent') {
       const now = Date.now();
@@ -511,14 +525,14 @@ export class RealtimeHub extends DurableObject<Env> {
     reason = 'TOKEN_REVOKED',
     revokedTokenHash?: string
   ): Promise<{ success: boolean; closedCount: number }> {
-    if (!this.revokedTokens.has(nodeId)) {
-      this.revokedTokens.set(nodeId, new Set<string>());
-    }
-    const tokenSet = this.revokedTokens.get(nodeId)!;
+    // Only register revocation blacklist when a specific token hash or wildcard '*' is explicitly provided.
+    // Normal socket replacement (e.g. HTTP fallback hello, config change) MUST NOT blacklist the token!
     if (revokedTokenHash) {
+      if (!this.revokedTokens.has(nodeId)) {
+        this.revokedTokens.set(nodeId, new Set<string>());
+      }
+      const tokenSet = this.revokedTokens.get(nodeId)!;
       tokenSet.add(revokedTokenHash);
-    } else {
-      tokenSet.add('*');
     }
 
     let closedCount = 0;
@@ -581,7 +595,8 @@ export class RealtimeHub extends DurableObject<Env> {
     report: ReportPayload,
     geo: NormalizedGeo,
     trafficResetDay = 1,
-    isHidden = false
+    isHidden = false,
+    tokenHash?: string | null
   ): Promise<{ accepted: boolean; persisted: boolean; error?: string }> {
     const now = Date.now();
     const syntheticAttachment = createDefaultAttachment(
@@ -591,7 +606,8 @@ export class RealtimeHub extends DurableObject<Env> {
       now,
       geo,
       trafficResetDay,
-      isHidden
+      isHidden,
+      tokenHash
     );
     syntheticAttachment.hello_ok = true;
 

@@ -314,4 +314,92 @@ describe('Traffic Period Calculation', () => {
     const activeRx = updatedState.active_rx_base_bytes !== null ? 4500 - updatedState.active_rx_base_bytes : 0;
     expect(activeRx).toBe(500);
   });
+
+  it('P0: natural billing boundary reconnect and replay correctly settles old period and does NOT leak old traffic into new period', async () => {
+    const aug01 = Date.UTC(2026, 7, 1, 0, 0, 0, 0); // Aug 1 00:00:00
+    const aug31_2359 = Date.UTC(2026, 7, 31, 23, 59, 50, 0); // Aug 31 23:59:50
+    const sep01_0000 = Date.UTC(2026, 8, 1, 0, 0, 10, 0); // Sep 1 00:00:10
+    const sep01PeriodStart = Date.UTC(2026, 8, 1, 0, 0, 0, 0);
+
+    // Mock D1 only has the Aug 1 period row (Sep 1 period has not been committed yet)
+    const mockDb = {
+      prepare: (sql: string) => {
+        return {
+          bind: (...args: any[]) => {
+            return {
+              first: async () => {
+                // If query checking exact period for Sep 01, it returns null (not created yet)
+                if (sql.includes('period_start_ms = ?') && args[1] === sep01PeriodStart) {
+                  return null;
+                }
+                if (sql.includes('ORDER BY updated_at_ms DESC LIMIT 1')) {
+                  // Latest period in D1 is Aug 1 with base=1000
+                  return {
+                    node_id: 'node-1',
+                    period_start_ms: aug01,
+                    finalized_rx_bytes: 4000,
+                    finalized_tx_bytes: 2000,
+                    active_counter_id: 'counter-a',
+                    active_rx_base_bytes: 1000,
+                    active_tx_base_bytes: 500,
+                    updated_at_ms: 1000,
+                  };
+                }
+                return null;
+              },
+            };
+          },
+        };
+      },
+    } as any;
+
+    const { loadTrafficRuntimeState } = await import('../src/db/traffic');
+    // 1. Reconnect at Sep 1 00:00:15
+    const state = await loadTrafficRuntimeState(mockDb, 'node-1', 1);
+
+    // Verified: Hydrated state belongs to Aug 01 so replay samples can be properly attributed
+    expect(state.period_start_ms).toBe(aug01);
+    expect(state.active_rx_base_bytes).toBe(1000);
+
+    // 2. Replay uncommitted sample from Aug 31 23:59:50 (rx_total = 5100, rx_delta = 100)
+    let replayedState = applySampleTrafficTransition(
+      state,
+      aug31_2359,
+      5100,
+      2550,
+      'counter-a',
+      1,
+      5000,
+      2500
+    );
+
+    // Verified: Still within Aug 01 period, no settlement yet
+    expect(replayedState.period_start_ms).toBe(aug01);
+    expect(replayedState.prev_period_settlement).toBeFalsy();
+
+    // 3. Process first sample in Sep (Sep 1 00:00:10, rx_total = 5200, rx_delta = 100)
+    let sepState = applySampleTrafficTransition(
+      replayedState,
+      sep01_0000,
+      5200,
+      2600,
+      'counter-a',
+      1,
+      5100,
+      2550
+    );
+
+    // Verified: Billing transition triggered!
+    // Period moves to Sep 1:
+    expect(sepState.period_start_ms).toBe(sep01PeriodStart);
+    // Aug 1 period is settled:
+    expect(sepState.prev_period_settlement).toBeDefined();
+    expect(sepState.prev_period_settlement?.period_start_ms).toBe(aug01);
+    expect(sepState.prev_period_settlement?.finalized_rx_delta).toBe(5100 - 1000); // 4100 delta added to existing finalized
+    // Sep 1 active base is set to the boundary reading 5100:
+    expect(sepState.active_rx_base_bytes).toBe(5100);
+    // Sep 1 usage is strictly 5200 - 5100 = 100 (NOT 5200 - 1000 = 4200!):
+    const sepUsage = sepState.active_rx_base_bytes !== null ? 5200 - sepState.active_rx_base_bytes : 0;
+    expect(sepUsage).toBe(100);
+  });
 });

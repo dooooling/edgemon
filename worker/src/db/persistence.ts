@@ -54,16 +54,19 @@ export async function persist60sCheckpoint(
   const probesJson = JSON.stringify(latestReport.probes || []);
   const statements: D1PreparedStatement[] = [];
 
-  // 0. Enforce atomic Token Hash validation inside the D1 batch transaction (P1: eliminates TOCTOU race)
+  // 0. Enforce atomic Token Hash & active instance validation inside the D1 batch transaction (P1: eliminates TOCTOU race)
   if (expectedTokenHash) {
     statements.push(
       db
         .prepare(
           `UPDATE nodes SET
-            name = CASE WHEN token_hash = ? THEN name ELSE NULL END
+            name = CASE
+              WHEN token_hash = ? AND (active_instance_id IS NULL OR active_instance_id = ?) THEN name
+              ELSE NULL
+            END
           WHERE id = ?`
         )
-        .bind(expectedTokenHash, nodeId)
+        .bind(expectedTokenHash, instanceId, nodeId)
     );
   }
 

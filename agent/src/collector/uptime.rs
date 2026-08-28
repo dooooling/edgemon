@@ -59,7 +59,16 @@ pub fn get_system_uptime_sec() -> Option<u64> {
 pub fn get_boot_id() -> Option<String> {
     #[cfg(windows)]
     {
-        Some("windows-host-boot-id".to_string())
+        use windows_sys::Win32::System::SystemInformation::GetTickCount64;
+        let uptime_ms = unsafe { GetTickCount64() };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_millis() as u64;
+        let boot_time_ms = now_ms.saturating_sub(uptime_ms);
+        // Round to nearest 10 seconds to tolerate clock jitter while generating a unique boot identifier
+        let boot_bucket = boot_time_ms / 10000;
+        Some(format!("win-boot-{:x}", boot_bucket))
     }
 
     #[cfg(not(windows))]

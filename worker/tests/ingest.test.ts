@@ -54,6 +54,7 @@ function createMockDb(persistedInstanceId: string | null = null, persistedSample
   let updateCalled = false;
   let updatedRx = 0;
   let updatedTx = 0;
+  let currentDbTokenHash = 'mock-hash';
   const batchStatements: any[] = [];
   const insertedBuckets: any[] = [];
 
@@ -63,9 +64,11 @@ function createMockDb(persistedInstanceId: string | null = null, persistedSample
     get updatedTx() { return updatedTx; },
     get batchStatements() { return batchStatements; },
     get insertedBuckets() { return insertedBuckets; },
+    get tokenHash() { return currentDbTokenHash; },
+    setTokenHash(h: string) { currentDbTokenHash = h; },
     prepare(sql: string) {
       let boundArgs: any[] = [];
-      return {
+      const stmt = {
         bind(...args: any[]) {
           boundArgs = args;
           if (sql.includes('UPDATE traffic_periods SET')) {
@@ -78,7 +81,7 @@ function createMockDb(persistedInstanceId: string | null = null, persistedSample
             period.active_rx_base_bytes = args[3];
             period.active_tx_base_bytes = args[4];
           }
-          return this;
+          return stmt;
         },
         async first() {
           if (sql.includes('MAX(bucket_start_ms)')) {
@@ -94,7 +97,7 @@ function createMockDb(persistedInstanceId: string | null = null, persistedSample
             return { ...nodeState };
           }
           if (sql.includes('FROM nodes')) {
-            return { token_hash: 'mock-hash' };
+            return { token_hash: currentDbTokenHash };
           }
           return null;
         },
@@ -107,10 +110,17 @@ function createMockDb(persistedInstanceId: string | null = null, persistedSample
         get sql() { return sql; },
         get args() { return boundArgs; },
       };
+      return stmt;
     },
     async batch(stmts: any[]) {
       batchStatements.push(...stmts);
       for (const s of stmts) {
+        if (s.sql && s.sql.includes('UPDATE nodes SET')) {
+          const expectedHash = s.args ? s.args[0] : null;
+          if (expectedHash && expectedHash !== currentDbTokenHash) {
+            throw new Error('NOT NULL constraint failed: nodes.name');
+          }
+        }
         if (s.sql && s.sql.includes('INSERT INTO metrics_raw')) {
           const existingIdx = insertedBuckets.findIndex((b) => b.bucketStartMs === s.args[1]);
           const newBucket = {
@@ -1489,5 +1499,60 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     // Verified: AUTH_FAILED triggered regardless of same-minute merge!
     expect(resSameMinute.result.accepted).toBe(false);
     expect(resSameMinute.result.error).toBe('AUTH_FAILED');
+  });
+
+  it('P1: atomic in-batch token verification eliminates TOCTOU race condition if token rotated after SELECT', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    mockDb.setTokenHash('hash-v1');
+    const startWallTime = Date.now();
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', startWallTime, mockGeo, 1, false, 'hash-v1');
+    const t0 = Math.floor((startWallTime - 300000) / 60000) * 60000;
+
+    // 1. Initial sample at minute 0
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      { samples: [{ sample_seq: 1, sampled_at_ms: t0, metrics: baseMetrics }] },
+      mockGeo,
+      attachment
+    );
+
+    // 2. Simulate TOCTOU race: SELECT query sees 'hash-v1', but when db.batch executes, D1 token has been updated to 'hash-v2'
+    const origPrepare = mockDb.prepare;
+    mockDb.prepare = (sql: string) => {
+      const stmt = origPrepare(sql);
+      const origFirst = stmt.first;
+      stmt.first = async () => {
+        if (sql.includes('FROM nodes')) {
+          // SELECT query returns 'hash-v1' (race: read old token before rotation committed)
+          return { token_hash: 'hash-v1' };
+        }
+        return origFirst();
+      };
+      return stmt;
+    };
+
+    // Right before batch runs, DB is rotated to 'hash-v2'
+    mockDb.setTokenHash('hash-v2');
+
+    // 3. Rollover to minute 1 triggers checkpoint
+    const resRollover = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      2,
+      { samples: [{ sample_seq: 2, sampled_at_ms: t0 + 60000, metrics: baseMetrics }] },
+      mockGeo,
+      attachment
+    );
+
+    // Verified: D1 batch atomic constraint fails with NOT NULL constraint error on nodes.name
+    // Ingest rejects with PERSISTENCE_FAILED and 0 buckets are committed
+    expect(resRollover.result.accepted).toBe(false);
+    expect(resRollover.result.error).toBe('PERSISTENCE_FAILED');
   });
 });

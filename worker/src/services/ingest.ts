@@ -53,6 +53,7 @@ export interface AgentAttachment {
   last_tx_total_bytes: number | null;
   last_ping_ts_ms: number;
   current_minute: MinuteAccumulator | null;
+  historical_minutes: Record<string, MinuteAccumulator>;
   traffic_state: TrafficRuntimeState;
 }
 
@@ -328,8 +329,10 @@ export async function ingestReportCore(
   };
 
   // 5. Sample-by-Sample Traffic State Transition & Minute Accumulator (P0-1, P0-2, P0-3, P1-1, P1-2, P2)
+  if (!currentAttachment.historical_minutes) {
+    currentAttachment.historical_minutes = {};
+  }
   const bucketsToPersist: RawBucketMetric[] = [];
-  const historicalAccumulators = new Map<number, MinuteAccumulator>();
   let durableCut: DurableCut | null = null;
 
   for (const s of validSamples) {
@@ -350,7 +353,7 @@ export async function ingestReportCore(
       ? sampleTx - prevTx
       : 0;
 
-    // 5.2 Minute Rollover Check BEFORE modifying live traffic_state for this new sample (P0-1)
+    // 5.2 Minute Rollover & Accumulation Check BEFORE modifying live traffic_state
     if (currentAttachment.current_minute) {
       if (sampleBucket > currentAttachment.current_minute.bucket_start_ms) {
         // Forward Minute Rollover: previous minute is CLOSED and FINALIZED
@@ -359,6 +362,15 @@ export async function ingestReportCore(
           report: currentAttachment.current_minute.last_metrics,
           trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
         };
+
+        // Include any uncommitted historical accumulators
+        for (const [bStartStr, hist] of Object.entries(currentAttachment.historical_minutes)) {
+          const bStart = Number(bStartStr);
+          if (bStart > currentAttachment.last_persist_bucket_ms) {
+            bucketsToPersist.push(finalizeAccumulator(hist));
+          }
+        }
+        currentAttachment.historical_minutes = {};
 
         bucketsToPersist.push(finalizeAccumulator(currentAttachment.current_minute));
         currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
@@ -389,42 +401,31 @@ export async function ingestReportCore(
           currentAttachment.last_rx_total_bytes,
           currentAttachment.last_tx_total_bytes
         );
-      } else if (s.sample_seq > currentAttachment.current_minute.last_sample_seq) {
-        // Clock Jump Backwards with newer sample_seq (P0):
-        // The previous current_minute was started under a false future clock.
-        // Finalize and close the previous premature future minute:
-        durableCut = {
-          sampleSeq: currentAttachment.current_minute.last_sample_seq,
-          report: currentAttachment.current_minute.last_metrics,
-          trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
-        };
-        bucketsToPersist.push(finalizeAccumulator(currentAttachment.current_minute));
-
-        // Start new current_minute at the rolled-back time:
-        currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
-
-        // Advance live traffic_state for this sample:
-        currentAttachment.traffic_state = applySampleTrafficTransition(
-          currentAttachment.traffic_state,
-          s.sampled_at_ms,
-          sampleRx ?? 0,
-          sampleTx ?? 0,
-          sampleCounterId,
-          currentAttachment.traffic_reset_day,
-          currentAttachment.last_rx_total_bytes,
-          currentAttachment.last_tx_total_bytes
-        );
       } else {
-        // True historical buffer replay from before current_minute (s.sample_seq < current_minute.first_sample_seq):
-        let hist = historicalAccumulators.get(sampleBucket);
-        if (hist) {
-          mergeIntoAccumulator(hist, s, rxDelta, txDelta);
-        } else {
-          hist = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
-          historicalAccumulators.set(sampleBucket, hist);
+        // Historical sample earlier than live current_minute (sampleBucket < currentAttachment.current_minute.bucket_start_ms):
+        // Active current_minute remains strictly intact and moving forward (P0: never evict or reopen active minute).
+        if (sampleBucket > currentAttachment.last_persist_bucket_ms) {
+          // Uncommitted historical minute (e.g. out-of-order replay or temporary clock rollback):
+          const histKey = String(sampleBucket);
+          let hist = currentAttachment.historical_minutes[histKey];
+          if (hist) {
+            mergeIntoAccumulator(hist, s, rxDelta, txDelta);
+          } else {
+            hist = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
+            currentAttachment.historical_minutes[histKey] = hist;
+          }
+
+          if (s.sample_seq < currentAttachment.current_minute.first_sample_seq) {
+            const prevCutSeq: number = durableCut ? (durableCut as DurableCut).sampleSeq : 0;
+            durableCut = {
+              sampleSeq: Math.max(prevCutSeq, s.sample_seq),
+              report: s.metrics,
+              trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
+            };
+          }
         }
 
-        // Advance traffic_state for sample s:
+        // Advance traffic_state for sample s (to keep monotonic counter tracking active):
         currentAttachment.traffic_state = applySampleTrafficTransition(
           currentAttachment.traffic_state,
           s.sampled_at_ms,
@@ -435,19 +436,11 @@ export async function ingestReportCore(
           currentAttachment.last_rx_total_bytes,
           currentAttachment.last_tx_total_bytes
         );
-
-        // Historical durable cut only advances up to samples whose entire minute is finalized (P0-1)
-        if (s.sample_seq < currentAttachment.current_minute.first_sample_seq) {
-          const prevCutSeq: number = durableCut ? (durableCut as DurableCut).sampleSeq : 0;
-          durableCut = {
-            sampleSeq: Math.max(prevCutSeq, s.sample_seq),
-            report: s.metrics,
-            trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
-          };
-        }
       }
     } else {
-      currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
+      if (sampleBucket > currentAttachment.last_persist_bucket_ms) {
+        currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
+      }
 
       // Advance live in-memory traffic_state for this initial sample
       currentAttachment.traffic_state = applySampleTrafficTransition(
@@ -469,9 +462,15 @@ export async function ingestReportCore(
     if (sampleTx !== null && sampleCounterId !== null) currentAttachment.last_tx_total_bytes = sampleTx;
   }
 
-  // Push all aggregated historical buckets to bucketsToPersist
-  for (const hist of historicalAccumulators.values()) {
-    bucketsToPersist.push(finalizeAccumulator(hist));
+  // If durableCut was established, push any eligible uncommitted historical buckets to bucketsToPersist
+  if (durableCut !== null && currentAttachment.historical_minutes) {
+    for (const [bStartStr, hist] of Object.entries(currentAttachment.historical_minutes)) {
+      const bStart = Number(bStartStr);
+      if (bStart > currentAttachment.last_persist_bucket_ms) {
+        bucketsToPersist.push(finalizeAccumulator(hist));
+      }
+    }
+    currentAttachment.historical_minutes = {};
   }
 
   // On stateless HTTP fallback, if this is a standalone report with completed past minute bucket,
@@ -586,6 +585,7 @@ export function createDefaultAttachment(
     last_tx_total_bytes: null,
     last_ping_ts_ms: nowMs,
     current_minute: null,
+    historical_minutes: {},
     traffic_state: {
       period_start_ms: periodStartMs,
       finalized_rx_bytes: 0,

@@ -820,75 +820,121 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     expect(histBuckets[0].rxDelta).toBe(1000);
   });
 
-  it('P0: higher-seq historical sample across clock rollback and re-entering same minute preserves strict single durable cut', async () => {
+  it('P0: higher-seq historical sample across clock rollback and re-entering same minute preserves strict single durable cut and merges all contributions', async () => {
     const mockDb = createMockDb('instance-1', 0);
     const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    attachment.last_counter_id = 'counter-a';
+    attachment.last_rx_total_bytes = 1000;
+    attachment.last_tx_total_bytes = 500;
     const t0 = Math.floor((Date.now() - 300000) / 60000) * 60000;
 
-    // 1. seq10 @ minute 1 (t0 + 60000)
+    // 1. seq10 @ minute 1 (t0 + 60000): CPU=15, rx_total=2000 (delta=1000)
     await ingestReportCore(
       mockDb,
       'node-1',
       'Node 1',
       'instance-1',
       1,
-      { samples: [{ sample_seq: 10, sampled_at_ms: t0 + 60000, metrics: { ...baseMetrics, cpu: { ...baseMetrics.cpu, usage_pct: 15 } } }] },
+      {
+        samples: [
+          {
+            sample_seq: 10,
+            sampled_at_ms: t0 + 60000,
+            metrics: {
+              ...baseMetrics,
+              cpu: { ...baseMetrics.cpu, usage_pct: 15 },
+              network: { ...baseMetrics.network, counter_id: 'counter-a', rx_total_bytes: 2000, tx_total_bytes: 500 },
+            },
+          },
+        ],
+      },
       mockGeo,
       attachment
     );
     expect(attachment.current_minute?.bucket_start_ms).toBe(t0 + 60000);
     expect(attachment.persisted_sample_seq).toBe(0);
 
-    // 2. seq11 @ minute 0 (t0) -> Clock jumped backwards!
+    // 2. seq11 @ minute 0 (t0): CPU=25, rx_total=2500 (delta=500) -> Clock jumped backwards!
+    // Active current_minute remains 12:01 (t0 + 60000), seq11 aggregates into historicalAccumulators for t0.
     const res2 = await ingestReportCore(
       mockDb,
       'node-1',
       'Node 1',
       'instance-1',
       2,
-      { samples: [{ sample_seq: 11, sampled_at_ms: t0 + 10000, metrics: { ...baseMetrics, cpu: { ...baseMetrics.cpu, usage_pct: 25 } } }] },
+      {
+        samples: [
+          {
+            sample_seq: 11,
+            sampled_at_ms: t0 + 10000,
+            metrics: {
+              ...baseMetrics,
+              cpu: { ...baseMetrics.cpu, usage_pct: 25 },
+              network: { ...baseMetrics.network, counter_id: 'counter-a', rx_total_bytes: 2500, tx_total_bytes: 500 },
+            },
+          },
+        ],
+      },
       mockGeo,
       attachment
     );
     expect(res2.result.accepted).toBe(true);
-    expect(res2.result.persisted).toBe(true);
-    // Minute 1 (seq 10) was finalized and sealed into D1 with watermark 10!
-    expect(attachment.persisted_sample_seq).toBe(10);
-    expect(attachment.last_persist_bucket_ms).toBe(t0 + 60000);
-    expect(attachment.current_minute?.bucket_start_ms).toBe(t0);
+    // Active current_minute remains intact at t0 + 60000 (holding seq10)!
+    expect(attachment.current_minute?.bucket_start_ms).toBe(t0 + 60000);
 
-    // 3. seq12 @ minute 1 (t0 + 70000) -> Clock steps forward to minute 1!
-    // Rolls over minute 0 (seq 11) with watermark 11, and opens minute 1 (t0 + 60000)
+    // 3. seq12 @ minute 1 (t0 + 70000): CPU=35, rx_total=2800 (delta=300) -> Clock returns to minute 1!
+    // Merges directly into active minute 1 (combining seq10 CPU=15 and seq12 CPU=35 -> avg 25%, rxDelta = 1000 + 300 = 1300)
     const res3 = await ingestReportCore(
       mockDb,
       'node-1',
       'Node 1',
       'instance-1',
       3,
-      { samples: [{ sample_seq: 12, sampled_at_ms: t0 + 70000, metrics: { ...baseMetrics, cpu: { ...baseMetrics.cpu, usage_pct: 35 } } }] },
+      {
+        samples: [
+          {
+            sample_seq: 12,
+            sampled_at_ms: t0 + 70000,
+            metrics: {
+              ...baseMetrics,
+              cpu: { ...baseMetrics.cpu, usage_pct: 35 },
+              network: { ...baseMetrics.network, counter_id: 'counter-a', rx_total_bytes: 2800, tx_total_bytes: 500 },
+            },
+          },
+        ],
+      },
       mockGeo,
       attachment
     );
     expect(res3.result.accepted).toBe(true);
-    expect(res3.result.persisted).toBe(true);
-    // Minute 0 (seq 11) was finalized and persisted with watermark 11!
-    expect(attachment.persisted_sample_seq).toBe(11);
     expect(attachment.current_minute?.bucket_start_ms).toBe(t0 + 60000);
 
-    // 4. seq13 @ minute 2 (t0 + 130000) -> Rolls over minute 1!
+    // 4. seq13 @ minute 2 (t0 + 130000): CPU=45, rx_total=3000 (delta=200) -> Rolls over minute 1!
+    // Persists uncommitted minute 0 (t0) and combined minute 1 (t0 + 60000) atomically to D1!
     const res4 = await ingestReportCore(
       mockDb,
       'node-1',
       'Node 1',
       'instance-1',
       4,
-      { samples: [{ sample_seq: 13, sampled_at_ms: t0 + 130000, metrics: { ...baseMetrics, cpu: { ...baseMetrics.cpu, usage_pct: 45 } } }] },
+      {
+        samples: [
+          {
+            sample_seq: 13,
+            sampled_at_ms: t0 + 130000,
+            metrics: {
+              ...baseMetrics,
+              cpu: { ...baseMetrics.cpu, usage_pct: 45 },
+              network: { ...baseMetrics.network, counter_id: 'counter-a', rx_total_bytes: 3000, tx_total_bytes: 500 },
+            },
+          },
+        ],
+      },
       mockGeo,
       attachment
     );
     expect(res4.result.accepted).toBe(true);
     expect(res4.result.persisted).toBe(true);
-    // Minute 1 (seq 12) was finalized and persisted to D1 with watermark 12!
     expect(attachment.persisted_sample_seq).toBe(12);
     expect(attachment.current_minute?.bucket_start_ms).toBe(t0 + 120000);
 
@@ -899,27 +945,42 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
       'Node 1',
       'instance-1',
       5,
-      { samples: [{ sample_seq: 14, sampled_at_ms: t0 + 180000, metrics: baseMetrics }] },
+      {
+        samples: [
+          {
+            sample_seq: 14,
+            sampled_at_ms: t0 + 180000,
+            metrics: {
+              ...baseMetrics,
+              network: { ...baseMetrics.network, counter_id: 'counter-a', rx_total_bytes: 3200, tx_total_bytes: 500 },
+            },
+          },
+        ],
+      },
       mockGeo,
       attachment
     );
     expect(res5.result.accepted).toBe(true);
     expect(res5.result.persisted).toBe(true);
-    // Minute 2 (seq 13) was finalized and persisted to D1 with watermark 13!
     expect(attachment.persisted_sample_seq).toBe(13);
 
     // Verified that all three minute buckets (t0, t0+60000, t0+120000) are persisted in metrics_raw
     const minute0Bucket = mockDb.insertedBuckets.find((b) => b.bucketStartMs === t0);
     expect(minute0Bucket).toBeDefined();
     expect(minute0Bucket?.cpuUsagePct).toBe(25);
+    expect(minute0Bucket?.rxDelta).toBe(500);
 
     const minute1Bucket = mockDb.insertedBuckets.find((b) => b.bucketStartMs === t0 + 60000);
     expect(minute1Bucket).toBeDefined();
-    expect(minute1Bucket?.cpuUsagePct).toBe(35);
+    // Verified: CPU is true average of seq10 (15) and seq12 (35) -> (15 + 35) / 2 = 25!
+    expect(minute1Bucket?.cpuUsagePct).toBe(25);
+    // Verified: rxDelta contains BOTH seq10 (+1000) and seq12 (+300) -> 1300!
+    expect(minute1Bucket?.rxDelta).toBe(1300);
 
     const minute2Bucket = mockDb.insertedBuckets.find((b) => b.bucketStartMs === t0 + 120000);
     expect(minute2Bucket).toBeDefined();
     expect(minute2Bucket?.cpuUsagePct).toBe(45);
+    expect(minute2Bucket?.rxDelta).toBe(200);
   });
 
   it('P1-1: initial null counter sample does not reset active counter baseline', async () => {

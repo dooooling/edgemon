@@ -54,6 +54,8 @@ function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): b
 }
 
 export class RealtimeHub extends DurableObject<Env> {
+  private revokedNodes = new Map<string, number>();
+
   async fetch(request: Request): Promise<Response> {
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
@@ -175,6 +177,13 @@ export class RealtimeHub extends DurableObject<Env> {
       return;
     }
 
+    // Revocation check (P1: immediately reject old connections if token was rotated or node deleted)
+    const revokedAt = this.revokedNodes.get(attachment.node_id);
+    if (revokedAt !== undefined && attachment.connected_at_ms <= revokedAt) {
+      ws.close(CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED_OR_NODE_DELETED');
+      return;
+    }
+
     const now = Date.now();
 
     // 1. HELLO MESSAGE (Must be first message and single-shot)
@@ -274,6 +283,7 @@ export class RealtimeHub extends DurableObject<Env> {
       attachment.hello_ok = true;
       attachment.config_rev = configRow?.revision || 1;
       attachment.last_seq = envelope.seq;
+      this.revokedNodes.delete(attachment.node_id);
       safeSerializeAttachment(ws, attachment);
 
       const isSameInstance = stateRow?.persisted_instance_id === attachment.instance_id;
@@ -471,7 +481,9 @@ export class RealtimeHub extends DurableObject<Env> {
     return true;
   }
 
-  async disconnectAgent(nodeId: string, code = CloseCodes.TOKEN_REVOKED, reason = 'TOKEN_REVOKED'): Promise<void> {
+  async disconnectAgent(nodeId: string, code = CloseCodes.TOKEN_REVOKED, reason = 'TOKEN_REVOKED'): Promise<{ success: boolean; closedCount: number }> {
+    this.revokedNodes.set(nodeId, Date.now());
+    let closedCount = 0;
     const sockets = this.ctx.getWebSockets(`agent:${nodeId}`);
     for (const ws of sockets) {
       try {
@@ -485,10 +497,12 @@ export class RealtimeHub extends DurableObject<Env> {
       }
       try {
         ws.close(code, reason);
+        closedCount++;
       } catch {
         // ignore close error
       }
     }
+    return { success: true, closedCount };
   }
 
   async updateNodeRuntime(

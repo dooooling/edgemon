@@ -5,6 +5,16 @@ use std::net::IpAddr;
 #[cfg(target_os = "linux")]
 use std::time::Instant;
 
+#[cfg(target_os = "linux")]
+#[repr(C)]
+struct IcmpHeader {
+    icmp_type: u8,
+    icmp_code: u8,
+    icmp_cksum: u16,
+    icmp_id: u16,
+    icmp_seq: u16,
+}
+
 pub fn can_use_icmp() -> bool {
     #[cfg(target_os = "linux")]
     {
@@ -102,20 +112,11 @@ pub fn execute_icmp_probe(id: &str, host: &str, allow_private: bool) -> ProbeRes
                     continue;
                 }
 
-                #[repr(C)]
-                struct IcmpHeader {
-                    icmp_type: u8,
-                    icmp_code: u8,
-                    icmp_cksum: u16,
-                    icmp_id: u16,
-                    icmp_seq: u16,
-                }
-
                 let packet = IcmpHeader {
                     icmp_type: 8, // ICMP Echo Request
                     icmp_code: 0,
                     icmp_cksum: 0,
-                    icmp_id: (libc::getpid() & 0xFFFF) as u16,
+                    icmp_id: (libc::getpid() as u32 & 0xFFFF) as u16,
                     icmp_seq: seq as u16,
                 };
 

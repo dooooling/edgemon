@@ -24,7 +24,8 @@ export const AdminPage: React.FC = () => {
   const [newNodeName, setNewNodeName] = useState('');
   const [newNodeResetDay, setNewNodeResetDay] = useState(1);
 
-  const [oneTimeTokenModal, setOneTimeTokenModal] = useState<{ nodeId: string; rawToken: string } | null>(null);
+  const [oneTimeTokenModal, setOneTimeTokenModal] = useState<{ nodeId: string; rawToken: string; warning?: string } | null>(null);
+  const [adminBannerWarning, setAdminBannerWarning] = useState<string | null>(null);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -75,7 +76,11 @@ export const AdminPage: React.FC = () => {
       setOneTimeTokenModal({
         nodeId,
         rawToken: res.rawToken,
+        warning: res.warning,
       });
+      if (res.warning) {
+        setAdminBannerWarning(`[${nodeId}] Token rotated in database, but active stream disconnect RPC timed out (${res.warning}). Active socket will be invalidated on next verification or within 60s.`);
+      }
     } catch (err: any) {
       alert(err.message);
     }
@@ -86,7 +91,10 @@ export const AdminPage: React.FC = () => {
       return;
     }
     try {
-      await deleteAdminNode(nodeId);
+      const res = await deleteAdminNode(nodeId);
+      if (res.warning) {
+        setAdminBannerWarning(`[${nodeId}] Node deleted from database, but active stream disconnect RPC timed out (${res.warning}). Active socket will be invalidated on next verification.`);
+      }
       refetchNodes();
     } catch (err: any) {
       alert(err.message);
@@ -150,6 +158,30 @@ export const AdminPage: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {adminBannerWarning && (
+            <div style={{
+              margin: '0 0 16px 0',
+              padding: '12px 16px',
+              backgroundColor: 'rgba(255, 170, 0, 0.08)',
+              border: '1px solid #ffaa00',
+              borderRadius: '4px',
+              color: '#ffaa00',
+              fontSize: '12px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <span>⚠️ {adminBannerWarning}</span>
+              <button
+                className="button-ghost-on-dark button-ghost-sm"
+                style={{ borderColor: '#ffaa00', color: '#ffaa00', padding: '2px 8px', minHeight: 'auto' }}
+                onClick={() => setAdminBannerWarning(null)}
+              >
+                DISMISS
+              </button>
+            </div>
+          )}
 
           {/* Node Table */}
           <div className="map-band" style={{ padding: 0 }}>
@@ -262,6 +294,20 @@ export const AdminPage: React.FC = () => {
                 <p className="caption" style={{ color: 'var(--colors-status-alert)' }}>
                   {t('token_notice')}
                 </p>
+
+                {oneTimeTokenModal.warning && (
+                  <div style={{
+                    padding: '8px 12px',
+                    backgroundColor: 'rgba(255, 170, 0, 0.1)',
+                    border: '1px solid #ffaa00',
+                    borderRadius: '4px',
+                    margin: '12px 0',
+                    fontSize: '11px',
+                    color: '#ffaa00'
+                  }}>
+                    ⚠️ WARNING: {oneTimeTokenModal.warning} — Active agent socket disconnect RPC timed out. Existing stream will be evicted on next verification.
+                  </div>
+                )}
 
                 <div className="token-view-chassis">
                   {oneTimeTokenModal.rawToken}

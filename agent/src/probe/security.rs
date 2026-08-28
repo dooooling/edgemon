@@ -21,12 +21,19 @@ pub fn is_private_or_loopback(ip: &IpAddr) -> bool {
 
 pub fn validate_and_resolve_target(host: &str, port: u16, allow_private: bool) -> Result<IpAddr> {
     let target = format!("{host}:{port}");
-    let mut addrs = target
+    let addrs: Vec<_> = target
         .to_socket_addrs()
-        .map_err(|e| EdgeMonError::Security(format!("DNS resolution failed for {host}: {e}")))?;
+        .map_err(|e| EdgeMonError::Security(format!("DNS resolution failed for {host}: {e}")))?
+        .collect();
 
-    if let Some(socket_addr) = addrs.next() {
-        let ip = socket_addr.ip();
+    // Prefer IPv4 if available to support IPv4 ping sockets on dual-stack hosts
+    let selected_ip = addrs
+        .iter()
+        .map(|s| s.ip())
+        .find(|ip| ip.is_ipv4())
+        .or_else(|| addrs.first().map(|s| s.ip()));
+
+    if let Some(ip) = selected_ip {
         if !allow_private && is_private_or_loopback(&ip) {
             return Err(EdgeMonError::Security(format!(
                 "Probing private/loopback destination '{host}' ({ip}) is prohibited"

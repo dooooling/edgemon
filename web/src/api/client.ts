@@ -130,12 +130,23 @@ export async function createAdminNode(payload: { name: string; traffic_reset_day
   return await res.json();
 }
 
-export async function deleteAdminNode(id: string) {
+export interface RotateTokenResponse {
+  rawToken: string;
+  warning?: string;
+}
+
+export interface DeleteNodeResponse {
+  status: string;
+  id: string;
+  warning?: string;
+}
+
+export async function deleteAdminNode(id: string): Promise<DeleteNodeResponse> {
   const res = await fetch(`/api/admin/nodes/${id}`, { method: 'DELETE' });
   return await res.json();
 }
 
-export async function rotateAdminNodeToken(id: string): Promise<{ rawToken: string }> {
+export async function rotateAdminNodeToken(id: string): Promise<RotateTokenResponse> {
   const res = await fetch(`/api/admin/nodes/${id}/token`, { method: 'POST' });
   return await res.json();
 }

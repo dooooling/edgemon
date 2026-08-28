@@ -23,9 +23,14 @@ export const AdminPage: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newNodeName, setNewNodeName] = useState('');
   const [newNodeResetDay, setNewNodeResetDay] = useState(1);
+  const [newNodeQuotaGb, setNewNodeQuotaGb] = useState('');
+  const [newNodeExpiresAt, setNewNodeExpiresAt] = useState('');
+  const [newNodeNote, setNewNodeNote] = useState('');
 
   const [oneTimeTokenModal, setOneTimeTokenModal] = useState<{ nodeId: string; rawToken: string; warning?: string } | null>(null);
   const [adminBannerWarning, setAdminBannerWarning] = useState<string | null>(null);
+  const [cmdTab, setCmdTab] = useState<'binary' | 'docker' | 'systemd' | 'raw'>('binary');
+  const [copyFeedback, setCopyFeedback] = useState(false);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -51,12 +56,21 @@ export const AdminPage: React.FC = () => {
   async function handleCreateNode(e: React.FormEvent) {
     e.preventDefault();
     try {
+      const quotaBytes = newNodeQuotaGb ? parseFloat(newNodeQuotaGb) * 1024 * 1024 * 1024 : null;
+      const expiresAtMs = newNodeExpiresAt ? new Date(newNodeExpiresAt).getTime() : null;
+
       const res = await createAdminNode({
         name: newNodeName,
         traffic_reset_day: newNodeResetDay,
+        traffic_quota_bytes: quotaBytes,
+        expires_at_ms: expiresAtMs,
+        note: newNodeNote || null,
       });
       setShowAddModal(false);
       setNewNodeName('');
+      setNewNodeQuotaGb('');
+      setNewNodeExpiresAt('');
+      setNewNodeNote('');
       setOneTimeTokenModal({
         nodeId: res.node.id,
         rawToken: res.rawToken,
@@ -256,14 +270,47 @@ export const AdminPage: React.FC = () => {
                     />
                   </div>
 
-                  <div style={{ marginBottom: '24px' }}>
-                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('reset_day_label')}</span>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                    <div>
+                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('reset_day_label')}</span>
+                      <input
+                        value={newNodeResetDay}
+                        onChange={(e) => setNewNodeResetDay(parseInt(e.target.value) || 1)}
+                        type="number"
+                        min={1}
+                        max={31}
+                        className="spacex-input"
+                      />
+                    </div>
+                    <div>
+                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('quota_gb_label')}</span>
+                      <input
+                        value={newNodeQuotaGb}
+                        onChange={(e) => setNewNodeQuotaGb(e.target.value)}
+                        type="number"
+                        min={0}
+                        placeholder="e.g. 1000"
+                        className="spacex-input"
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: '16px' }}>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('th_expire')} (Optional)</span>
                     <input
-                      value={newNodeResetDay}
-                      onChange={(e) => setNewNodeResetDay(parseInt(e.target.value) || 1)}
-                      type="number"
-                      min={1}
-                      max={31}
+                      value={newNodeExpiresAt}
+                      onChange={(e) => setNewNodeExpiresAt(e.target.value)}
+                      type="date"
+                      className="spacex-input"
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: '24px' }}>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>Note / 备注 (Optional)</span>
+                    <input
+                      value={newNodeNote}
+                      onChange={(e) => setNewNodeNote(e.target.value)}
+                      placeholder="e.g. Racknerd 2C2G US-West"
                       className="spacex-input"
                     />
                   </div>
@@ -281,50 +328,160 @@ export const AdminPage: React.FC = () => {
             </div>
           )}
 
-          {/* Token Modal */}
-          {oneTimeTokenModal && (
-            <div className="modal-backdrop-dark">
-              <div className="modal-box-dark">
-                <span className="eyebrow-cap" style={{ color: 'var(--colors-status-live)' }}>
-                  {t('token_modal_title')}
-                </span>
-                <h3 className="display-lg" style={{ fontSize: '20px', margin: '8px 0' }}>
-                  {t('token_modal_title')}
-                </h3>
-                <p className="caption" style={{ color: 'var(--colors-status-alert)' }}>
-                  {t('token_notice')}
-                </p>
+          {/* Token Modal with Multi-Command Generator */}
+          {oneTimeTokenModal && (() => {
+            const serverUrl = window.location.origin;
+            const nodeId = oneTimeTokenModal.nodeId;
+            const token = oneTimeTokenModal.rawToken;
 
-                {oneTimeTokenModal.warning && (
-                  <div style={{
-                    padding: '8px 12px',
-                    backgroundColor: 'rgba(255, 170, 0, 0.1)',
-                    border: '1px solid #ffaa00',
-                    borderRadius: '4px',
-                    margin: '12px 0',
-                    fontSize: '11px',
-                    color: '#ffaa00'
-                  }}>
-                    ⚠️ WARNING: {oneTimeTokenModal.warning} — Active agent socket disconnect RPC timed out. Existing stream will be evicted on next verification.
+            const binaryCmd = `./edgemon-agent --server ${serverUrl} --id ${nodeId} --token ${token}`;
+            const dockerCmd = `docker run -d --name edgemon --restart always --net=host -v /proc:/host/proc:ro -v /sys:/host/sys:ro dooooling/edgemon-agent:latest --server ${serverUrl} --id ${nodeId} --token ${token}`;
+            const systemdUnit = `[Unit]
+Description=EdgeMon Telemetry Agent Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/edgemon-agent --server ${serverUrl} --id ${nodeId} --token ${token}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target`;
+
+            return (
+              <div className="modal-backdrop-dark">
+                <div className="modal-box-dark" style={{ maxWidth: '640px' }}>
+                  <span className="eyebrow-cap" style={{ color: 'var(--colors-status-live)' }}>
+                    {t('token_modal_title')}
+                  </span>
+                  <h3 className="display-lg" style={{ fontSize: '20px', margin: '8px 0' }}>
+                    {t('token_modal_title')}
+                  </h3>
+                  <p className="caption" style={{ color: 'var(--colors-status-alert)' }}>
+                    {t('token_notice')}
+                  </p>
+
+                  {oneTimeTokenModal.warning && (
+                    <div style={{
+                      padding: '8px 12px',
+                      backgroundColor: 'rgba(255, 170, 0, 0.1)',
+                      border: '1px solid #ffaa00',
+                      borderRadius: '4px',
+                      margin: '12px 0',
+                      fontSize: '11px',
+                      color: '#ffaa00'
+                    }}>
+                      ⚠️ WARNING: {oneTimeTokenModal.warning} — Active agent socket disconnect RPC timed out. Existing stream will be evicted on next verification.
+                    </div>
+                  )}
+
+                  {/* Command Tab Selector */}
+                  <div className="range-capsules" style={{ margin: '16px 0 12px 0' }}>
+                    <button
+                      className={`range-capsule-btn ${cmdTab === 'binary' ? 'active' : ''}`}
+                      onClick={() => setCmdTab('binary')}
+                    >
+                      {t('cmd_binary')}
+                    </button>
+                    <button
+                      className={`range-capsule-btn ${cmdTab === 'docker' ? 'active' : ''}`}
+                      onClick={() => setCmdTab('docker')}
+                    >
+                      {t('cmd_docker')}
+                    </button>
+                    <button
+                      className={`range-capsule-btn ${cmdTab === 'systemd' ? 'active' : ''}`}
+                      onClick={() => setCmdTab('systemd')}
+                    >
+                      {t('cmd_systemd_unit')}
+                    </button>
+                    <button
+                      className={`range-capsule-btn ${cmdTab === 'raw' ? 'active' : ''}`}
+                      onClick={() => setCmdTab('raw')}
+                    >
+                      Raw Token
+                    </button>
                   </div>
-                )}
 
-                <div className="token-view-chassis">
-                  {oneTimeTokenModal.rawToken}
-                </div>
+                  {/* Command Content Box */}
+                  <div style={{ position: 'relative' }}>
+                    {cmdTab === 'binary' && (
+                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px' }}>
+                        {binaryCmd}
+                      </div>
+                    )}
+                    {cmdTab === 'docker' && (
+                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px' }}>
+                        {dockerCmd}
+                      </div>
+                    )}
+                    {cmdTab === 'systemd' && (
+                      <pre className="token-view-chassis" style={{ margin: 0, paddingRight: '90px', whiteSpace: 'pre-wrap', fontSize: '12px' }}>
+                        {systemdUnit}
+                      </pre>
+                    )}
+                    {cmdTab === 'raw' && (
+                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px' }}>
+                        {token}
+                      </div>
+                    )}
 
-                <span className="eyebrow-cap" style={{ fontSize: '10px' }}>
-                  NODE UUID: {oneTimeTokenModal.nodeId}
-                </span>
+                    {/* Copy Button */}
+                    <button
+                      className="button-ghost-on-dark button-ghost-sm"
+                      style={{
+                        position: 'absolute',
+                        top: '12px',
+                        right: '12px',
+                        padding: '4px 12px',
+                        backgroundColor: copyFeedback ? 'var(--colors-status-live)' : 'rgba(255, 255, 255, 0.1)',
+                        color: copyFeedback ? '#000000' : '#ffffff',
+                        fontWeight: 700,
+                      }}
+                      onClick={() => {
+                        const contentToCopy =
+                          cmdTab === 'binary'
+                            ? binaryCmd
+                            : cmdTab === 'docker'
+                            ? dockerCmd
+                            : cmdTab === 'systemd'
+                            ? systemdUnit
+                            : token;
+                        navigator.clipboard.writeText(contentToCopy);
+                        setCopyFeedback(true);
+                        setTimeout(() => setCopyFeedback(false), 2000);
+                      }}
+                    >
+                      {copyFeedback ? t('btn_copied') : t('btn_copy_cmd')}
+                    </button>
+                  </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
-                  <button className="button-ghost-on-dark" onClick={() => setOneTimeTokenModal(null)}>
-                    {t('save_node_btn')}
-                  </button>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+                    <span className="eyebrow-cap" style={{ fontSize: '10px' }}>
+                      NODE UUID: {nodeId}
+                    </span>
+                    <button
+                      style={{ background: 'none', border: 'none', color: 'var(--colors-muted)', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(nodeId);
+                        setCopyFeedback(true);
+                        setTimeout(() => setCopyFeedback(false), 2000);
+                      }}
+                    >
+                      Copy UUID
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
+                    <button className="button-ghost-on-dark" onClick={() => setOneTimeTokenModal(null)}>
+                      {t('save_node_btn')}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       )}
     </div>

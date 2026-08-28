@@ -1,9 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePublicNodesQuery } from '../queries/nodes';
 import { useRealtimeStore } from '../realtime/store';
 import { WorldMap } from '../components/WorldMap';
 import { NodeCard } from '../components/NodeCard';
+import { NodeTable } from '../components/NodeTable';
 import { useTranslation } from '../i18n/I18nContext';
 
 export const OverviewPage: React.FC = () => {
@@ -11,6 +12,7 @@ export const OverviewPage: React.FC = () => {
   const connectRealtime = useRealtimeStore((s) => s.connectRealtime);
   const overlays = useRealtimeStore((s) => s.overlays);
   const { t } = useTranslation();
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
   useEffect(() => {
     connectRealtime('overview');
@@ -64,7 +66,7 @@ export const OverviewPage: React.FC = () => {
       {/* 3. Orbital World Map */}
       <WorldMap nodes={nodes} />
 
-      {/* 4. Fleet Nodes Grid Section */}
+      {/* 4. Fleet Nodes Grid / Table Section */}
       <div className="section-title-bar">
         <div>
           <span className="eyebrow-cap">{t('fleet_nodes_title')}</span>
@@ -72,9 +74,27 @@ export const OverviewPage: React.FC = () => {
             {t('registered_instances')} ({nodes.length})
           </h2>
         </div>
-        <button className="button-ghost-on-dark button-ghost-sm" onClick={() => refetch()}>
-          {t('refresh_fleet')}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* View Mode Toggle */}
+          <div className="range-capsules">
+            <button
+              className={`range-capsule-btn ${viewMode === 'grid' ? 'active' : ''}`}
+              onClick={() => setViewMode('grid')}
+            >
+              {t('view_grid')}
+            </button>
+            <button
+              className={`range-capsule-btn ${viewMode === 'table' ? 'active' : ''}`}
+              onClick={() => setViewMode('table')}
+            >
+              {t('view_table')}
+            </button>
+          </div>
+
+          <button className="button-ghost-on-dark button-ghost-sm" onClick={() => refetch()}>
+            {t('refresh_fleet')}
+          </button>
+        </div>
       </div>
 
       {isLoading && nodes.length === 0 ? (
@@ -91,6 +111,8 @@ export const OverviewPage: React.FC = () => {
             </Link>
           </div>
         </div>
+      ) : viewMode === 'table' ? (
+        <NodeTable nodes={nodes} />
       ) : (
         <div className="nodes-grid">
           {nodes.map((node) => (

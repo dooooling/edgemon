@@ -45,6 +45,7 @@ export interface NodeItem {
     period_tx_bytes: number;
     period_total_bytes: number;
   } | null;
+  expires_at_ms?: number | null;
   state?: {
     last_seen_at_ms: number;
     cpu_usage_pct?: number | null;
@@ -120,7 +121,13 @@ export async function fetchAdminNodes(): Promise<{ nodes: any[] }> {
   return await res.json();
 }
 
-export async function createAdminNode(payload: { name: string; traffic_reset_day?: number; note?: string }) {
+export async function createAdminNode(payload: {
+  name: string;
+  traffic_reset_day?: number;
+  traffic_quota_bytes?: number | null;
+  expires_at_ms?: number | null;
+  note?: string | null;
+}) {
   const res = await fetch('/api/admin/nodes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

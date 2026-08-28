@@ -115,6 +115,7 @@ publicRoutes.get('/api/public/nodes', async (c) => {
         period_tx_bytes: periodTx,
         period_total_bytes: periodRx + periodTx,
       },
+      expires_at_ms: row.expires_at_ms || null,
       state: row.last_seen_at_ms ? {
         last_seen_at_ms: row.last_seen_at_ms,
         cpu_usage_pct: row.cpu_usage_pct,

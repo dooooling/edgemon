@@ -88,12 +88,45 @@ export const translations = {
     token_modal_title: '节点 Token（仅展示一次）',
     token_notice: '请妥善保存以下节点 Token 与 Agent 启动命令。',
 
+    // View Toggles & Table Headers
+    view_grid: '卡片矩阵',
+    view_table: '紧凑表格',
+    th_status: '状态',
+    th_node: '节点 / 系统',
+    th_cpu: 'CPU',
+    th_ram: '内存',
+    th_disk: '磁盘',
+    th_net: '实时网速',
+    th_traffic: '账期流量',
+    th_rtt: 'CF 延迟',
+    th_expire: '到期时间',
+    th_actions: '管理操作',
+
+    // Quick Command Modal Tabs
+    cmd_linux_systemd: 'Linux 一键服务 (Systemd)',
+    cmd_binary: '直接运行命令',
+    cmd_docker: 'Docker 容器运行',
+    cmd_systemd_unit: 'Systemd 服务文件',
+    btn_copy_cmd: '复制命令',
+    btn_copied: '已复制！',
+
+    // Probe Presets
+    probe_presets: '快速加载测速预设',
+    preset_china_3net: '中国三网骨干 (电信/联通/移动/阿里)',
+    preset_global_infra: '全球基础设施 (Cloudflare/Google/Apple)',
+    preset_minimal_ping: '极简基础测速 (1.1.1.1 & 8.8.8.8)',
+
+    // Expiration Tracker
+    exp_badge: '到期',
+    exp_days_left: '天后到期',
+    exp_today: '今日到期',
+    exp_expired: '已过期',
+
     // Table Headers & Actions
     th_node_identifier: '节点标识名称',
     th_node_uuid: '节点 UUID',
     th_billing_reset: '流量重置日',
     th_provision_date: '创建日期',
-    th_actions: '管理操作',
     btn_rotate: '轮转 Token',
     btn_delete: '删除节点',
     day_prefix: '每月 ',
@@ -192,12 +225,45 @@ export const translations = {
     token_modal_title: 'NODE TOKEN (DISPLAYED ONCE)',
     token_notice: 'Save the following node token and agent execution command securely.',
 
+    // View Toggles & Table Headers
+    view_grid: 'GRID MATRIX',
+    view_table: 'FLEET TABLE',
+    th_status: 'STATUS',
+    th_node: 'NODE / SYSTEM',
+    th_cpu: 'CPU',
+    th_ram: 'RAM',
+    th_disk: 'DISK',
+    th_net: 'NET RATE',
+    th_traffic: 'CYCLE TRAFFIC',
+    th_rtt: 'EDGE RTT',
+    th_expire: 'EXPIRES',
+    th_actions: 'ACTIONS',
+
+    // Quick Command Modal Tabs
+    cmd_linux_systemd: 'Linux Service (Systemd)',
+    cmd_binary: 'Direct Run',
+    cmd_docker: 'Docker Container',
+    cmd_systemd_unit: 'Systemd Unit File',
+    btn_copy_cmd: 'COPY COMMAND',
+    btn_copied: 'COPIED!',
+
+    // Probe Presets
+    probe_presets: 'LOAD PROBE PRESETS',
+    preset_china_3net: 'China Backbone (CT/CU/CM/Ali)',
+    preset_global_infra: 'Global Infra (Cloudflare/Google/Apple)',
+    preset_minimal_ping: 'Minimal Ping (1.1.1.1 & 8.8.8.8)',
+
+    // Expiration Tracker
+    exp_badge: 'EXP',
+    exp_days_left: 'd left',
+    exp_today: 'TODAY',
+    exp_expired: 'EXPIRED',
+
     // Table Headers & Actions
     th_node_identifier: 'NODE IDENTIFIER',
     th_node_uuid: 'NODE UUID',
     th_billing_reset: 'BILLING RESET',
     th_provision_date: 'PROVISION DATE',
-    th_actions: 'ACTIONS',
     btn_rotate: 'ROTATE',
     btn_delete: 'DELETE',
     day_prefix: 'DAY ',

@@ -600,6 +600,10 @@ body {
   color: var(--colors-on-dark);
 }
 
+.table-row-hover:hover td {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
 /* Inputs */
 .spacex-input {
   width: 100%;

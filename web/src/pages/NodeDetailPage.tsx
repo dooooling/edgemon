@@ -261,6 +261,32 @@ export const NodeDetailPage: React.FC = () => {
                 {node.geo?.asn ? `AS${node.geo.asn} ${node.geo.as_org || ''}` : 'UNKNOWN'}
               </span>
             </div>
+            {node.expires_at_ms && (
+              <div className="spec-entry">
+                <span className="spec-entry-label">{t('th_expire')}</span>
+                <span className="spec-entry-val" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>{new Date(node.expires_at_ms).toLocaleDateString()}</span>
+                  {(() => {
+                    const daysLeft = Math.ceil((node.expires_at_ms - Date.now()) / (1000 * 60 * 60 * 24));
+                    if (daysLeft < 0) {
+                      return <span className="spacex-chip" style={{ backgroundColor: 'rgba(226, 39, 24, 0.2)', color: '#e22718', border: '1px solid #e22718' }}>{t('exp_expired')}</span>;
+                    } else if (daysLeft <= 3) {
+                      return <span className="spacex-chip" style={{ backgroundColor: 'rgba(226, 39, 24, 0.15)', color: '#e22718' }}>{daysLeft === 0 ? t('exp_today') : `${daysLeft}d`}</span>;
+                    } else if (daysLeft <= 7) {
+                      return <span className="spacex-chip" style={{ backgroundColor: 'rgba(244, 180, 0, 0.15)', color: '#f4b400' }}>{daysLeft}d</span>;
+                    } else {
+                      return <span className="spacex-chip">{daysLeft}d</span>;
+                    }
+                  })()}
+                </span>
+              </div>
+            )}
+            {node.note && (
+              <div className="spec-entry">
+                <span className="spec-entry-label">NOTE / 备注</span>
+                <span className="spec-entry-val">{node.note}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>

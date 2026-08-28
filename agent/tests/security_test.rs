@@ -50,3 +50,15 @@ fn test_loopback_and_private_ipv6() {
         &"2606:4700:4700::1111".parse::<IpAddr>().unwrap()
     ));
 }
+
+#[test]
+fn test_validate_and_resolve_target_localhost_blocked_by_default() {
+    let res = edgemon_agent::probe::security::validate_and_resolve_target("127.0.0.1", 80, false);
+    assert!(res.is_err());
+    assert!(res.unwrap_err().to_string().contains("prohibited"));
+
+    let res_allowed =
+        edgemon_agent::probe::security::validate_and_resolve_target("127.0.0.1", 80, true);
+    assert!(res_allowed.is_ok());
+    assert_eq!(res_allowed.unwrap(), "127.0.0.1".parse::<IpAddr>().unwrap());
+}

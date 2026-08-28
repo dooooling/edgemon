@@ -21,24 +21,43 @@ pub fn is_private_or_loopback(ip: &IpAddr) -> bool {
 
 pub fn validate_and_resolve_target(host: &str, port: u16, allow_private: bool) -> Result<IpAddr> {
     let target = format!("{host}:{port}");
-    let addrs: Vec<_> = target
+    let addrs: Vec<IpAddr> = target
         .to_socket_addrs()
         .map_err(|e| EdgeMonError::Security(format!("DNS resolution failed for {host}: {e}")))?
+        .map(|s| s.ip())
         .collect();
 
-    // Prefer IPv4 if available to support IPv4 ping sockets on dual-stack hosts
-    let selected_ip = addrs
+    if addrs.is_empty() {
+        return Err(EdgeMonError::Security(format!(
+            "No IP address resolved for {host}"
+        )));
+    }
+
+    let valid_addrs: Vec<IpAddr> = if allow_private {
+        addrs.clone()
+    } else {
+        addrs
+            .iter()
+            .copied()
+            .filter(|ip| !is_private_or_loopback(ip))
+            .collect()
+    };
+
+    if valid_addrs.is_empty() {
+        return Err(EdgeMonError::Security(format!(
+            "Probing private/loopback destination '{host}' ({}) is prohibited",
+            addrs[0]
+        )));
+    }
+
+    // Prefer IPv4 among valid candidates, otherwise fallback to first valid IP
+    let selected_ip = valid_addrs
         .iter()
-        .map(|s| s.ip())
+        .copied()
         .find(|ip| ip.is_ipv4())
-        .or_else(|| addrs.first().map(|s| s.ip()));
+        .or(valid_addrs.first().copied());
 
     if let Some(ip) = selected_ip {
-        if !allow_private && is_private_or_loopback(&ip) {
-            return Err(EdgeMonError::Security(format!(
-                "Probing private/loopback destination '{host}' ({ip}) is prohibited"
-            )));
-        }
         return Ok(ip);
     }
 

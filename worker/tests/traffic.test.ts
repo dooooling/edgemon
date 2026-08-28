@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeBillingPeriodStart } from '../src/db/traffic';
+import { computeBillingPeriodStart, applySampleTrafficTransition, TrafficRuntimeState } from '../src/db/traffic';
 
 describe('Traffic Period Calculation', () => {
   it('computes correct period start on same day', () => {
@@ -196,5 +196,59 @@ describe('Traffic Period Calculation', () => {
     // Resumes active Aug 01 period with active base 7000 without resetting or rolling over!
     expect(state.period_start_ms).toBe(aug01);
     expect(state.active_rx_base_bytes).toBe(7000);
+  });
+
+  it('P0: clock rollback across traffic_reset_day boundary does NOT revert billing period or corrupt base/settlement', () => {
+    const sep01 = Date.UTC(2026, 8, 1, 0, 0, 5, 0); // Sep 1 00:00:05
+    const aug31 = Date.UTC(2026, 7, 31, 23, 59, 55, 0); // Aug 31 23:59:55
+    const sep01Later = Date.UTC(2026, 8, 1, 0, 0, 15, 0); // Sep 1 00:00:15
+    const sepPeriodStart = Date.UTC(2026, 8, 1, 0, 0, 0, 0);
+
+    let state: TrafficRuntimeState = {
+      period_start_ms: sepPeriodStart,
+      finalized_rx_bytes: 1000,
+      finalized_tx_bytes: 500,
+      active_counter_id: 'counter-a',
+      active_rx_base_bytes: 5000,
+      active_tx_base_bytes: 2500,
+      dirty: false,
+      prev_period_settlement: null,
+    };
+
+    // 1. Clock rollback to Aug 31 23:59:55
+    state = applySampleTrafficTransition(
+      state,
+      aug31,
+      5200,
+      2600,
+      'counter-a',
+      1, // resetDay = 1
+      5000,
+      2500
+    );
+
+    // Verified: period_start_ms remains Sep 1 (does NOT roll backward to Aug 1!)
+    expect(state.period_start_ms).toBe(sepPeriodStart);
+    expect(state.prev_period_settlement).toBeNull();
+    // Base is preserved:
+    expect(state.active_rx_base_bytes).toBe(5000);
+
+    // 2. Normal sample advances at Sep 1 00:00:15
+    state = applySampleTrafficTransition(
+      state,
+      sep01Later,
+      5500,
+      2750,
+      'counter-a',
+      1,
+      5200,
+      2600
+    );
+
+    expect(state.period_start_ms).toBe(sepPeriodStart);
+    expect(state.prev_period_settlement).toBeNull();
+    // Active bytes calculated correctly from base 5000:
+    const activeRx = state.active_rx_base_bytes !== null ? 5500 - state.active_rx_base_bytes : 0;
+    expect(activeRx).toBe(500); // 5500 - 5000 = 500 (not corrupted or underestimated!)
   });
 });

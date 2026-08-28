@@ -161,12 +161,17 @@ adminRoutes.delete('/api/admin/nodes/:id', async (c) => {
   await c.env.DB.prepare('DELETE FROM nodes WHERE id = ?').bind(id).run();
 
   // 2. Once D1 delete succeeds, disconnect active WSS agent connection
+  const hubId = c.env.REALTIME.idFromName('main');
+  const hubStub = c.env.REALTIME.get(hubId);
   try {
-    const hubId = c.env.REALTIME.idFromName('main');
-    const hubStub = c.env.REALTIME.get(hubId);
     await (hubStub as any).disconnectAgent(id, CloseCodes.NODE_DISABLED, 'NODE_DISABLED');
   } catch (e) {
-    console.error('[Admin] Best-effort disconnect agent on node deletion:', e);
+    console.error('[Admin] Disconnect agent failed on node deletion, retrying once:', e);
+    try {
+      await (hubStub as any).disconnectAgent(id, CloseCodes.NODE_DISABLED, 'NODE_DISABLED');
+    } catch (e2) {
+      console.error('[Admin] Disconnect agent retry failed on node deletion:', e2);
+    }
   }
 
   return c.json({ status: 'deleted', id });
@@ -187,12 +192,17 @@ adminRoutes.post('/api/admin/nodes/:id/token', async (c) => {
   }
 
   // 2. Once D1 rotation succeeds, disconnect active agent connection so it reconnects with new token
+  const hubId = c.env.REALTIME.idFromName('main');
+  const hubStub = c.env.REALTIME.get(hubId);
   try {
-    const hubId = c.env.REALTIME.idFromName('main');
-    const hubStub = c.env.REALTIME.get(hubId);
     await (hubStub as any).disconnectAgent(id, CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED');
   } catch (e) {
-    console.error('[Admin] Best-effort disconnect agent on token rotation:', e);
+    console.error('[Admin] Disconnect agent failed on token rotation, retrying once:', e);
+    try {
+      await (hubStub as any).disconnectAgent(id, CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED');
+    } catch (e2) {
+      console.error('[Admin] Disconnect agent retry failed on token rotation:', e2);
+    }
   }
 
   return c.json({ rawToken });

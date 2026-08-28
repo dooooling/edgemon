@@ -425,14 +425,6 @@ export async function ingestReportCore(
             currentAttachment.historical_minutes[histKey] = hist;
           }
 
-          if (s.sample_seq < currentAttachment.current_minute.first_sample_seq) {
-            const prevCutSeq: number = durableCut ? (durableCut as DurableCut).sampleSeq : 0;
-            durableCut = {
-              sampleSeq: Math.max(prevCutSeq, s.sample_seq),
-              report: s.metrics,
-              trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
-            };
-          }
         } else {
           // Sample timestamp belongs to an already-sealed D1 bucket (sampleBucket <= last_persist_bucket_ms),
           // but s.sample_seq is a valid newer sample. Fold its metrics and sample_seq safely into active current_minute
@@ -451,6 +443,19 @@ export async function ingestReportCore(
           currentAttachment.last_rx_total_bytes,
           currentAttachment.last_tx_total_bytes
         );
+
+        // Advance historical durable cut if this sample is earlier than live current_minute (P1: snapshot AFTER transition)
+        if (
+          sampleBucket > currentAttachment.last_persist_bucket_ms &&
+          s.sample_seq < currentAttachment.current_minute.first_sample_seq
+        ) {
+          const prevCutSeq: number = durableCut ? (durableCut as DurableCut).sampleSeq : 0;
+          durableCut = {
+            sampleSeq: Math.max(prevCutSeq, s.sample_seq),
+            report: s.metrics,
+            trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
+          };
+        }
       }
     } else {
       if (sampleBucket > currentAttachment.last_persist_bucket_ms) {

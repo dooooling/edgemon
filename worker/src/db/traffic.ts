@@ -184,8 +184,8 @@ export function applySampleTrafficTransition(
 ): TrafficRuntimeState {
   const currentPeriodStart = computeBillingPeriodStart(sampleTimeMs, resetDay);
 
-  // 1. Billing Period Rollover (P0-2: preserves boundary delta attribution using previous totals)
-  if (currentState.period_start_ms !== currentPeriodStart) {
+  // 1. Forward Billing Period Rollover (P0: strictly forward-only; clock rollback must never revert billing period)
+  if (currentPeriodStart > currentState.period_start_ms) {
     const newBaseRx = previousRxTotal ?? currentRxTotal;
     const newBaseTx = previousTxTotal ?? currentTxTotal;
 

@@ -1,20 +1,18 @@
 use crate::probe::security::validate_and_resolve_target;
 use crate::protocol::ProbeResult;
 #[cfg(target_os = "linux")]
+use std::net::IpAddr;
+#[cfg(target_os = "linux")]
 use std::time::Instant;
 
 pub fn can_use_icmp() -> bool {
     #[cfg(target_os = "linux")]
     {
         unsafe {
+            // Strictly check unprivileged datagram ICMP socket to match probe execution
             let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, libc::IPPROTO_ICMP);
             if fd >= 0 {
                 libc::close(fd);
-                return true;
-            }
-            let fd_raw = libc::socket(libc::AF_INET, libc::SOCK_RAW, libc::IPPROTO_ICMP);
-            if fd_raw >= 0 {
-                libc::close(fd_raw);
                 return true;
             }
         }
@@ -37,7 +35,7 @@ pub fn execute_icmp_probe(id: &str, host: &str, allow_private: bool) -> ProbeRes
     }
 
     // SSRF Check: resolve DNS first then inspect destination IP
-    let _ip = match validate_and_resolve_target(host, 0, allow_private) {
+    let ip = match validate_and_resolve_target(host, 0, allow_private) {
         Ok(ip) => ip,
         Err(e) => {
             let status = if e.to_string().contains("prohibited") {
@@ -56,7 +54,17 @@ pub fn execute_icmp_probe(id: &str, host: &str, allow_private: bool) -> ProbeRes
 
     #[cfg(target_os = "linux")]
     {
-        use std::mem::MaybeUninit;
+        let ipv4_addr = match ip {
+            IpAddr::V4(v4) => v4,
+            IpAddr::V6(_) => {
+                return ProbeResult {
+                    id: id.to_string(),
+                    status: "unsupported".to_string(),
+                    latency_ms: None,
+                    loss_ratio: 1.0,
+                };
+            }
+        };
 
         let mut latencies: Vec<f64> = Vec::new();
         let total_samples = 3;
@@ -73,7 +81,7 @@ pub fn execute_icmp_probe(id: &str, host: &str, allow_private: bool) -> ProbeRes
                 let mut dest_addr: libc::sockaddr_in = std::mem::zeroed();
                 dest_addr.sin_family = libc::AF_INET as libc::sa_family_t;
 
-                let ip_str = ip.to_string();
+                let ip_str = ipv4_addr.to_string();
                 let ip_cstr = match std::ffi::CString::new(ip_str) {
                     Ok(s) => s,
                     Err(_) => {
@@ -103,7 +111,7 @@ pub fn execute_icmp_probe(id: &str, host: &str, allow_private: bool) -> ProbeRes
                     icmp_seq: u16,
                 }
 
-                let mut packet = IcmpHeader {
+                let packet = IcmpHeader {
                     icmp_type: 8, // ICMP Echo Request
                     icmp_code: 0,
                     icmp_cksum: 0,
@@ -178,6 +186,7 @@ pub fn execute_icmp_probe(id: &str, host: &str, allow_private: bool) -> ProbeRes
 
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = ip;
         ProbeResult {
             id: id.to_string(),
             status: "unsupported".to_string(),

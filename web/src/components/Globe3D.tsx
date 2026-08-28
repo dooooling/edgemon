@@ -123,10 +123,15 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
 
   const rotYRef = useRef<number>(0.5);
   const rotXRef = useRef<number>(0.2);
+  const panXRef = useRef<number>(0);
+  const panYRef = useRef<number>(0);
+  const targetPanXRef = useRef<number>(0);
+  const targetPanYRef = useRef<number>(0);
   const scaleRef = useRef<number>(1.0);
   const targetScaleRef = useRef<number>(1.0);
   const morphRef = useRef<number>(mode === '2d' ? 1 : 0);
   const isDraggingRef = useRef<boolean>(false);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
   const lastMouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const geoNodes = nodes.filter(
@@ -208,8 +213,12 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
 
       ctx.clearRect(0, 0, width, height);
 
-      const centerX = width / 2;
-      const centerY = height / 2;
+      // Smooth pan interpolation
+      panXRef.current += (targetPanXRef.current - panXRef.current) * 0.2;
+      panYRef.current += (targetPanYRef.current - panYRef.current) * 0.2;
+
+      const centerX = width / 2 + panXRef.current;
+      const centerY = height / 2 + panYRef.current;
 
       // Apply Zoom Scale Interpolation
       scaleRef.current += (targetScaleRef.current - scaleRef.current) * 0.12;
@@ -438,12 +447,15 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     targetScaleRef.current = 1.0;
     rotXRef.current = 0.2;
     rotYRef.current = 0.5;
+    targetPanXRef.current = 0;
+    targetPanYRef.current = 0;
     setCurrentZoom(100);
   };
 
   // Mouse & Touch Drag Handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     isDraggingRef.current = true;
+    setIsDragging(true);
     lastMouseRef.current = { x: e.clientX, y: e.clientY };
   };
 
@@ -451,11 +463,18 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    if (isDraggingRef.current && mode === '3d') {
+    if (isDraggingRef.current) {
       const deltaX = e.clientX - lastMouseRef.current.x;
       const deltaY = e.clientY - lastMouseRef.current.y;
-      rotYRef.current += deltaX * 0.008;
-      rotXRef.current = Math.max(-1.0, Math.min(1.0, rotXRef.current + deltaY * 0.008));
+
+      if (mode === '3d' && morphRef.current < 0.5) {
+        rotYRef.current += deltaX * 0.008;
+        rotXRef.current = Math.max(-1.0, Math.min(1.0, rotXRef.current + deltaY * 0.008));
+      } else {
+        // In 2D flat map mode (or morphed state), pan horizontally & vertically across the canvas
+        targetPanXRef.current += deltaX;
+        targetPanYRef.current += deltaY;
+      }
       lastMouseRef.current = { x: e.clientX, y: e.clientY };
       return;
     }
@@ -464,8 +483,8 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
-    const centerX = canvas.clientWidth / 2;
-    const centerY = canvas.clientHeight / 2;
+    const centerX = canvas.clientWidth / 2 + panXRef.current;
+    const centerY = canvas.clientHeight / 2 + panYRef.current;
     const radius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.36 * scaleRef.current;
 
     let hovered: { node: NodeItem; x: number; y: number } | null = null;
@@ -498,10 +517,12 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
 
   const handleMouseUp = () => {
     isDraggingRef.current = false;
+    setIsDragging(false);
   };
 
   const handleMouseLeave = () => {
     isDraggingRef.current = false;
+    setIsDragging(false);
     setTooltipData(null);
   };
 
@@ -517,7 +538,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         position: 'relative',
         width: '100%',
         height: '400px',
-        cursor: tooltipData ? 'pointer' : (mode === '3d' ? 'grab' : 'default'),
+        cursor: isDragging ? 'grabbing' : (tooltipData ? 'pointer' : 'grab'),
         touchAction: 'none',
       }}
     >

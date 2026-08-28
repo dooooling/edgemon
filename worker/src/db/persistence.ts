@@ -19,6 +19,7 @@ export interface CheckpointParams {
   droppedSamples?: number;
   buckets: RawBucketMetric[];
   trafficStatements?: D1PreparedStatement[];
+  expectedTokenHash?: string | null;
 }
 
 export async function persist60sCheckpoint(
@@ -36,7 +37,19 @@ export async function persist60sCheckpoint(
     droppedSamples = 0,
     buckets = [],
     trafficStatements = [],
+    expectedTokenHash = null,
   } = params;
+
+  // Verify node token and existence at 60s checkpoint boundary (P1: fail-closed against zombie sockets)
+  if (expectedTokenHash) {
+    const nodeRow = await db
+      .prepare('SELECT token_hash FROM nodes WHERE id = ?')
+      .bind(nodeId)
+      .first<{ token_hash: string }>();
+    if (!nodeRow || nodeRow.token_hash !== expectedTokenHash) {
+      throw new Error('TOKEN_REVOKED_OR_NODE_DELETED');
+    }
+  }
 
   const probesJson = JSON.stringify(latestReport.probes || []);
   const statements: D1PreparedStatement[] = [];

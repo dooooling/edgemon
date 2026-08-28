@@ -39,6 +39,7 @@ agentStreamRoute.get('/api/agent/v1/stream', async (c) => {
   forwardUrl.searchParams.set('traffic_reset_day', String(node.traffic_reset_day || 1));
   forwardUrl.searchParams.set('is_hidden', String(node.hidden || 0));
   forwardUrl.searchParams.set('geo_json', JSON.stringify(geo));
+  forwardUrl.searchParams.set('token_hash', node.token_hash);
 
   const forwardHeaders = new Headers();
   forwardHeaders.set('Upgrade', 'websocket');

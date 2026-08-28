@@ -81,6 +81,8 @@ export class RealtimeHub extends DurableObject<Env> {
         return new Response('Missing Agent connection parameters', { status: 400 });
       }
 
+      const tokenHash = url.searchParams.get('token_hash');
+
       const now = Date.now();
       const attachment: AgentAttachment = createDefaultAttachment(
         nodeId,
@@ -89,7 +91,8 @@ export class RealtimeHub extends DurableObject<Env> {
         now,
         geo,
         trafficResetDay,
-        isHidden
+        isHidden,
+        tokenHash
       );
 
       // Hibernation accept with Agent tags

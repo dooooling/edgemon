@@ -93,6 +93,9 @@ function createMockDb(persistedInstanceId: string | null = null, persistedSample
           if (sql.includes('FROM node_state')) {
             return { ...nodeState };
           }
+          if (sql.includes('FROM nodes')) {
+            return { token_hash: 'mock-hash' };
+          }
           return null;
         },
         async run() {
@@ -1381,5 +1384,57 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     const bucket105 = mockDb.insertedBuckets.find((item) => item.bucketStartMs === t0 + 300000);
     expect(bucket105).toBeDefined();
     expect(bucket105?.cpuUsagePct).toBe(15);
+  });
+
+  it('P1: token rotation causes 60s checkpoint to fail-closed with PERSISTENCE_FAILED even if DO RPC disconnect failed', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    // Attachment connected with old token 'hash-v1':
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo, 1, false, 'hash-v1');
+    const t0 = Math.floor((Date.now() - 300000) / 60000) * 60000;
+
+    // 1. Initial sample in minute 0 (12:00)
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      { samples: [{ sample_seq: 1, sampled_at_ms: t0, metrics: baseMetrics }] },
+      mockGeo,
+      attachment
+    );
+
+    // 2. Token rotated in D1 to 'hash-v2' (mockDb query for node will return 'hash-v2')
+    // Override mockDb to return 'hash-v2' on node query:
+    const origPrepare = mockDb.prepare;
+    mockDb.prepare = (sql: string) => {
+      const p = origPrepare(sql);
+      return {
+        ...p,
+        first: async () => {
+          if (sql.includes('FROM nodes')) {
+            return { token_hash: 'hash-v2' }; // New rotated token in D1!
+          }
+          return p.first();
+        },
+      };
+    };
+
+    // 3. Rollover to minute 1 (12:01) triggers 60s checkpoint:
+    // persist60sCheckpoint validates token_hash and sees 'hash-v1' !== 'hash-v2'!
+    const resRollover = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      2,
+      { samples: [{ sample_seq: 2, sampled_at_ms: t0 + 60000, metrics: baseMetrics }] },
+      mockGeo,
+      attachment
+    );
+
+    // Verified: Rejected with PERSISTENCE_FAILED, which triggers immediate socket termination in RealtimeHub!
+    expect(resRollover.result.accepted).toBe(false);
+    expect(resRollover.result.error).toBe('PERSISTENCE_FAILED');
   });
 });

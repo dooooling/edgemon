@@ -55,6 +55,7 @@ export interface AgentAttachment {
   current_minute: MinuteAccumulator | null;
   historical_minutes: Record<string, MinuteAccumulator>;
   traffic_state: TrafficRuntimeState;
+  token_hash?: string | null;
 }
 
 export interface IngestResult {
@@ -531,6 +532,7 @@ export async function ingestReportCore(
         droppedSamples: report.dropped_samples || 0,
         buckets: bucketsToPersist,
         trafficStatements,
+        expectedTokenHash: currentAttachment.token_hash,
       });
 
       actuallyPersisted = true;
@@ -584,7 +586,8 @@ export function createDefaultAttachment(
   nowMs: number,
   geo: NormalizedGeo,
   trafficResetDay = 1,
-  isHidden = false
+  isHidden = false,
+  tokenHash: string | null = null
 ): AgentAttachment {
   const periodStartMs = computeBillingPeriodStart(nowMs, trafficResetDay);
   return {
@@ -617,5 +620,6 @@ export function createDefaultAttachment(
       active_tx_base_bytes: null,
       dirty: false,
     },
+    token_hash: tokenHash,
   };
 }

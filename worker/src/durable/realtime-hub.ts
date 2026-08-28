@@ -458,6 +458,11 @@ export class RealtimeHub extends DurableObject<Env> {
     const sockets = this.ctx.getWebSockets(`agent:${nodeId}`);
     for (const ws of sockets) {
       try {
+        const attachment = ws.deserializeAttachment() as SocketAttachment | null;
+        if (attachment && attachment.kind === 'agent') {
+          attachment.hello_ok = false;
+          ws.serializeAttachment(attachment);
+        }
         ws.close(code, reason);
       } catch {
         // ignore
@@ -539,8 +544,14 @@ export class RealtimeHub extends DurableObject<Env> {
       syntheticAttachment.last_rx_total_bytes = stateRow.rx_total_bytes;
       syntheticAttachment.last_tx_total_bytes = stateRow.tx_total_bytes;
       syntheticAttachment.last_counter_id = stateRow.network_counter_id;
-      syntheticAttachment.last_persist_bucket_ms = Math.floor((stateRow.persisted_at_ms || 0) / 60000) * 60000;
     }
+
+    // Hydrate true last persisted bucket from metrics_raw (P0-1)
+    const lastBucketRow = await this.env.DB
+      .prepare('SELECT MAX(bucket_start_ms) AS last_bucket FROM metrics_raw WHERE node_id = ?')
+      .bind(nodeId)
+      .first<{ last_bucket: number | null }>();
+    syntheticAttachment.last_persist_bucket_ms = lastBucketRow?.last_bucket ?? 0;
 
     syntheticAttachment.traffic_state = await loadTrafficRuntimeState(
       this.env.DB,

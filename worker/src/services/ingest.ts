@@ -357,18 +357,28 @@ export async function ingestReportCore(
     if (currentAttachment.current_minute) {
       if (sampleBucket > currentAttachment.current_minute.bucket_start_ms) {
         // Forward Minute Rollover: previous minute is CLOSED and FINALIZED
+        const finalizedHistorical = Object.values(currentAttachment.historical_minutes).filter(
+          (h) => h.bucket_start_ms > currentAttachment.last_persist_bucket_ms
+        );
+        const maxFinalizedSeq = Math.max(
+          currentAttachment.current_minute.last_sample_seq,
+          ...finalizedHistorical.map((h) => h.last_sample_seq)
+        );
+        let latestFinalizedReport = currentAttachment.current_minute.last_metrics;
+        for (const h of finalizedHistorical) {
+          if (h.last_sample_seq === maxFinalizedSeq) {
+            latestFinalizedReport = h.last_metrics;
+          }
+        }
+
         durableCut = {
-          sampleSeq: currentAttachment.current_minute.last_sample_seq,
-          report: currentAttachment.current_minute.last_metrics,
+          sampleSeq: maxFinalizedSeq,
+          report: latestFinalizedReport,
           trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
         };
 
-        // Include any uncommitted historical accumulators
-        for (const [bStartStr, hist] of Object.entries(currentAttachment.historical_minutes)) {
-          const bStart = Number(bStartStr);
-          if (bStart > currentAttachment.last_persist_bucket_ms) {
-            bucketsToPersist.push(finalizeAccumulator(hist));
-          }
+        for (const hist of finalizedHistorical) {
+          bucketsToPersist.push(finalizeAccumulator(hist));
         }
         currentAttachment.historical_minutes = {};
 
@@ -423,6 +433,11 @@ export async function ingestReportCore(
               trafficState: cloneTrafficRuntimeState(currentAttachment.traffic_state),
             };
           }
+        } else {
+          // Sample timestamp belongs to an already-sealed D1 bucket (sampleBucket <= last_persist_bucket_ms),
+          // but s.sample_seq is a valid newer sample. Fold its metrics and sample_seq safely into active current_minute
+          // to ensure contiguous durable cut without modifying the sealed past D1 bucket.
+          mergeIntoAccumulator(currentAttachment.current_minute, s, rxDelta, txDelta);
         }
 
         // Advance traffic_state for sample s (to keep monotonic counter tracking active):
@@ -440,6 +455,9 @@ export async function ingestReportCore(
     } else {
       if (sampleBucket > currentAttachment.last_persist_bucket_ms) {
         currentAttachment.current_minute = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
+      } else {
+        // Initial sample with rolled-back timestamp: create accumulator for currentServerBucket
+        currentAttachment.current_minute = createMinuteAccumulator(currentServerBucket, s, rxDelta, txDelta);
       }
 
       // Advance live in-memory traffic_state for this initial sample

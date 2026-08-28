@@ -1114,4 +1114,179 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
       vi.useRealTimers();
     }
   });
+
+  it('P0: forward rollover directly to minute2 without returning to minute1 strictly commits all historical minutes and aligns durable watermark to max seq', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    const t0 = Math.floor((Date.now() - 300000) / 60000) * 60000;
+
+    // 1. seq10 @ minute 1 (t0 + 60000)
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      {
+        samples: [
+          {
+            sample_seq: 10,
+            sampled_at_ms: t0 + 60000,
+            metrics: { ...baseMetrics, cpu: { ...baseMetrics.cpu, usage_pct: 15 } },
+          },
+        ],
+      },
+      mockGeo,
+      attachment
+    );
+    expect(attachment.current_minute?.bucket_start_ms).toBe(t0 + 60000);
+    expect(attachment.persisted_sample_seq).toBe(0);
+
+    // 2. seq11 @ minute 0 (t0 + 10000): Clock jumped backwards!
+    // Stored in historical_minutes for t0
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      2,
+      {
+        samples: [
+          {
+            sample_seq: 11,
+            sampled_at_ms: t0 + 10000,
+            metrics: { ...baseMetrics, cpu: { ...baseMetrics.cpu, usage_pct: 25 } },
+          },
+        ],
+      },
+      mockGeo,
+      attachment
+    );
+    expect(attachment.current_minute?.bucket_start_ms).toBe(t0 + 60000);
+
+    // 3. seq12 @ minute 2 (t0 + 130000): Direct jump to minute 2 without returning to minute 1!
+    // Must finalize BOTH minute 0 (seq 11) and minute 1 (seq 10), and advance watermark strictly to 11 (NOT 10!)
+    const res3 = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      3,
+      {
+        samples: [
+          {
+            sample_seq: 12,
+            sampled_at_ms: t0 + 130000,
+            metrics: { ...baseMetrics, cpu: { ...baseMetrics.cpu, usage_pct: 45 } },
+          },
+        ],
+      },
+      mockGeo,
+      attachment
+    );
+
+    expect(res3.result.accepted).toBe(true);
+    expect(res3.result.persisted).toBe(true);
+    // Verified: Watermark is strictly 11 (NOT 10!), matching all persisted buckets in D1!
+    expect(attachment.persisted_sample_seq).toBe(11);
+    expect(attachment.current_minute?.bucket_start_ms).toBe(t0 + 120000);
+
+    // Verified that both minute 0 and minute 1 are in metrics_raw
+    const minute0Bucket = mockDb.insertedBuckets.find((b) => b.bucketStartMs === t0);
+    expect(minute0Bucket).toBeDefined();
+    expect(minute0Bucket?.cpuUsagePct).toBe(25);
+
+    const minute1Bucket = mockDb.insertedBuckets.find((b) => b.bucketStartMs === t0 + 60000);
+    expect(minute1Bucket).toBeDefined();
+    expect(minute1Bucket?.cpuUsagePct).toBe(15);
+  });
+
+  it('P0: sample with rolled-back timestamp落入已 sealed 桶时安全折叠至当前活跃桶保持连续持久化切分', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', Date.now(), mockGeo);
+    const t0 = Math.floor((Date.now() - 300000) / 60000) * 60000;
+
+    // 1. Minute 0 (t0) is sealed into D1 with seq 10
+    attachment.last_persist_bucket_ms = t0;
+    attachment.persisted_sample_seq = 10;
+    attachment.current_minute = {
+      bucket_start_ms: t0 + 60000,
+      first_sample_seq: 11,
+      last_sample_seq: 11,
+      sample_count: 1,
+      cpu_sum: 20,
+      cpu_count: 1,
+      cpu_throttled_sum: 0,
+      cpu_throttled_count: 1,
+      mem_used_sum: 1024,
+      mem_count: 1,
+      swap_used_sum: 0,
+      swap_count: 1,
+      rootfs_used_sum: 0,
+      rootfs_count: 0,
+      disk_read_bps_sum: 0,
+      disk_write_bps_sum: 0,
+      disk_count: 1,
+      rx_bps_sum: 0,
+      tx_bps_sum: 0,
+      net_bps_count: 1,
+      rx_delta_sum: 0,
+      tx_delta_sum: 0,
+      edge_rtt_sum: 10,
+      edge_rtt_count: 1,
+      uptime_sec: 100,
+      last_metrics: baseMetrics,
+    };
+
+    // 2. seq 12 arrives with sampled_at_ms in minute 0 (t0 + 10000) -> Already sealed!
+    // Must merge into active minute 1 (t0 + 60000) without dropping seq 12 or modifying sealed minute 0!
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      {
+        samples: [
+          {
+            sample_seq: 12,
+            sampled_at_ms: t0 + 10000,
+            metrics: { ...baseMetrics, cpu: { ...baseMetrics.cpu, usage_pct: 30 } },
+          },
+        ],
+      },
+      mockGeo,
+      attachment
+    );
+
+    // 3. seq 13 arrives in minute 2 (t0 + 130000) -> Rollover!
+    const res3 = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      2,
+      {
+        samples: [
+          {
+            sample_seq: 13,
+            sampled_at_ms: t0 + 130000,
+            metrics: { ...baseMetrics, cpu: { ...baseMetrics.cpu, usage_pct: 40 } },
+          },
+        ],
+      },
+      mockGeo,
+      attachment
+    );
+
+    expect(res3.result.accepted).toBe(true);
+    expect(res3.result.persisted).toBe(true);
+    // Verified: Watermark advances to 12 (includes seq 12 which was safely folded into minute 1)
+    expect(attachment.persisted_sample_seq).toBe(12);
+
+    const minute1Bucket = mockDb.insertedBuckets.find((b) => b.bucketStartMs === t0 + 60000);
+    expect(minute1Bucket).toBeDefined();
+    // Combined CPU = (20 + 30) / 2 = 25
+    expect(minute1Bucket?.cpuUsagePct).toBe(25);
+  });
 });

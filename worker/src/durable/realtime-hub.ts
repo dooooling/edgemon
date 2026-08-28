@@ -353,7 +353,9 @@ export class RealtimeHub extends DurableObject<Env> {
       );
 
       if (!result.accepted) {
-        if (result.error === 'PERSISTENCE_FAILED') {
+        if (result.error === 'AUTH_FAILED') {
+          ws.close(CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED_OR_NODE_DELETED');
+        } else if (result.error === 'PERSISTENCE_FAILED') {
           ws.close(CloseCodes.SERVER_RECONNECT, 'D1 persistence failure, force replay');
         } else {
           this.sendError(ws, result.error || 'REPORT_REJECTED', 'Report failed validation', envelope.seq);

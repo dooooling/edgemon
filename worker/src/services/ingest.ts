@@ -56,6 +56,7 @@ export interface AgentAttachment {
   historical_minutes: Record<string, MinuteAccumulator>;
   traffic_state: TrafficRuntimeState;
   token_hash?: string | null;
+  last_token_verified_at_ms?: number;
 }
 
 export interface IngestResult {
@@ -273,6 +274,29 @@ export async function ingestReportCore(
       currentAttachment.last_counter_id = lastDbState.network_counter_id;
     }
     currentAttachment.traffic_state = await loadTrafficRuntimeState(db, nodeId, trafficResetDay);
+  }
+
+  // Periodic Token & Node Existence Re-validation (every 60s of wall-clock server time, independent of Agent sampled_at_ms)
+  if (
+    currentAttachment.token_hash &&
+    serverTimeMs - (currentAttachment.last_token_verified_at_ms || currentAttachment.connected_at_ms) >= 60000
+  ) {
+    const nodeRow = await db
+      .prepare('SELECT token_hash FROM nodes WHERE id = ?')
+      .bind(nodeId)
+      .first<{ token_hash: string }>();
+    if (!nodeRow || nodeRow.token_hash !== currentAttachment.token_hash) {
+      return {
+        result: {
+          accepted: false,
+          persisted: false,
+          error: 'AUTH_FAILED',
+          isHiddenNode: currentAttachment.is_hidden,
+        },
+        updatedAttachment: currentAttachment,
+      };
+    }
+    currentAttachment.last_token_verified_at_ms = serverTimeMs;
   }
 
   // 3. Extract and filter valid samples
@@ -621,5 +645,6 @@ export function createDefaultAttachment(
       dirty: false,
     },
     token_hash: tokenHash,
+    last_token_verified_at_ms: nowMs,
   };
 }

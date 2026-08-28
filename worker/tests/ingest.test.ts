@@ -1437,4 +1437,57 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     expect(resRollover.result.accepted).toBe(false);
     expect(resRollover.result.error).toBe('PERSISTENCE_FAILED');
   });
+
+  it('P1: static sampled_at_ms within same active minute triggers AUTH_FAILED after 60s wall-clock time', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    const startWallTime = Date.now();
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', startWallTime, mockGeo, 1, false, 'hash-v1');
+    const t0 = Math.floor(startWallTime / 60000) * 60000;
+
+    // 1. First sample at wall clock t0
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      { samples: [{ sample_seq: 1, sampled_at_ms: t0, metrics: baseMetrics }] },
+      mockGeo,
+      attachment
+    );
+
+    // 2. Token rotated in D1 to 'hash-v2'
+    const origPrepare = mockDb.prepare;
+    mockDb.prepare = (sql: string) => {
+      const p = origPrepare(sql);
+      return {
+        ...p,
+        first: async () => {
+          if (sql.includes('FROM nodes')) {
+            return { token_hash: 'hash-v2' }; // New rotated token in D1
+          }
+          return p.first();
+        },
+      };
+    };
+
+    // 3. Socket keeps sending samples with the SAME sampled_at_ms (t0), but server wall-clock time advances by 61s
+    // Advance attachment's last_token_verified_at_ms back by 61s to simulate 61s wall-clock elapsed
+    attachment.last_token_verified_at_ms = Date.now() - 61000;
+
+    const resSameMinute = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      2,
+      { samples: [{ sample_seq: 2, sampled_at_ms: t0, metrics: baseMetrics }] }, // strictly same minute!
+      mockGeo,
+      attachment
+    );
+
+    // Verified: AUTH_FAILED triggered regardless of same-minute merge!
+    expect(resSameMinute.result.accepted).toBe(false);
+    expect(resSameMinute.result.error).toBe('AUTH_FAILED');
+  });
 });

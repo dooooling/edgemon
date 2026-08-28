@@ -201,6 +201,15 @@ export class RealtimeHub extends DurableObject<Env> {
       for (const existing of existingSockets) {
         if (existing !== ws) {
           try {
+            const att = existing.deserializeAttachment() as SocketAttachment | null;
+            if (att && att.kind === 'agent') {
+              att.hello_ok = false;
+              safeSerializeAttachment(existing, att);
+            }
+          } catch {
+            // ignore
+          }
+          try {
             existing.close(CloseCodes.REPLACED_BY_NEW_INSTANCE, 'Replaced by newer connection');
           } catch {
             // ignore

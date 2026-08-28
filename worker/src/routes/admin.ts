@@ -171,6 +171,7 @@ adminRoutes.delete('/api/admin/nodes/:id', async (c) => {
       await (hubStub as any).disconnectAgent(id, CloseCodes.NODE_DISABLED, 'NODE_DISABLED');
     } catch (e2) {
       console.error('[Admin] Disconnect agent retry failed on node deletion:', e2);
+      return c.json({ status: 'deleted', id, warning: 'AGENT_DISCONNECT_RPC_FAILED' });
     }
   }
 
@@ -202,6 +203,7 @@ adminRoutes.post('/api/admin/nodes/:id/token', async (c) => {
       await (hubStub as any).disconnectAgent(id, CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED');
     } catch (e2) {
       console.error('[Admin] Disconnect agent retry failed on token rotation:', e2);
+      return c.json({ rawToken, warning: 'AGENT_DISCONNECT_RPC_FAILED' });
     }
   }
 

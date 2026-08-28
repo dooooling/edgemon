@@ -90,7 +90,7 @@ const LAND_POINTS: Array<[number, number]> = [
 
 export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [selectedNode, setSelectedNode] = useState<NodeItem | null>(null);
+  const [tooltipData, setTooltipData] = useState<{ node: NodeItem; x: number; y: number } | null>(null);
   const [currentZoom, setCurrentZoom] = useState<number>(100);
   const overlays = useRealtimeStore((s) => s.overlays);
   const { t } = useTranslation();
@@ -442,7 +442,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     const centerY = canvas.clientHeight / 2;
     const radius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.36 * scaleRef.current;
 
-    let hovered: NodeItem | null = null;
+    let hovered: { node: NodeItem; x: number; y: number } | null = null;
     for (const node of geoNodes) {
       const pt = projectMorphed(
         node.geo.lat!,
@@ -456,20 +456,27 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
       );
       if (pt.visible) {
         const dist = Math.hypot(mouseX - pt.x, mouseY - pt.y);
-        if (dist < 15) {
-          hovered = node;
+        if (dist < 18) {
+          hovered = { node, x: pt.x, y: pt.y };
           break;
         }
       }
     }
 
-    if (hovered !== selectedNode) {
-      setSelectedNode(hovered);
+    if (hovered?.node.id !== tooltipData?.node.id) {
+      setTooltipData(hovered);
+    } else if (hovered && tooltipData && (Math.abs(hovered.x - tooltipData.x) > 3 || Math.abs(hovered.y - tooltipData.y) > 3)) {
+      setTooltipData(hovered);
     }
   };
 
   const handleMouseUp = () => {
     isDraggingRef.current = false;
+  };
+
+  const handleMouseLeave = () => {
+    isDraggingRef.current = false;
+    setTooltipData(null);
   };
 
   return (
@@ -501,43 +508,53 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
       />
 
-      {/* Floating Mission Radar Tooltip */}
-      {selectedNode && (
+      {/* Dynamic Anchored Mission Radar Tooltip (Follows Node with Boundary Clamping) */}
+      {tooltipData && (
         <div
           className="radar-tooltip"
           style={{
             position: 'absolute',
-            bottom: '16px',
-            right: '16px',
-            backgroundColor: 'var(--colors-surface-card)',
+            left: `${tooltipData.x}px`,
+            top: `${tooltipData.y}px`,
+            transform: `translate(${
+              tooltipData.x > (canvasRef.current?.clientWidth || 800) - 230 ? '-105%' : '14px'
+            }, ${
+              tooltipData.y < 120 ? '14px' : '-105%'
+            })`,
+            backgroundColor: 'rgba(10, 10, 14, 0.94)',
+            backdropFilter: 'blur(12px)',
             border: '1px solid var(--colors-hairline)',
-            padding: '16px',
+            borderRadius: '4px',
+            padding: '12px 14px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '6px',
-            zIndex: 10,
+            gap: '4px',
+            zIndex: 20,
+            pointerEvents: 'auto',
+            minWidth: '180px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.85)',
           }}
         >
-          <span className="button-cap" style={{ fontWeight: 700, fontSize: '14px', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <CountryFlag countryCode={selectedNode.geo.country} />
-            <span>{selectedNode.name}</span>
+          <span className="button-cap" style={{ fontWeight: 700, fontSize: '13px', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <CountryFlag countryCode={tooltipData.node.geo.country} />
+            <span>{tooltipData.node.name}</span>
           </span>
-          <span className="caption" style={{ color: 'var(--colors-body)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <OsIcon os={selectedNode.system?.os} osVersion={selectedNode.system?.os_version} size={13} />
-            <span>LOC: {selectedNode.geo.city || selectedNode.geo.country || 'UNKNOWN'} // COLO: {selectedNode.geo.colo || 'CF'}</span>
+          <span className="caption" style={{ color: 'var(--colors-body)', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <OsIcon os={tooltipData.node.system?.os} osVersion={tooltipData.node.system?.os_version} size={12} />
+            <span>{tooltipData.node.geo.city || tooltipData.node.geo.country || 'UNKNOWN'} · {tooltipData.node.geo.colo || 'CF'}</span>
           </span>
-          {selectedNode.state?.edge_rtt_ms && (
-            <span className="caption" style={{ color: 'var(--colors-status-live)', fontWeight: 700 }}>
-              RTT: {selectedNode.state.edge_rtt_ms} MS
+          {tooltipData.node.state?.edge_rtt_ms && (
+            <span className="caption" style={{ color: 'var(--colors-status-live)', fontWeight: 700, fontSize: '11px' }}>
+              RTT: {tooltipData.node.state.edge_rtt_ms} MS
             </span>
           )}
           <Link
-            to={`/node/${selectedNode.id}`}
+            to={`/node/${tooltipData.node.id}`}
             className="button-ghost-on-dark button-ghost-sm"
-            style={{ marginTop: '6px' }}
+            style={{ marginTop: '6px', fontSize: '10px', padding: '3px 10px', textAlign: 'center' }}
           >
             {t('inspect_node')}
           </Link>

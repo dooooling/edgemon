@@ -157,10 +157,7 @@ adminRoutes.delete('/api/admin/nodes/:id', async (c) => {
     return c.json({ error: 'Node not found' }, 404);
   }
 
-  // 1. Delete from D1 first (P1: if D1 fails, Agent is not fatal-disconnected)
-  await c.env.DB.prepare('DELETE FROM nodes WHERE id = ?').bind(id).run();
-
-  // 2. Once D1 delete succeeds, disconnect active WSS agent connection
+  // 1. Disconnect and revoke active WSS agent connection in RealtimeHub DO first (Fail-Closed)
   const hubId = c.env.REALTIME.idFromName('main');
   const hubStub = c.env.REALTIME.get(hubId);
   try {
@@ -171,9 +168,15 @@ adminRoutes.delete('/api/admin/nodes/:id', async (c) => {
       await (hubStub as any).disconnectAgent(id, CloseCodes.NODE_DISABLED, 'NODE_DISABLED');
     } catch (e2) {
       console.error('[Admin] Disconnect agent retry failed on node deletion:', e2);
-      return c.json({ status: 'deleted', id, warning: 'AGENT_DISCONNECT_RPC_FAILED' });
+      return c.json(
+        { error: 'DO_REVOCATION_FAILED', message: 'Failed to revoke active realtime session in RealtimeHub DO. Node deletion aborted for safety.' },
+        502
+      );
     }
   }
+
+  // 2. Once DO revocation is verified and recorded, delete from D1
+  await c.env.DB.prepare('DELETE FROM nodes WHERE id = ?').bind(id).run();
 
   return c.json({ status: 'deleted', id });
 });
@@ -186,13 +189,7 @@ adminRoutes.post('/api/admin/nodes/:id/token', async (c) => {
     return c.json({ error: 'Node not found' }, 404);
   }
 
-  // 1. Rotate token in D1 first (P1: if D1 fails, Agent is not fatal-disconnected)
-  const rawToken = await rotateNodeToken(c.env.DB, id);
-  if (!rawToken) {
-    return c.json({ error: 'Node not found' }, 404);
-  }
-
-  // 2. Once D1 rotation succeeds, disconnect active agent connection so it reconnects with new token
+  // 1. Disconnect and revoke active WSS agent connection in RealtimeHub DO first (Fail-Closed)
   const hubId = c.env.REALTIME.idFromName('main');
   const hubStub = c.env.REALTIME.get(hubId);
   try {
@@ -203,8 +200,17 @@ adminRoutes.post('/api/admin/nodes/:id/token', async (c) => {
       await (hubStub as any).disconnectAgent(id, CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED');
     } catch (e2) {
       console.error('[Admin] Disconnect agent retry failed on token rotation:', e2);
-      return c.json({ rawToken, warning: 'AGENT_DISCONNECT_RPC_FAILED' });
+      return c.json(
+        { error: 'DO_REVOCATION_FAILED', message: 'Failed to revoke active realtime session in RealtimeHub DO. Token rotation aborted for safety.' },
+        502
+      );
     }
+  }
+
+  // 2. Once DO revocation is verified and recorded, rotate token in D1
+  const rawToken = await rotateNodeToken(c.env.DB, id);
+  if (!rawToken) {
+    return c.json({ error: 'Node not found' }, 404);
   }
 
   return c.json({ rawToken });

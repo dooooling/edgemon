@@ -421,10 +421,15 @@ export async function ingestReportCore(
           if (hist) {
             mergeIntoAccumulator(hist, s, rxDelta, txDelta);
           } else {
+            // Enforce max 5 historical minute accumulators to stay well under 16 KiB attachment limit (P1)
+            const keys = Object.keys(currentAttachment.historical_minutes);
+            if (keys.length >= 5) {
+              const oldestKey = keys.sort((a, b) => Number(a) - Number(b))[0];
+              delete currentAttachment.historical_minutes[oldestKey];
+            }
             hist = createMinuteAccumulator(sampleBucket, s, rxDelta, txDelta);
             currentAttachment.historical_minutes[histKey] = hist;
           }
-
         } else {
           // Sample timestamp belongs to an already-sealed D1 bucket (sampleBucket <= last_persist_bucket_ms),
           // but s.sample_seq is a valid newer sample. Fold its metrics and sample_seq safely into active current_minute

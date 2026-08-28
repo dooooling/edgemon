@@ -128,7 +128,6 @@ export async function loadTrafficRuntimeState(
     .first<TrafficPeriodRow>();
 
   if (exactPeriod) {
-    // If exactPeriod is the most recently updated period row (or equal to latest), resume it! (P0-2)
     if (!latestUpdatedPeriod || (exactPeriod.updated_at_ms ?? 0) >= (latestUpdatedPeriod.updated_at_ms ?? 0)) {
       return {
         period_start_ms: exactPeriod.period_start_ms,
@@ -140,20 +139,30 @@ export async function loadTrafficRuntimeState(
         dirty: false,
       };
     }
-  }
-
-  // 3. If exactPeriod doesn't exist OR was superseded by a more recently updated period (e.g. reset_day change),
-  // return latestUpdatedPeriod so applySampleTrafficTransition on the next sample can smoothly settle it
-  // and establish currentPeriodStartMs with accurate new baseline!
-  if (latestUpdatedPeriod) {
+    // exactPeriod is stale compared to latestUpdatedPeriod (e.g. switch roundtrip 1 -> 15 -> 1).
+    // Set target period to currentPeriodStartMs and inherit latest counter baseline (P0)
     return {
-      period_start_ms: latestUpdatedPeriod.period_start_ms,
-      finalized_rx_bytes: latestUpdatedPeriod.finalized_rx_bytes,
-      finalized_tx_bytes: latestUpdatedPeriod.finalized_tx_bytes,
+      period_start_ms: currentPeriodStartMs,
+      finalized_rx_bytes: exactPeriod.finalized_rx_bytes,
+      finalized_tx_bytes: exactPeriod.finalized_tx_bytes,
       active_counter_id: latestUpdatedPeriod.active_counter_id,
       active_rx_base_bytes: latestUpdatedPeriod.active_rx_base_bytes,
       active_tx_base_bytes: latestUpdatedPeriod.active_tx_base_bytes,
-      dirty: false,
+      dirty: true,
+    };
+  }
+
+  // 3. If exactPeriod doesn't exist (e.g. first connection or admin changed traffic_reset_day),
+  // set period_start_ms strictly to currentPeriodStartMs and inherit latest counter baseline (P0)
+  if (latestUpdatedPeriod) {
+    return {
+      period_start_ms: currentPeriodStartMs,
+      finalized_rx_bytes: 0,
+      finalized_tx_bytes: 0,
+      active_counter_id: latestUpdatedPeriod.active_counter_id,
+      active_rx_base_bytes: latestUpdatedPeriod.active_rx_base_bytes,
+      active_tx_base_bytes: latestUpdatedPeriod.active_tx_base_bytes,
+      dirty: true,
     };
   }
 

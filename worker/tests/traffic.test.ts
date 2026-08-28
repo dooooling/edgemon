@@ -140,8 +140,8 @@ describe('Traffic Period Calculation', () => {
     // Admin switched reset_day back to 1 on Aug 27:
     const state = await loadTrafficRuntimeState(mockDb, 'node-1', 1);
 
-    // Returns the latest active period Aug 15 (not a resurrected stale Aug 1 from weeks ago!)
-    expect(state.period_start_ms).toBe(aug15);
+    // Returns the active target period Aug 01 with latest live baseline (6000) inherited from Aug 15
+    expect(state.period_start_ms).toBe(aug01);
     expect(state.active_rx_base_bytes).toBe(6000);
   });
 
@@ -250,5 +250,68 @@ describe('Traffic Period Calculation', () => {
     // Active bytes calculated correctly from base 5000:
     const activeRx = state.active_rx_base_bytes !== null ? 5500 - state.active_rx_base_bytes : 0;
     expect(activeRx).toBe(500); // 5500 - 5000 = 500 (not corrupted or underestimated!)
+  });
+
+  it('P0: dynamic traffic_reset_day change to earlier day (15 -> 1) correctly sets target billing period and smoothly accounts traffic', async () => {
+    const aug01 = Date.UTC(2026, 7, 1, 0, 0, 0, 0);
+    const aug15 = Date.UTC(2026, 7, 15, 0, 0, 0, 0);
+    const aug27 = Date.UTC(2026, 7, 27, 12, 0, 0, 0);
+
+    const mockDb = {
+      prepare: (sql: string) => {
+        return {
+          bind: (...args: any[]) => {
+            return {
+              first: async () => {
+                // If checking exact period for Aug 01, it doesn't exist yet
+                if (sql.includes('period_start_ms = ?') && args[1] === aug01) {
+                  return null;
+                }
+                if (sql.includes('ORDER BY updated_at_ms DESC LIMIT 1')) {
+                  // Latest updated period in D1 was Aug 15 (updated_at_ms = 2000)
+                  return {
+                    node_id: 'node-1',
+                    period_start_ms: aug15,
+                    finalized_rx_bytes: 1000,
+                    finalized_tx_bytes: 500,
+                    active_counter_id: 'counter-a',
+                    active_rx_base_bytes: 4000,
+                    active_tx_base_bytes: 2000,
+                    updated_at_ms: 2000,
+                  };
+                }
+                return null;
+              },
+            };
+          },
+        };
+      },
+    } as any;
+
+    const { loadTrafficRuntimeState } = await import('../src/db/traffic');
+    // Load state with new resetDay = 1 on Aug 27:
+    const state = await loadTrafficRuntimeState(mockDb, 'node-1', 1);
+
+    // Verified: period_start_ms is strictly set to Aug 01 (matching reset_day = 1)
+    expect(state.period_start_ms).toBe(aug01);
+    // Baseline is cleanly inherited from Aug 15:
+    expect(state.active_rx_base_bytes).toBe(4000);
+    expect(state.active_tx_base_bytes).toBe(2000);
+
+    // Now incoming sample on Aug 27 accounts under Aug 01 without any forward-only conflict:
+    const updatedState = applySampleTrafficTransition(
+      state,
+      aug27,
+      4500,
+      2300,
+      'counter-a',
+      1,
+      4000,
+      2000
+    );
+
+    expect(updatedState.period_start_ms).toBe(aug01);
+    const activeRx = updatedState.active_rx_base_bytes !== null ? 4500 - updatedState.active_rx_base_bytes : 0;
+    expect(activeRx).toBe(500);
   });
 });

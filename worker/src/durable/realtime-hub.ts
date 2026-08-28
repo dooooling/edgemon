@@ -38,6 +38,22 @@ export interface BrowserAttachment {
 
 type SocketAttachment = AgentAttachment | BrowserAttachment;
 
+function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): void {
+  try {
+    ws.serializeAttachment(attachment);
+  } catch (err) {
+    console.warn('[RealtimeHub] serializeAttachment exceeded limit or failed, pruning historical minutes to stay under 16 KiB limit:', err);
+    if (attachment && attachment.kind === 'agent') {
+      attachment.historical_minutes = {};
+      try {
+        ws.serializeAttachment(attachment);
+      } catch (err2) {
+        console.error('[RealtimeHub] serializeAttachment fatal error after pruning:', err2);
+      }
+    }
+  }
+}
+
 export class RealtimeHub extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const webSocketPair = new WebSocketPair();
@@ -259,7 +275,7 @@ export class RealtimeHub extends DurableObject<Env> {
       attachment.hello_ok = true;
       attachment.config_rev = configRow?.revision || 1;
       attachment.last_seq = envelope.seq;
-      ws.serializeAttachment(attachment);
+      safeSerializeAttachment(ws, attachment);
 
       const isSameInstance = stateRow?.persisted_instance_id === attachment.instance_id;
       const welcomeEnvelope: ServerEnvelope<WelcomeData> = {
@@ -325,7 +341,7 @@ export class RealtimeHub extends DurableObject<Env> {
       }
 
       // Save updated attachment state in WebSocket Hibernation
-      ws.serializeAttachment(updatedAttachment);
+      safeSerializeAttachment(ws, updatedAttachment);
 
       // Realtime 0~2s broadcast (Public nodes to all browsers, hidden nodes to Admin browsers only!)
       if (result.livePayload) {
@@ -461,11 +477,15 @@ export class RealtimeHub extends DurableObject<Env> {
         const attachment = ws.deserializeAttachment() as SocketAttachment | null;
         if (attachment && attachment.kind === 'agent') {
           attachment.hello_ok = false;
-          ws.serializeAttachment(attachment);
+          safeSerializeAttachment(ws, attachment);
         }
+      } catch {
+        // ignore attachment mutation error, proceed to close
+      }
+      try {
         ws.close(code, reason);
       } catch {
-        // ignore
+        // ignore close error
       }
     }
   }
@@ -484,7 +504,7 @@ export class RealtimeHub extends DurableObject<Env> {
         if (updates.node_name !== undefined) {
           attachment.node_name = updates.node_name;
         }
-        ws.serializeAttachment(attachment);
+        safeSerializeAttachment(ws, attachment);
       }
     }
   }

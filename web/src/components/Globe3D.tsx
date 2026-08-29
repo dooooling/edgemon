@@ -5,6 +5,7 @@ import { useRealtimeStore } from '../realtime/store';
 import { useTranslation } from '../i18n/I18nContext';
 import { CountryFlag } from './CountryFlag';
 import { OsIcon } from './OsIcon';
+import { WORLD_POLYGONS, MAJOR_REGIONS, LAND_POINTS } from './world-geo-data';
 
 interface Globe3DProps {
   nodes: NodeItem[];
@@ -36,88 +37,40 @@ function formatUptime(uptimeSec?: number | null): string {
   return `${mins}m`;
 }
 
-// 6 Major Continent Vector Boundary Polygons [lat, lon][]
-const CONTINENTS: Array<{ name: string; labelPos: [number, number]; points: Array<[number, number]> }> = [
-  {
-    name: 'NORTH AMERICA',
-    labelPos: [45, -100],
-    points: [
-      [70, -165], [60, -140], [55, -125], [30, -115], [20, -105], [15, -90], [10, -75],
-      [25, -80], [35, -75], [45, -65], [60, -65], [70, -85], [75, -120], [70, -165]
-    ],
-  },
-  {
-    name: 'SOUTH AMERICA',
-    labelPos: [-15, -60],
-    points: [
-      [12, -75], [5, -78], [-5, -80], [-18, -75], [-35, -73], [-55, -68], [-52, -65],
-      [-35, -53], [-20, -40], [-5, -35], [5, -52], [12, -75]
-    ],
-  },
-  {
-    name: 'EUROPE',
-    labelPos: [52, 15],
-    points: [
-      [70, -10], [60, 5], [50, 2], [43, -9], [36, -5], [36, 15], [40, 26], [45, 35],
-      [55, 38], [60, 30], [70, 30], [70, -10]
-    ],
-  },
-  {
-    name: 'AFRICA',
-    labelPos: [5, 20],
-    points: [
-      [36, -5], [35, 12], [30, 32], [12, 43], [10, 51], [0, 42], [-12, 40], [-34, 26],
-      [-34, 18], [-15, 12], [5, 10], [10, -15], [20, -17], [36, -5]
-    ],
-  },
-  {
-    name: 'ASIA',
-    labelPos: [45, 90],
-    points: [
-      [75, 60], [70, 100], [65, 170], [60, 160], [35, 140], [22, 114], [10, 105],
-      [1, 104], [10, 77], [25, 62], [40, 50], [50, 55], [60, 60], [75, 60]
-    ],
-  },
-  {
-    name: 'AUSTRALIA',
-    labelPos: [-25, 135],
-    points: [
-      [-11, 130], [-15, 120], [-22, 114], [-34, 115], [-35, 138], [-38, 145], [-30, 153],
-      [-15, 145], [-12, 136], [-11, 130]
-    ],
-  },
-];
+// Great Circle Geodesic Interpolation for Flight Telemetry Arcs
+function interpolateGreatCircle(lat1: number, lon1: number, lat2: number, lon2: number, t: number): [number, number] {
+  const phi1 = (lat1 * Math.PI) / 180;
+  const lam1 = (lon1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const lam2 = (lon2 * Math.PI) / 180;
 
-// 400+ Sampled Landmass Coordinates for Morphing 3D/2D Dot-Matrix Rendering
-const LAND_POINTS: Array<[number, number]> = [
-  // North America
-  [65, -150], [60, -120], [50, -110], [40, -120], [35, -100], [30, -90], [25, -80],
-  [45, -75], [55, -80], [60, -100], [70, -90], [65, -60], [45, -65], [30, -115],
-  [50, -95], [40, -90], [35, -105], [55, -125], [60, -140], [70, -140], [75, -100],
-  // South America
-  [10, -75], [0, -70], [-10, -75], [-20, -70], [-30, -70], [-40, -65], [-50, -70],
-  [-10, -40], [-20, -40], [-5, -60], [-15, -50], [5, -60], [-35, -55], [-45, -65],
-  // Europe
-  [60, 10], [65, 25], [60, 30], [50, 15], [45, 5], [40, -5], [35, 15], [55, 38],
-  [68, 20], [50, 30], [45, 25], [52, 0], [40, 20], [40, 30], [55, 20], [60, 50],
-  // Africa
-  [30, 30], [20, 30], [10, 40], [0, 40], [-10, 40], [-20, 35], [-30, 30], [-30, 20],
-  [-20, 15], [-10, 15], [0, 10], [10, 10], [20, 10], [30, 0], [25, 20], [15, 20],
-  [5, 20], [-5, 20], [-15, 25], [-25, 25], [5, 30], [15, 40],
-  // Asia
-  [70, 70], [60, 70], [50, 80], [40, 80], [30, 75], [20, 75], [10, 80], [70, 100],
-  [60, 100], [50, 100], [40, 115], [30, 105], [20, 100], [10, 105], [70, 130],
-  [60, 140], [50, 130], [40, 140], [35, 135], [25, 120], [15, 120], [5, 115],
-  [45, 90], [55, 110], [65, 160], [60, 170], [30, 90], [25, 80], [35, 70],
-  // Australia
-  [-15, 130], [-25, 120], [-30, 130], [-35, 145], [-25, 150], [-15, 140], [-20, 135],
-];
+  const d = 2 * Math.asin(
+    Math.sqrt(
+      Math.sin((phi1 - phi2) / 2) ** 2 +
+      Math.cos(phi1) * Math.cos(phi2) * Math.sin((lam1 - lam2) / 2) ** 2
+    )
+  );
+
+  if (d < 0.001) return [lat1, lon1];
+
+  const A = Math.sin((1 - t) * d) / Math.sin(d);
+  const B = Math.sin(t * d) / Math.sin(d);
+
+  const x = A * Math.cos(phi1) * Math.cos(lam1) + B * Math.cos(phi2) * Math.cos(lam2);
+  const y = A * Math.cos(phi1) * Math.sin(lam1) + B * Math.cos(phi2) * Math.sin(lam2);
+  const z = A * Math.sin(phi1) + B * Math.sin(phi2);
+
+  const lat = (Math.atan2(z, Math.sqrt(x * x + y * y)) * 180) / Math.PI;
+  const lon = (Math.atan2(y, x) * 180) / Math.PI;
+  return [lat, lon];
+}
 
 export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const navigate = useNavigate();
   const [tooltipData, setTooltipData] = useState<{ node: NodeItem; x: number; y: number } | null>(null);
   const [currentZoom, setCurrentZoom] = useState<number>(100);
+  const [cursorCoords, setCursorCoords] = useState<{ lat: number; lon: number } | null>(null);
   const overlays = useRealtimeStore((s) => s.overlays);
   const { t } = useTranslation();
 
@@ -187,7 +140,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     const screenY = centerY - yMorphed;
 
     const visible = z3d >= -20 || ease > 0.35;
-    const alpha = Math.min(1.0, Math.max(0.15, (z3d + radius) / (radius * 2) + ease * 0.7));
+    const alpha = Math.min(1.0, Math.max(0.12, (z3d + radius) / (radius * 2) + ease * 0.7));
 
     return { x: screenX, y: screenY, z: zMorphed, alpha, visible };
   }
@@ -224,7 +177,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
       morphRef.current += (targetMorph - morphRef.current) * 0.06;
       const morph = morphRef.current;
 
-      // Strict Dynamic Pan Boundary Clamping (Prevents dragging into empty space when content fits)
+      // Strict Dynamic Pan Boundary Clamping
       if (morph > 0.3) {
         const flatHalfWidth = radius * 2.3;
         const flatHalfHeight = radius * 1.15;
@@ -246,87 +199,120 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
       const centerY = height / 2 + panYRef.current;
 
       if (!isDraggingRef.current && morph < 0.8) {
-        rotYRef.current += 0.002 * (1 - morph); // Slow spin when in 3D
+        rotYRef.current += 0.0018 * (1 - morph); // Subtle rotation when in 3D
       }
-      pulsePhase += 0.04;
+      pulsePhase += 0.035;
 
       const rotX = rotXRef.current;
       const rotY = rotYRef.current;
 
-      // 1. Outer Atmosphere Glow Ring
+      // 1. Atmosphere Halo Gradient
       if (morph < 0.95) {
-        const glowAlpha = (1 - morph) * 0.15;
+        const glowAlpha = (1 - morph) * 0.18;
         const glowGrad = ctx.createRadialGradient(
           centerX,
           centerY,
-          radius * 0.95,
+          radius * 0.92,
           centerX,
           centerY,
-          radius * 1.15
+          radius * 1.18
         );
-        glowGrad.addColorStop(0, `rgba(0, 230, 118, ${glowAlpha})`);
-        glowGrad.addColorStop(1, 'rgba(0, 230, 118, 0.0)');
+        glowGrad.addColorStop(0, `rgba(0, 150, 255, ${glowAlpha})`);
+        glowGrad.addColorStop(0.6, `rgba(0, 230, 118, ${glowAlpha * 0.5})`);
+        glowGrad.addColorStop(1, 'rgba(0, 150, 255, 0.0)');
         ctx.fillStyle = glowGrad;
         ctx.beginPath();
-        ctx.arc(centerX, centerY, radius * 1.15, 0, Math.PI * 2);
+        ctx.arc(centerX, centerY, radius * 1.18, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // 2. Base Sphere / Flat Chassis Fill
-      ctx.fillStyle = '#0a0a0d';
-      ctx.strokeStyle = `rgba(34, 34, 42, ${1 - morph * 0.5})`;
-      ctx.lineWidth = 1.5;
-
-      if (morph < 0.05) {
+      // 2. Base Sphere / Ocean Fill
+      if (morph < 0.1) {
+        ctx.fillStyle = '#06070a';
+        ctx.strokeStyle = 'rgba(0, 102, 177, 0.3)';
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       }
 
-      // 3. Morphing 3D/2D Wireframe Grid Lines
-      ctx.strokeStyle = `rgba(255, 255, 255, ${0.06 + morph * 0.04})`;
-      ctx.lineWidth = 0.8;
-
+      // 3. Coordinate Graticule Grid Lines & Degrees
       // Latitude Parallels
       [-60, -30, 0, 30, 60].forEach((lat) => {
+        const isEquator = lat === 0;
+        ctx.strokeStyle = isEquator
+          ? `rgba(0, 230, 118, ${0.15 + morph * 0.1})`
+          : `rgba(255, 255, 255, ${0.04 + morph * 0.03})`;
+        ctx.lineWidth = isEquator ? 1.0 : 0.6;
+        if (isEquator) ctx.setLineDash([6, 4]);
+        else ctx.setLineDash([]);
+
         ctx.beginPath();
-        for (let lon = -180; lon <= 180; lon += 5) {
+        let started = false;
+        for (let lon = -180; lon <= 180; lon += 4) {
           const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
           if (pt.visible) {
-            if (lon === -180) ctx.moveTo(pt.x, pt.y);
-            else ctx.lineTo(pt.x, pt.y);
+            if (!started) {
+              ctx.moveTo(pt.x, pt.y);
+              started = true;
+            } else {
+              ctx.lineTo(pt.x, pt.y);
+            }
           } else {
-            ctx.moveTo(pt.x, pt.y);
+            started = false;
           }
         }
         ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Degree label along Prime Meridian
+        const labelPt = projectMorphed(lat, 0, radius, rotX, rotY, morph, centerX, centerY);
+        if (labelPt.visible && labelPt.alpha > 0.4) {
+          ctx.fillStyle = `rgba(140, 150, 170, ${labelPt.alpha * 0.5})`;
+          ctx.font = '600 8px monospace';
+          ctx.fillText(lat === 0 ? 'EQ 0°' : `${Math.abs(lat)}°${lat > 0 ? 'N' : 'S'}`, labelPt.x + 3, labelPt.y - 2);
+        }
       });
 
       // Longitude Meridians
-      [-120, -60, 0, 60, 120, 180].forEach((lon) => {
+      [-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150, 180].forEach((lon) => {
+        const isPrime = lon === 0;
+        ctx.strokeStyle = isPrime
+          ? `rgba(0, 150, 255, ${0.18 + morph * 0.1})`
+          : `rgba(255, 255, 255, ${0.04 + morph * 0.03})`;
+        ctx.lineWidth = isPrime ? 1.0 : 0.6;
+        if (isPrime) ctx.setLineDash([6, 4]);
+        else ctx.setLineDash([]);
+
         ctx.beginPath();
-        for (let lat = -90; lat <= 90; lat += 5) {
+        let started = false;
+        for (let lat = -88; lat <= 88; lat += 4) {
           const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
           if (pt.visible) {
-            if (lat === -90) ctx.moveTo(pt.x, pt.y);
-            else ctx.lineTo(pt.x, pt.y);
+            if (!started) {
+              ctx.moveTo(pt.x, pt.y);
+              started = true;
+            } else {
+              ctx.lineTo(pt.x, pt.y);
+            }
           } else {
-            ctx.moveTo(pt.x, pt.y);
+            started = false;
           }
         }
         ctx.stroke();
+        ctx.setLineDash([]);
       });
 
-      // 4. 3D Continent Boundary Polygons & Shading
-      CONTINENTS.forEach((cont) => {
-        ctx.fillStyle = `rgba(0, 102, 177, ${0.08 * (1 - morph * 0.3)})`; // BMW M Blue Tint Fill
-        ctx.strokeStyle = `rgba(0, 102, 177, ${0.4 + morph * 0.2})`; // Blue Vector Border
-        ctx.lineWidth = 1.2;
+      // 4. High-Precision Vector World Coastline Polygons
+      WORLD_POLYGONS.forEach((poly) => {
+        ctx.fillStyle = `rgba(0, 102, 177, ${0.07 + morph * 0.05})`; // Deep Blue Fill
+        ctx.strokeStyle = `rgba(0, 160, 255, ${0.45 + morph * 0.25})`; // Bright Vector Outline
+        ctx.lineWidth = 1.1;
 
         ctx.beginPath();
         let pathStarted = false;
-        cont.points.forEach(([lat, lon]) => {
+        poly.points.forEach(([lat, lon]) => {
           const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
           if (pt.visible) {
             if (!pathStarted) {
@@ -342,39 +328,98 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
           ctx.fill();
           ctx.stroke();
         }
-
-        // Render Continent Region Name Labels in 3D Space
-        const labelPt = projectMorphed(
-          cont.labelPos[0],
-          cont.labelPos[1],
-          radius,
-          rotX,
-          rotY,
-          morph,
-          centerX,
-          centerY
-        );
-        if (labelPt.visible && labelPt.alpha > 0.4) {
-          ctx.fillStyle = `rgba(160, 160, 180, ${labelPt.alpha * 0.75})`;
-          ctx.font = '700 10px Inter, sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillText(cont.name, labelPt.x, labelPt.y);
-          ctx.textAlign = 'left';
-        }
       });
 
-      // 5. Morphing Landmass Dot-Matrix Surface
+      // 5. Morphing 500+ Landmass Tactical Dot-Matrix Point Cloud
       LAND_POINTS.forEach(([lat, lon]) => {
         const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
         if (pt.visible) {
-          ctx.fillStyle = `rgba(120, 130, 150, ${pt.alpha})`;
+          ctx.fillStyle = `rgba(130, 160, 200, ${pt.alpha * 0.85})`;
           ctx.beginPath();
-          ctx.arc(pt.x, pt.y, 1.8, 0, Math.PI * 2);
+          ctx.arc(pt.x, pt.y, 1.4, 0, Math.PI * 2);
           ctx.fill();
         }
       });
 
-      // 6. Morphing Active Telemetry Node Beacons
+      // 6. Major Continental / Ocean Region Labels
+      MAJOR_REGIONS.forEach((reg) => {
+        const pt = projectMorphed(reg.lat, reg.lon, radius, rotX, rotY, morph, centerX, centerY);
+        if (pt.visible && pt.alpha > 0.35) {
+          ctx.fillStyle = `rgba(160, 180, 210, ${pt.alpha * 0.7})`;
+          ctx.font = '700 9px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(reg.name, pt.x, pt.y);
+          ctx.textAlign = 'left';
+        }
+      });
+
+      // 7. Inter-Node Geodesic Telemetry Arcs & Photon Pulses
+      const onlineNodes = geoNodes.filter(isOnline);
+      if (onlineNodes.length >= 2) {
+        for (let i = 0; i < onlineNodes.length; i++) {
+          for (let j = i + 1; j < onlineNodes.length; j++) {
+            const nodeA = onlineNodes[i];
+            const nodeB = onlineNodes[j];
+
+            ctx.strokeStyle = 'rgba(0, 230, 118, 0.22)';
+            ctx.lineWidth = 1.0;
+            ctx.setLineDash([4, 4]);
+
+            ctx.beginPath();
+            let arcStarted = false;
+            const steps = 24;
+            const arcPts: Array<{ x: number; y: number; visible: boolean }> = [];
+
+            for (let s = 0; s <= steps; s++) {
+              const tStep = s / steps;
+              const [arcLat, arcLon] = interpolateGreatCircle(
+                nodeA.geo.lat!,
+                nodeA.geo.lon!,
+                nodeB.geo.lat!,
+                nodeB.geo.lon!,
+                tStep
+              );
+              const pt = projectMorphed(arcLat, arcLon, radius, rotX, rotY, morph, centerX, centerY);
+              arcPts.push(pt);
+
+              if (pt.visible) {
+                if (!arcStarted) {
+                  ctx.moveTo(pt.x, pt.y);
+                  arcStarted = true;
+                } else {
+                  ctx.lineTo(pt.x, pt.y);
+                }
+              }
+            }
+            if (arcStarted) {
+              ctx.stroke();
+            }
+            ctx.setLineDash([]);
+
+            // Animated Travelling Photon Pulse along the telemetry arc
+            const pulseT = ((pulsePhase * 0.25 + i * 0.3 + j * 0.2) % 1.0);
+            const [photonLat, photonLon] = interpolateGreatCircle(
+              nodeA.geo.lat!,
+              nodeA.geo.lon!,
+              nodeB.geo.lat!,
+              nodeB.geo.lon!,
+              pulseT
+            );
+            const photonPt = projectMorphed(photonLat, photonLon, radius, rotX, rotY, morph, centerX, centerY);
+            if (photonPt.visible) {
+              ctx.fillStyle = '#00e676';
+              ctx.shadowColor = '#00e676';
+              ctx.shadowBlur = 8;
+              ctx.beginPath();
+              ctx.arc(photonPt.x, photonPt.y, 2.5, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.shadowBlur = 0;
+            }
+          }
+        }
+      }
+
+      // 8. Active Telemetry Node Beacons with Radar Waves
       geoNodes.forEach((node) => {
         const pt = projectMorphed(
           node.geo.lat!,
@@ -389,31 +434,46 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         const online = isOnline(node);
 
         if (pt.visible) {
-          // Pulsing Beacon Outer Ring
           if (online) {
-            const pulseR = 5 + Math.sin(pulsePhase) * 4;
-            ctx.strokeStyle = '#00e676';
-            ctx.lineWidth = 1.2;
+            // Concentric Expanding Radar Waves
+            const wave1 = 6 + (pulsePhase * 4) % 14;
+            const alpha1 = Math.max(0, 1 - wave1 / 20);
+            ctx.strokeStyle = `rgba(0, 230, 118, ${alpha1 * 0.8})`;
+            ctx.lineWidth = 1.0;
             ctx.beginPath();
-            ctx.arc(pt.x, pt.y, pulseR, 0, Math.PI * 2);
+            ctx.arc(pt.x, pt.y, wave1, 0, Math.PI * 2);
+            ctx.stroke();
+
+            const wave2 = 6 + ((pulsePhase * 4 + 7) % 14);
+            const alpha2 = Math.max(0, 1 - wave2 / 20);
+            ctx.strokeStyle = `rgba(0, 230, 118, ${alpha2 * 0.6})`;
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, wave2, 0, Math.PI * 2);
             ctx.stroke();
           }
 
           // Beacon Solid Core
           ctx.fillStyle = online ? '#00e676' : '#e22718';
           ctx.strokeStyle = '#000000';
-          ctx.lineWidth = 1.5;
+          ctx.lineWidth = 1.8;
           ctx.beginPath();
           ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
 
-          // Label
+          // Node Name & CF Colo Airport Tag
           ctx.fillStyle = '#ffffff';
           ctx.font = '700 11px Inter, sans-serif';
-          ctx.fillText(node.name.toUpperCase(), pt.x + 8, pt.y + 4);
+          const coloTag = node.geo?.colo ? ` [${node.geo.colo}]` : '';
+          ctx.fillText(`${node.name.toUpperCase()}${coloTag}`, pt.x + 9, pt.y + 4);
         }
       });
+
+      // 9. Tactical Telemetry HUD Legends & Crosshairs
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.font = '700 9px monospace';
+      ctx.fillText('COORD SYS: WGS-84 // INCLINATION 23.5°', 16, height - 16);
+      ctx.fillText(`ACTIVE BEACONS: ${onlineNodes.length} / ${nodes.length}`, width - 180, height - 16);
 
       animId = requestAnimationFrame(render);
     }
@@ -423,9 +483,9 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     return () => {
       cancelAnimationFrame(animId);
     };
-  }, [geoNodes, overlays, mode]);
+  }, [geoNodes, overlays, mode, nodes.length]);
 
-  // Native Non-Passive Wheel Event Listener (Fixes page scrolling when zooming map)
+  // Native Non-Passive Wheel Event Listener
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -459,14 +519,11 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
 
   const handleZoomReset = () => {
     targetScaleRef.current = 1.0;
-    rotXRef.current = 0.2;
-    rotYRef.current = 0.5;
     targetPanXRef.current = 0;
     targetPanYRef.current = 0;
     setCurrentZoom(100);
   };
 
-  // Mouse & Touch Drag Handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     isDraggingRef.current = true;
     setIsDragging(true);
@@ -485,7 +542,6 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         rotYRef.current += deltaX * 0.008;
         rotXRef.current = Math.max(-1.0, Math.min(1.0, rotXRef.current + deltaY * 0.008));
       } else {
-        // In 2D flat map mode, calculate strict dynamic boundary based on current scale
         const baseRadius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.36;
         const radius = baseRadius * scaleRef.current;
         const flatHalfWidth = radius * 2.3;
@@ -512,6 +568,17 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     const centerX = canvas.clientWidth / 2 + panXRef.current;
     const centerY = canvas.clientHeight / 2 + panYRef.current;
     const radius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.36 * scaleRef.current;
+
+    // Calculate Geographic Cursor Coordinates
+    const flatWidth = radius * 2.3;
+    const flatHeight = radius * 1.15;
+    const calcLon = ((mouseX - centerX) / flatWidth) * 180;
+    const calcLat = ((centerY - mouseY) / flatHeight) * 90;
+    if (Math.abs(calcLat) <= 90 && Math.abs(calcLon) <= 180) {
+      setCursorCoords({ lat: calcLat, lon: calcLon });
+    } else {
+      setCursorCoords(null);
+    }
 
     let hovered: { node: NodeItem; x: number; y: number } | null = null;
     for (const node of geoNodes) {
@@ -550,6 +617,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     isDraggingRef.current = false;
     setIsDragging(false);
     setTooltipData(null);
+    setCursorCoords(null);
   };
 
   const handleCanvasDoubleClick = () => {
@@ -563,9 +631,12 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
       style={{
         position: 'relative',
         width: '100%',
-        height: '400px',
+        height: '420px',
         cursor: isDragging ? 'grabbing' : (tooltipData ? 'pointer' : 'grab'),
         touchAction: 'none',
+        backgroundColor: '#030305',
+        border: '1px solid var(--colors-hairline)',
+        overflow: 'hidden',
       }}
     >
       {/* Zoom Control Buttons */}
@@ -588,6 +659,28 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
           {currentZoom}%
         </button>
       </div>
+
+      {/* Real-time Cursor Coordinates Readout */}
+      {cursorCoords && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '16px',
+            right: '16px',
+            zIndex: 10,
+            fontSize: '11px',
+            fontFamily: 'monospace',
+            color: 'rgba(255, 255, 255, 0.7)',
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            padding: '4px 10px',
+            border: '1px solid var(--colors-hairline)',
+            pointerEvents: 'none',
+          }}
+        >
+          TARGET: {Math.abs(cursorCoords.lat).toFixed(1)}°{cursorCoords.lat >= 0 ? 'N' : 'S'},{' '}
+          {Math.abs(cursorCoords.lon).toFixed(1)}°{cursorCoords.lon >= 0 ? 'E' : 'W'}
+        </div>
+      )}
 
       <canvas
         ref={canvasRef}

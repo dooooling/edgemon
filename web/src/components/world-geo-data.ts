@@ -289,3 +289,74 @@ export const LAND_POINTS: Array<[number, number]> = [
   [-26, 120], [-26, 130], [-26, 140], [-26, 150], [-30, 120], [-30, 130], [-30, 140],
   [-30, 150], [-34, 118], [-34, 138], [-34, 150], [-37, 145], [-42, 172], [-45, 169],
 ];
+
+// Major Global Metropolitan Clusters & Urban Centers (Night City Lights)
+export const CITY_LIGHTS: Array<{ lat: number; lon: number; intensity: number; size: number }> = [
+  // East Asia
+  { lat: 35.68, lon: 139.76, intensity: 1.0, size: 2.2 }, // Tokyo
+  { lat: 34.69, lon: 135.50, intensity: 0.85, size: 1.8 }, // Osaka
+  { lat: 37.56, lon: 126.97, intensity: 0.95, size: 2.0 }, // Seoul
+  { lat: 31.23, lon: 121.47, intensity: 1.0, size: 2.2 }, // Shanghai
+  { lat: 39.90, lon: 116.40, intensity: 0.95, size: 2.0 }, // Beijing
+  { lat: 22.31, lon: 114.17, intensity: 1.0, size: 2.2 }, // Hong Kong / Shenzhen
+  { lat: 23.12, lon: 113.26, intensity: 0.9, size: 2.0 }, // Guangzhou
+  { lat: 25.03, lon: 121.56, intensity: 0.9, size: 1.8 }, // Taipei
+  { lat: 30.57, lon: 104.06, intensity: 0.8, size: 1.6 }, // Chengdu
+  { lat: 30.59, lon: 114.30, intensity: 0.8, size: 1.6 }, // Wuhan
+  // Southeast Asia
+  { lat: 1.35, lon: 103.82, intensity: 0.95, size: 2.0 }, // Singapore
+  { lat: 13.75, lon: 100.50, intensity: 0.85, size: 1.8 }, // Bangkok
+  { lat: 14.59, lon: 120.98, intensity: 0.85, size: 1.8 }, // Manila
+  { lat: -6.20, lon: 106.84, intensity: 0.85, size: 1.8 }, // Jakarta
+  { lat: 3.13, lon: 101.68, intensity: 0.8, size: 1.6 }, // Kuala Lumpur
+  // South Asia
+  { lat: 28.61, lon: 77.20, intensity: 0.9, size: 2.0 }, // Delhi
+  { lat: 19.07, lon: 72.87, intensity: 0.9, size: 2.0 }, // Mumbai
+  { lat: 12.97, lon: 77.59, intensity: 0.85, size: 1.8 }, // Bangalore
+  // Europe
+  { lat: 51.50, lon: -0.12, intensity: 1.0, size: 2.2 }, // London
+  { lat: 48.85, lon: 2.35, intensity: 0.95, size: 2.0 }, // Paris
+  { lat: 50.11, lon: 8.68, intensity: 0.9, size: 1.8 }, // Frankfurt / Rhine-Ruhr
+  { lat: 52.52, lon: 13.40, intensity: 0.85, size: 1.8 }, // Berlin
+  { lat: 52.36, lon: 4.90, intensity: 0.9, size: 1.8 }, // Amsterdam
+  { lat: 40.41, lon: -3.70, intensity: 0.85, size: 1.8 }, // Madrid
+  { lat: 41.90, lon: 12.49, intensity: 0.85, size: 1.8 }, // Rome
+  { lat: 55.75, lon: 37.61, intensity: 0.9, size: 2.0 }, // Moscow
+  // Middle East
+  { lat: 25.20, lon: 55.27, intensity: 0.95, size: 2.0 }, // Dubai
+  { lat: 24.71, lon: 46.67, intensity: 0.8, size: 1.6 }, // Riyadh
+  { lat: 32.08, lon: 34.78, intensity: 0.85, size: 1.6 }, // Tel Aviv
+  { lat: 30.04, lon: 31.23, intensity: 0.9, size: 2.0 }, // Cairo
+  // North America
+  { lat: 40.71, lon: -74.00, intensity: 1.0, size: 2.2 }, // New York
+  { lat: 34.05, lon: -118.24, intensity: 0.95, size: 2.0 }, // Los Angeles
+  { lat: 37.77, lon: -122.41, intensity: 0.95, size: 2.0 }, // San Francisco / Silicon Valley
+  { lat: 41.87, lon: -87.62, intensity: 0.9, size: 1.8 }, // Chicago
+  { lat: 47.60, lon: -122.33, intensity: 0.85, size: 1.8 }, // Seattle
+  { lat: 29.76, lon: -95.36, intensity: 0.85, size: 1.8 }, // Houston
+  { lat: 43.65, lon: -79.38, intensity: 0.85, size: 1.8 }, // Toronto
+  { lat: 19.43, lon: -99.13, intensity: 0.9, size: 2.0 }, // Mexico City
+  // South America
+  { lat: -23.55, lon: -46.63, intensity: 0.95, size: 2.0 }, // Sao Paulo
+  { lat: -22.90, lon: -43.17, intensity: 0.85, size: 1.8 }, // Rio de Janeiro
+  { lat: -34.60, lon: -58.38, intensity: 0.85, size: 1.8 }, // Buenos Aires
+  { lat: -33.44, lon: -70.66, intensity: 0.8, size: 1.6 }, // Santiago
+  // Oceania
+  { lat: -33.86, lon: 151.20, intensity: 0.9, size: 1.8 }, // Sydney
+  { lat: -37.81, lon: 144.96, intensity: 0.85, size: 1.8 }, // Melbourne
+  // Africa
+  { lat: -26.20, lon: 28.04, intensity: 0.8, size: 1.6 }, // Johannesburg
+  { lat: 6.52, lon: 3.37, intensity: 0.8, size: 1.6 }, // Lagos
+];
+
+// Deep Space Procedural Starfield Coordinates
+export const STARFIELD: Array<{ x: number; y: number; r: number; alpha: number; pulseSpeed: number }> = Array.from(
+  { length: 80 },
+  (_, i) => ({
+    x: ((i * 137.5) % 1000) / 1000,
+    y: (((i + 17) * 223.7) % 1000) / 1000,
+    r: 0.6 + ((i % 3) * 0.4),
+    alpha: 0.25 + ((i % 5) * 0.12),
+    pulseSpeed: 0.02 + ((i % 4) * 0.015),
+  })
+);

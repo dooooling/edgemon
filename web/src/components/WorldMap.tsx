@@ -8,7 +8,7 @@ interface WorldMapProps {
 }
 
 export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
-  const [mapMode, setMapMode] = useState<'3d' | 'sandtable' | '2d'>('3d');
+  const [mapMode, setMapMode] = useState<'3d' | '2d'>('3d');
   const { t } = useTranslation();
 
   const geoNodes = nodes.filter(
@@ -25,7 +25,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
           </h2>
         </div>
 
-        {/* 3-Mode Dynamic Selector */}
+        {/* 2-Mode Dynamic Selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <span className="eyebrow-cap">{geoNodes.length} {t('nav_active_count')}</span>
           <div className="range-capsules">
@@ -34,12 +34,6 @@ export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
               onClick={() => setMapMode('3d')}
             >
               {t('mode_3d_globe')}
-            </button>
-            <button
-              className={`range-capsule-btn ${mapMode === 'sandtable' ? 'active' : ''}`}
-              onClick={() => setMapMode('sandtable')}
-            >
-              {t('mode_sandtable')}
             </button>
             <button
               className={`range-capsule-btn ${mapMode === '2d' ? 'active' : ''}`}
@@ -51,7 +45,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
         </div>
       </div>
 
-      {/* Single Continuous Canvas with Multi-Morph Animation */}
+      {/* Single Continuous Canvas with Unfolding Morph Animation */}
       <Globe3D nodes={nodes} mode={mapMode} />
     </div>
   );

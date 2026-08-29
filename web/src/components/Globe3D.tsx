@@ -189,7 +189,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
       // Apply Zoom Scale Interpolation
       scaleRef.current += (targetScaleRef.current - scaleRef.current) * 0.12;
       const scale = scaleRef.current;
-      const baseRadius = Math.min(width, height) * 0.36;
+      const baseRadius = Math.min(width, height) * 0.42;
       const radius = baseRadius * scale;
 
       // Continuous Morph (0 = 3D Realistic Globe, 1 = 2D Map)
@@ -710,7 +710,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
       style={{
         position: 'relative',
         width: '100%',
-        height: '420px',
+        height: 'clamp(580px, 68vh, 780px)',
         cursor: isDragging ? 'grabbing' : (tooltipData ? 'pointer' : 'grab'),
         touchAction: 'none',
         backgroundColor: '#030305',

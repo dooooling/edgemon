@@ -43,6 +43,7 @@ impl NetworkCollector {
                 tx_bps: None,
                 rx_total_bytes: 0,
                 tx_total_bytes: 0,
+                ..Default::default()
             },
             last_counters: None,
             last_sample_instant: None,
@@ -152,6 +153,8 @@ impl NetworkCollector {
             }
         };
 
+        let sock_stats = read_sockstat();
+
         let metrics = NetworkMetrics {
             interface: self.active_interface.clone(),
             counter_id: counter_id_to_report,
@@ -159,6 +162,10 @@ impl NetworkCollector {
             tx_bps,
             rx_total_bytes: rx_total,
             tx_total_bytes: tx_total,
+            tcp_established_count: sock_stats.as_ref().and_then(|s| s.tcp_established_count),
+            tcp_tw_count: sock_stats.as_ref().and_then(|s| s.tcp_tw_count),
+            tcp_total_count: sock_stats.as_ref().and_then(|s| s.tcp_total_count),
+            udp_in_use: sock_stats.as_ref().and_then(|s| s.udp_in_use),
         };
 
         if metrics.rx_bps.is_some() || current_counters.is_some() {
@@ -167,6 +174,50 @@ impl NetworkCollector {
 
         metrics
     }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct SocketStats {
+    tcp_established_count: Option<u32>,
+    tcp_tw_count: Option<u32>,
+    tcp_total_count: Option<u32>,
+    udp_in_use: Option<u32>,
+}
+
+fn read_sockstat() -> Option<SocketStats> {
+    #[cfg(unix)]
+    {
+        if let Ok(content) = fs::read_to_string("/proc/net/sockstat") {
+            let mut stats = SocketStats::default();
+
+            for line in content.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.is_empty() {
+                    continue;
+                }
+                if parts[0] == "TCP:" {
+                    for i in 1..parts.len() {
+                        if parts[i] == "inuse" && i + 1 < parts.len() {
+                            stats.tcp_established_count = parts[i + 1].parse::<u32>().ok();
+                        } else if parts[i] == "tw" && i + 1 < parts.len() {
+                            stats.tcp_tw_count = parts[i + 1].parse::<u32>().ok();
+                        } else if parts[i] == "alloc" && i + 1 < parts.len() {
+                            stats.tcp_total_count = parts[i + 1].parse::<u32>().ok();
+                        }
+                    }
+                } else if parts[0] == "UDP:" {
+                    for i in 1..parts.len() {
+                        if parts[i] == "inuse" && i + 1 < parts.len() {
+                            stats.udp_in_use = parts[i + 1].parse::<u32>().ok();
+                        }
+                    }
+                }
+            }
+
+            return Some(stats);
+        }
+    }
+    None
 }
 
 pub fn read_network_counters(target_iface: &str) -> Option<NetCounters> {

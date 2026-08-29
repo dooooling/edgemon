@@ -27,31 +27,63 @@ pub struct ReportData {
     pub probes: Vec<ProbeResult>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CpuMetrics {
     pub usage_pct: Option<f64>,
     pub throttled_pct: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temp_celsius: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load1: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load5: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load15: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_total_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_running_count: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct MemoryMetrics {
     pub used_bytes: Option<u64>,
     pub working_set_bytes: Option<u64>,
     pub swap_used_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oom_kill_count: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct MountUsage {
+    pub mount_point: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used_bytes: Option<u64>,
+    pub fs_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct RootfsMetrics {
     pub used_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mounts: Option<Vec<MountUsage>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct DiskIoMetrics {
     pub read_bps: Option<u64>,
     pub write_bps: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_iops: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_iops: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub io_util_pct: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct NetworkMetrics {
     pub interface: String,
     pub counter_id: Option<String>,
@@ -59,6 +91,14 @@ pub struct NetworkMetrics {
     pub tx_bps: Option<u64>,
     pub rx_total_bytes: u64,
     pub tx_total_bytes: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tcp_established_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tcp_tw_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tcp_total_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub udp_in_use: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

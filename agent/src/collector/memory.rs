@@ -71,6 +71,7 @@ impl MemoryCollector {
                 used_bytes: None,
                 working_set_bytes: None,
                 swap_used_bytes: None,
+                oom_kill_count: None,
             },
         }
     }
@@ -83,6 +84,7 @@ impl MemoryCollector {
                     used_bytes: Some(win.used_bytes),
                     working_set_bytes: Some(win.used_bytes),
                     swap_used_bytes: Some(win.swap_used_bytes),
+                    oom_kill_count: None,
                 };
             }
         }
@@ -101,6 +103,7 @@ impl MemoryCollector {
                 used_bytes: Some(used_bytes),
                 working_set_bytes: Some(used_bytes),
                 swap_used_bytes: Some(swap_used_bytes),
+                oom_kill_count: None,
             };
         }
 
@@ -108,6 +111,7 @@ impl MemoryCollector {
             used_bytes: None,
             working_set_bytes: None,
             swap_used_bytes: None,
+            oom_kill_count: None,
         }
     }
 
@@ -119,9 +123,12 @@ impl MemoryCollector {
                     used_bytes: None,
                     working_set_bytes: None,
                     swap_used_bytes: None,
+                    oom_kill_count: None,
                 };
             }
         };
+
+        let oom_kill_count = read_cgroup_oom_kill_count(ctx);
 
         // cgroup v2: memory.current, memory.stat
         let current_file = ctx.memory_path.join("memory.current");
@@ -148,6 +155,7 @@ impl MemoryCollector {
                     used_bytes: Some(current_bytes),
                     working_set_bytes: Some(working_set_bytes),
                     swap_used_bytes,
+                    oom_kill_count,
                 };
             }
         }
@@ -168,6 +176,7 @@ impl MemoryCollector {
                     used_bytes: Some(usage_bytes),
                     working_set_bytes: Some(working_set_bytes),
                     swap_used_bytes: None,
+                    oom_kill_count,
                 };
             }
         }
@@ -177,6 +186,7 @@ impl MemoryCollector {
             used_bytes: None,
             working_set_bytes: None,
             swap_used_bytes: None,
+            oom_kill_count: None,
         }
     }
 }
@@ -253,4 +263,30 @@ fn parse_memory_stat_inactive_file(content: &str) -> u64 {
         }
     }
     0
+}
+
+fn read_cgroup_oom_kill_count(ctx: &CgroupContext) -> Option<u64> {
+    // cgroup v2: memory.events -> oom_kill <count>
+    let events_file = ctx.memory_path.join("memory.events");
+    if let Ok(content) = fs::read_to_string(&events_file) {
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() == 2 && parts[0] == "oom_kill" {
+                return parts[1].parse::<u64>().ok();
+            }
+        }
+    }
+
+    // cgroup v1: memory.oom_control -> oom_kill <count>
+    let oom_control_file = ctx.memory_path.join("memory.oom_control");
+    if let Ok(content) = fs::read_to_string(&oom_control_file) {
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() == 2 && parts[0] == "oom_kill" {
+                return parts[1].parse::<u64>().ok();
+            }
+        }
+    }
+
+    None
 }

@@ -59,6 +59,10 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
     ? Math.min(100, Math.round((trafficUsed / trafficQuota) * 100))
     : 0;
 
+  const cpuTemp = overlay?.cpu_temp_celsius ?? node.state?.cpu_temp_celsius;
+  const load1 = overlay?.load1 ?? node.state?.load1;
+  const tcpEstab = overlay?.tcp_established_count ?? node.state?.tcp_established_count;
+
   return (
     <div className="node-card-tile">
       <div>
@@ -101,7 +105,14 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           <div className="telemetry-row">
             <div className="telemetry-header-row">
               <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('cpu_usage')}</span>
-              <span>{cpuText}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>{cpuText}</span>
+                {isOnline && cpuTemp != null && (
+                  <span style={{ fontSize: '10px', color: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f59e0b' : '#00e676' }}>
+                    {cpuTemp}°C
+                  </span>
+                )}
+              </span>
             </div>
             <div className="telemetry-bar-track">
               <div className="telemetry-bar-fill" style={{ width: `${cpuBarWidth}%` }}></div>
@@ -151,21 +162,29 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
             <span>↑ {formatBps(txBps)}</span>
           </div>
 
-          {/* Edge RTT & Probes */}
-          {(edgeRttMs || probes.length > 0) && (
-            <div className="tag-chips-row">
-              {edgeRttMs && (
-                <span className="spacex-chip" style={{ color: '#ffffff', borderColor: '#ffffff' }}>
-                  CF EDGE · {edgeRttMs} MS
-                </span>
-              )}
-              {probes.slice(0, 2).map((p) => (
-                <span key={p.id} className="spacex-chip">
-                  {p.id}: {p.latency_ms != null ? `${p.latency_ms}MS` : 'ERR'}
-                </span>
-              ))}
-            </div>
-          )}
+          {/* Edge RTT & Probes & Sockets */}
+          <div className="tag-chips-row">
+            {edgeRttMs && (
+              <span className="spacex-chip" style={{ color: '#ffffff', borderColor: '#ffffff' }}>
+                CF EDGE · {edgeRttMs} MS
+              </span>
+            )}
+            {isOnline && tcpEstab != null && (
+              <span className="spacex-chip" style={{ color: '#38bdf8' }}>
+                {tcpEstab} TCP
+              </span>
+            )}
+            {isOnline && load1 != null && (
+              <span className="spacex-chip">
+                L: {load1}
+              </span>
+            )}
+            {probes.slice(0, 1).map((p) => (
+              <span key={p.id} className="spacex-chip">
+                {p.id}: {p.latency_ms != null ? `${p.latency_ms}MS` : 'ERR'}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 

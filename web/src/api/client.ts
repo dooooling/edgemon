@@ -1,4 +1,9 @@
-// EdgeMon Typed Frontend API Client
+export interface MountItem {
+  mount_point: string;
+  total_bytes?: number | null;
+  used_bytes?: number | null;
+  fs_type?: string | null;
+}
 
 export interface NodeItem {
   id: string;
@@ -50,16 +55,31 @@ export interface NodeItem {
     last_seen_at_ms: number;
     cpu_usage_pct?: number | null;
     cpu_throttled_pct?: number | null;
+    cpu_temp_celsius?: number | null;
+    load1?: number | null;
+    load5?: number | null;
+    load15?: number | null;
+    process_total_count?: number | null;
+    process_running_count?: number | null;
     memory_used_bytes?: number | null;
     memory_working_set_bytes?: number | null;
     swap_used_bytes?: number | null;
+    oom_kill_count?: number | null;
     rootfs_used_bytes?: number | null;
+    mounts?: MountItem[];
     disk_read_bps?: number | null;
     disk_write_bps?: number | null;
+    read_iops?: number | null;
+    write_iops?: number | null;
+    io_util_pct?: number | null;
     rx_bps?: number | null;
     tx_bps?: number | null;
     rx_total_bytes?: number;
     tx_total_bytes?: number;
+    tcp_established_count?: number | null;
+    tcp_tw_count?: number | null;
+    tcp_total_count?: number | null;
+    udp_in_use?: number | null;
     edge_rtt_ms?: number | null;
     edge_transport?: string | null;
     uptime_sec?: number | null;

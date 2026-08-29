@@ -180,6 +180,8 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
             const trafficBarWidth = trafficQuota && trafficQuota > 0 ? Math.min(100, Math.round((trafficUsed / trafficQuota) * 100)) : 0;
 
             const rttMs = overlay?.edge_rtt_ms ?? node.state?.edge_rtt_ms;
+            const cpuTemp = overlay?.cpu_temp_celsius ?? node.state?.cpu_temp_celsius;
+            const tcpEstab = overlay?.tcp_established_count ?? node.state?.tcp_established_count;
 
             // Expiration calculation
             let expBadge: React.ReactNode = null;
@@ -223,9 +225,12 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
                         <span>{node.name}</span>
                         {expBadge}
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--colors-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--colors-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px', flexWrap: 'wrap' }}>
                         <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={11} />
                         <span>{node.system?.os_version || node.environment?.type || 'LINUX'} · {cpuCores}C</span>
+                        {isOnline && tcpEstab != null && (
+                          <span style={{ color: '#38bdf8' }}>· {tcpEstab} TCP</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -233,8 +238,13 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
 
                 {/* CPU */}
                 <td style={{ minWidth: '120px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 600 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 600 }}>
                     <span>{isOnline && cpuPct != null ? `${cpuPct}%` : 'N/A'}</span>
+                    {isOnline && cpuTemp != null && (
+                      <span style={{ fontSize: '10px', color: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f59e0b' : '#00e676', fontWeight: 500 }}>
+                        {cpuTemp}°C
+                      </span>
+                    )}
                   </div>
                   <div className="telemetry-bar-track" style={{ height: '3px', marginTop: '4px' }}>
                     <div className="telemetry-bar-fill" style={{ width: `${cpuBarWidth}%` }}></div>

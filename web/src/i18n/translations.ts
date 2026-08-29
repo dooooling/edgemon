@@ -125,6 +125,21 @@ export const translations = {
     exp_today: '今日到期',
     exp_expired: '已过期',
 
+    // Enhanced Telemetry
+    cpu_temp: 'CPU 核心温度',
+    load_avg: '系统平均负载 (1m / 5m / 15m)',
+    process_count: '活跃进程 / 总进程数',
+    tcp_sockets: 'TCP 网络连接状态',
+    tcp_estab: '活跃连接 (ESTAB)',
+    tcp_tw: 'TIME_WAIT 状态',
+    tcp_total: '已分配 Sockets',
+    udp_sockets: 'UDP 套接字',
+    disk_iops: '磁盘每秒操作数 (IOPS)',
+    io_util: '磁盘 I/O 繁忙度',
+    mounts_title: '物理磁盘挂载点容量明细',
+    oom_kill_badge: 'OOM 崩溃触发',
+    oom_clean: '0 次 OOM 异常',
+
     // Table Headers & Actions
     th_node_identifier: '节点标识名称',
     th_node_uuid: '节点 UUID',
@@ -264,6 +279,21 @@ export const translations = {
     exp_days_left: 'd left',
     exp_today: 'TODAY',
     exp_expired: 'EXPIRED',
+
+    // Enhanced Telemetry
+    cpu_temp: 'CPU PACKAGE TEMP',
+    load_avg: 'LOAD AVERAGE (1m / 5m / 15m)',
+    process_count: 'ACTIVE / TOTAL PROCESSES',
+    tcp_sockets: 'TCP SOCKET TELEMETRY',
+    tcp_estab: 'ESTABLISHED (ACTIVE)',
+    tcp_tw: 'TIME_WAIT',
+    tcp_total: 'ALLOCATED SOCKETS',
+    udp_sockets: 'UDP SOCKETS',
+    disk_iops: 'DISK IOPS (READ / WRITE)',
+    io_util: 'I/O UTILIZATION',
+    mounts_title: 'PHYSICAL MOUNT STORAGE',
+    oom_kill_badge: 'OOM-KILL DETECTED',
+    oom_clean: '0 OOM KILLS',
 
     // Table Headers & Actions
     th_node_identifier: 'NODE IDENTIFIER',

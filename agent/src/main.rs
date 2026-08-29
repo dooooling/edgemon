@@ -438,18 +438,29 @@ fn main() -> Result<()> {
                             cpu: CpuMetrics {
                                 usage_pct: Some((cpu_pct * 10.0).round() / 10.0),
                                 throttled_pct: Some(0.0),
+                                temp_celsius: Some(42.5),
+                                load1: Some(0.35),
+                                load5: Some(0.28),
+                                load15: Some(0.19),
+                                process_total_count: Some(186),
+                                process_running_count: Some(2),
                             },
                             memory: MemoryMetrics {
                                 used_bytes: Some(2_147_483_648 + (current_ts_ms() % 80_000_000)),
                                 working_set_bytes: Some(1_610_612_736),
                                 swap_used_bytes: Some(67_108_864),
+                                oom_kill_count: Some(0),
                             },
                             rootfs: RootfsMetrics {
                                 used_bytes: Some(34_359_738_368),
+                                mounts: None,
                             },
                             io: DiskIoMetrics {
                                 read_bps: Some(1_048_576),
                                 write_bps: Some(2_097_152),
+                                read_iops: Some(120),
+                                write_iops: Some(380),
+                                io_util_pct: Some(4.5),
                             },
                             network: NetworkMetrics {
                                 counter_id: Some("mock-net-counter".to_string()),
@@ -458,6 +469,10 @@ fn main() -> Result<()> {
                                 tx_bps: Some(tx_delta / sample_interval),
                                 rx_total_bytes: mock_rx_total,
                                 tx_total_bytes: mock_tx_total,
+                                tcp_established_count: Some(28),
+                                tcp_tw_count: Some(12),
+                                tcp_total_count: Some(45),
+                                udp_in_use: Some(6),
                             },
                             uptime_sec: Some(mock_uptime),
                             probes: vec![ProbeResult {

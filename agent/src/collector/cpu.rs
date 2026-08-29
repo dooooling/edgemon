@@ -64,6 +64,12 @@ impl CpuCollector {
             latest_metrics: CpuMetrics {
                 usage_pct: None,
                 throttled_pct: None,
+                temp_celsius: None,
+                load1: None,
+                load5: None,
+                load15: None,
+                process_total_count: None,
+                process_running_count: None,
             },
             last_jiffies: None,
             #[cfg(windows)]
@@ -89,14 +95,31 @@ impl CpuCollector {
             }
         }
 
-        let metrics = match self.scope {
+        let mut metrics = match self.scope {
             ResourceScope::Container => self.sample_container(now),
             ResourceScope::Machine => self.sample_host(now),
             ResourceScope::Unknown => CpuMetrics {
                 usage_pct: None,
                 throttled_pct: None,
+                temp_celsius: None,
+                load1: None,
+                load5: None,
+                load15: None,
+                process_total_count: None,
+                process_running_count: None,
             },
         };
+
+        // Enrich with loadavg, process count, and CPU temperature
+        if let Some(load_info) = read_proc_loadavg() {
+            metrics.load1 = Some(load_info.0);
+            metrics.load5 = Some(load_info.1);
+            metrics.load15 = Some(load_info.2);
+            metrics.process_running_count = Some(load_info.3);
+            metrics.process_total_count = Some(load_info.4);
+        }
+
+        metrics.temp_celsius = read_cpu_temperature();
 
         if metrics.usage_pct.is_some() {
             self.latest_metrics = metrics.clone();
@@ -127,6 +150,12 @@ impl CpuCollector {
                 return CpuMetrics {
                     usage_pct,
                     throttled_pct: None,
+                    temp_celsius: None,
+                    load1: None,
+                    load5: None,
+                    load15: None,
+                    process_total_count: None,
+                    process_running_count: None,
                 };
             }
         }
@@ -137,6 +166,7 @@ impl CpuCollector {
                 return CpuMetrics {
                     usage_pct: None,
                     throttled_pct: None,
+                    ..Default::default()
                 }
             }
         };
@@ -161,6 +191,7 @@ impl CpuCollector {
         CpuMetrics {
             usage_pct,
             throttled_pct: None,
+            ..Default::default()
         }
     }
 
@@ -173,6 +204,7 @@ impl CpuCollector {
                 return CpuMetrics {
                     usage_pct: None,
                     throttled_pct: None,
+                    ..Default::default()
                 };
             }
         };
@@ -219,6 +251,7 @@ impl CpuCollector {
         CpuMetrics {
             usage_pct,
             throttled_pct,
+            ..Default::default()
         }
     }
 }
@@ -438,4 +471,83 @@ fn read_cgroup_cpu_stats(cgroup_ctx: Option<&CgroupContext>) -> (Option<u64>, Op
 
 fn round_1_decimal(val: f64) -> f64 {
     (val * 10.0).round() / 10.0
+}
+
+fn read_proc_loadavg() -> Option<(f64, f64, f64, u32, u32)> {
+    #[cfg(unix)]
+    {
+        if let Ok(content) = fs::read_to_string("/proc/loadavg") {
+            let parts: Vec<&str> = content.split_whitespace().collect();
+            if parts.len() >= 4 {
+                let load1 = parts[0].parse::<f64>().ok()?;
+                let load5 = parts[1].parse::<f64>().ok()?;
+                let load15 = parts[2].parse::<f64>().ok()?;
+
+                let mut proc_running = 0u32;
+                let mut proc_total = 0u32;
+                if let Some((r, t)) = parts[3].split_once('/') {
+                    proc_running = r.parse::<u32>().unwrap_or(0);
+                    proc_total = t.parse::<u32>().unwrap_or(0);
+                }
+
+                return Some((load1, load5, load15, proc_running, proc_total));
+            }
+        }
+    }
+    None
+}
+
+fn read_cpu_temperature() -> Option<f64> {
+    #[cfg(unix)]
+    {
+        // 1. Try /sys/class/thermal/thermal_zone*/temp
+        if let Ok(entries) = fs::read_dir("/sys/class/thermal") {
+            let mut highest_temp: Option<f64> = None;
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("thermal_zone") {
+                    let temp_path = entry.path().join("temp");
+                    if let Ok(content) = fs::read_to_string(temp_path) {
+                        if let Ok(milli) = content.trim().parse::<i64>() {
+                            let temp = (milli as f64) / 1000.0;
+                            if temp > 0.0 && temp < 130.0 {
+                                highest_temp =
+                                    Some(highest_temp.map_or(temp, |h: f64| h.max(temp)));
+                            }
+                        }
+                    }
+                }
+            }
+            if highest_temp.is_some() {
+                return highest_temp.map(round_1_decimal);
+            }
+        }
+
+        // 2. Try /sys/class/hwmon/hwmon*/temp*_input
+        if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
+            let mut highest_temp: Option<f64> = None;
+            for entry in entries.flatten() {
+                if let Ok(sub_entries) = fs::read_dir(entry.path()) {
+                    for sub in sub_entries.flatten() {
+                        let sub_name = sub.file_name().to_string_lossy().to_string();
+                        if sub_name.starts_with("temp") && sub_name.ends_with("_input") {
+                            if let Ok(content) = fs::read_to_string(sub.path()) {
+                                if let Ok(milli) = content.trim().parse::<i64>() {
+                                    let temp = (milli as f64) / 1000.0;
+                                    if temp > 0.0 && temp < 130.0 {
+                                        highest_temp =
+                                            Some(highest_temp.map_or(temp, |h: f64| h.max(temp)));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if highest_temp.is_some() {
+                return highest_temp.map(round_1_decimal);
+            }
+        }
+    }
+    None
 }

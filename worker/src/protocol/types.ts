@@ -62,24 +62,42 @@ export interface HelloPayload {
   network_counter_id?: string | null;
 }
 
+export interface MountUsage {
+  mount_point: string;
+  total_bytes?: number | null;
+  used_bytes?: number | null;
+  fs_type?: string | null;
+}
+
 export interface ReportMetrics {
   config_rev: number;
   boot_id?: string | null;
   cpu: {
     usage_pct?: number | null;
     throttled_pct?: number | null;
+    temp_celsius?: number | null;
+    load1?: number | null;
+    load5?: number | null;
+    load15?: number | null;
+    process_total_count?: number | null;
+    process_running_count?: number | null;
   };
   memory: {
     used_bytes?: number | null;
     working_set_bytes?: number | null;
     swap_used_bytes?: number | null;
+    oom_kill_count?: number | null;
   };
   rootfs: {
     used_bytes?: number | null;
+    mounts?: MountUsage[] | null;
   };
   io: {
     read_bps?: number | null;
     write_bps?: number | null;
+    read_iops?: number | null;
+    write_iops?: number | null;
+    io_util_pct?: number | null;
   };
   network: {
     interface: string;
@@ -88,6 +106,10 @@ export interface ReportMetrics {
     tx_bps?: number | null;
     rx_total_bytes: number;
     tx_total_bytes: number;
+    tcp_established_count?: number | null;
+    tcp_tw_count?: number | null;
+    tcp_total_count?: number | null;
+    udp_in_use?: number | null;
   };
   uptime_sec?: number | null;
   probes: Array<{

@@ -102,6 +102,22 @@ export const NodeDetailPage: React.FC = () => {
     ? Math.min(100, Math.round((trafficUsed / trafficQuota) * 100))
     : 0;
 
+  const cpuTemp = overlay?.cpu_temp_celsius ?? node.state?.cpu_temp_celsius;
+  const load1 = overlay?.load1 ?? node.state?.load1;
+  const load5 = overlay?.load5 ?? node.state?.load5;
+  const load15 = overlay?.load15 ?? node.state?.load15;
+  const procRunning = overlay?.process_running_count ?? node.state?.process_running_count;
+  const procTotal = overlay?.process_total_count ?? node.state?.process_total_count;
+  const oomKills = overlay?.oom_kill_count ?? node.state?.oom_kill_count;
+  const mounts = overlay?.mounts ?? node.state?.mounts ?? [];
+  const readIops = overlay?.read_iops ?? node.state?.read_iops;
+  const writeIops = overlay?.write_iops ?? node.state?.write_iops;
+  const ioUtilPct = overlay?.io_util_pct ?? node.state?.io_util_pct;
+  const tcpEstab = overlay?.tcp_established_count ?? node.state?.tcp_established_count;
+  const tcpTw = overlay?.tcp_tw_count ?? node.state?.tcp_tw_count;
+  const tcpTotal = overlay?.tcp_total_count ?? node.state?.tcp_total_count;
+  const udpInUse = overlay?.udp_in_use ?? node.state?.udp_in_use;
+
   return (
     <div className="page-container">
       {/* Top Navigation Row */}
@@ -133,18 +149,48 @@ export const NodeDetailPage: React.FC = () => {
                 UUID: {node.id}
               </span>
             </div>
-            <div className="status-indicator-beacon">
-              <span className={`beacon-dot ${isOnline ? 'beacon-live' : 'beacon-idle'}`}></span>
-              <span>{isOnline ? t('node_online') : t('node_offline')}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {oomKills != null && oomKills > 0 && (
+                <span className="spacex-chip" style={{ backgroundColor: 'rgba(226, 39, 24, 0.2)', color: '#e22718', border: '1px solid #e22718' }}>
+                  ⚠️ {oomKills} {t('oom_kill_badge')}
+                </span>
+              )}
+              {cpuTemp != null && (
+                <span
+                  className="spacex-chip"
+                  style={{
+                    color: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f59e0b' : '#00e676',
+                    borderColor: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f59e0b' : '#00e676',
+                  }}
+                >
+                  {cpuTemp >= 80 ? '🔥' : '🌡️'} {cpuTemp}°C
+                </span>
+              )}
+              <div className="status-indicator-beacon">
+                <span className={`beacon-dot ${isOnline ? 'beacon-live' : 'beacon-idle'}`}></span>
+                <span>{isOnline ? t('node_online') : t('node_offline')}</span>
+              </div>
             </div>
           </div>
 
           {/* Live Telemetry Stack on Detail Page */}
           <div className="telemetry-stack" style={{ marginTop: '24px', padding: '20px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid var(--colors-hairline-on-dark)' }}>
-            {/* CPU */}
+            {/* CPU & Load */}
             <div className="telemetry-row">
               <div className="telemetry-header-row">
-                <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('cpu_usage')}</span>
+                <span style={{ color: 'var(--colors-on-primary-mute)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>{t('cpu_usage')}</span>
+                  {load1 != null && (
+                    <span style={{ fontSize: '11px', color: 'var(--colors-muted)' }}>
+                      [LOAD: {load1} / {load5 ?? '-'} / {load15 ?? '-'}]
+                    </span>
+                  )}
+                  {procTotal != null && (
+                    <span style={{ fontSize: '11px', color: 'var(--colors-muted)' }}>
+                      [{procRunning ?? 1}/{procTotal} PROC]
+                    </span>
+                  )}
+                </span>
                 <span style={{ fontWeight: 600 }}>{cpuText}</span>
               </div>
               <div className="telemetry-bar-track">
@@ -171,6 +217,36 @@ export const NodeDetailPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Multi Mounts Breakdown if available */}
+            {mounts.length > 1 && (
+              <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--colors-hairline-on-dark)' }}>
+                <span className="eyebrow-cap" style={{ fontSize: '10px', marginBottom: '8px', display: 'block' }}>
+                  {t('mounts_title')}
+                </span>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
+                  {mounts.map((m) => {
+                    const mTotal = m.total_bytes || 1;
+                    const mUsed = m.used_bytes || 0;
+                    const mPct = Math.min(100, Math.round((mUsed / mTotal) * 100));
+                    return (
+                      <div key={m.mount_point} style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '8px', borderRadius: '4px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600 }}>
+                          <span>{m.mount_point} ({m.fs_type || 'EXT4'})</span>
+                          <span>{mPct}%</span>
+                        </div>
+                        <div className="telemetry-bar-track" style={{ height: '3px', marginTop: '4px' }}>
+                          <div className="telemetry-bar-fill" style={{ width: `${mPct}%` }}></div>
+                        </div>
+                        <div style={{ fontSize: '10px', color: 'var(--colors-muted)', marginTop: '2px' }}>
+                          {formatBytes(mUsed)} / {formatBytes(mTotal)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Traffic Billing Cycle */}
             {traffic && (
               <div className="telemetry-row">
@@ -195,11 +271,28 @@ export const NodeDetailPage: React.FC = () => {
                 <span>↓ {formatBps(rxBps)}</span>
                 <span>↑ {formatBps(txBps)}</span>
               </div>
-              {edgeRttMs && (
-                <span className="spacex-chip" style={{ color: '#ffffff', borderColor: '#ffffff' }}>
-                  CF EDGE · {edgeRttMs} MS
-                </span>
-              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                {(readIops != null || writeIops != null) && (
+                  <span className="spacex-chip">
+                    IOPS: ↓{readIops || 0} ↑{writeIops || 0} {ioUtilPct != null ? `(${ioUtilPct}% UTIL)` : ''}
+                  </span>
+                )}
+                {tcpEstab != null && (
+                  <span className="spacex-chip" style={{ color: '#38bdf8', borderColor: '#38bdf8' }}>
+                    {tcpEstab} TCP ESTAB {tcpTw != null ? `· ${tcpTw} TW` : ''}
+                  </span>
+                )}
+                {udpInUse != null && (
+                  <span className="spacex-chip">
+                    {udpInUse} UDP
+                  </span>
+                )}
+                {edgeRttMs && (
+                  <span className="spacex-chip" style={{ color: '#ffffff', borderColor: '#ffffff' }}>
+                    CF EDGE · {edgeRttMs} MS
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 

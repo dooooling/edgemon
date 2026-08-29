@@ -1,19 +1,41 @@
 import { create } from 'zustand';
 
+export interface MountOverlay {
+  mount_point: string;
+  total_bytes?: number | null;
+  used_bytes?: number | null;
+  fs_type?: string | null;
+}
+
 export interface RealtimeMetricsOverlay {
   last_seen_at_ms: number;
   cpu_usage_pct?: number | null;
   cpu_throttled_pct?: number | null;
+  cpu_temp_celsius?: number | null;
+  load1?: number | null;
+  load5?: number | null;
+  load15?: number | null;
+  process_total_count?: number | null;
+  process_running_count?: number | null;
   memory_used_bytes?: number | null;
   memory_working_set_bytes?: number | null;
   swap_used_bytes?: number | null;
+  oom_kill_count?: number | null;
   rootfs_used_bytes?: number | null;
+  mounts?: MountOverlay[];
   disk_read_bps?: number | null;
   disk_write_bps?: number | null;
+  read_iops?: number | null;
+  write_iops?: number | null;
+  io_util_pct?: number | null;
   rx_bps?: number | null;
   tx_bps?: number | null;
   rx_total_bytes?: number;
   tx_total_bytes?: number;
+  tcp_established_count?: number | null;
+  tcp_tw_count?: number | null;
+  tcp_total_count?: number | null;
+  udp_in_use?: number | null;
   edge_rtt_ms?: number | null;
   edge_transport?: string | null;
   uptime_sec?: number | null;
@@ -92,16 +114,31 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               last_seen_at_ms: receivedAt,
               cpu_usage_pct: data.metrics.cpu?.usage_pct,
               cpu_throttled_pct: data.metrics.cpu?.throttled_pct,
+              cpu_temp_celsius: data.metrics.cpu?.temp_celsius,
+              load1: data.metrics.cpu?.load1,
+              load5: data.metrics.cpu?.load5,
+              load15: data.metrics.cpu?.load15,
+              process_total_count: data.metrics.cpu?.process_total_count,
+              process_running_count: data.metrics.cpu?.process_running_count,
               memory_used_bytes: data.metrics.memory?.used_bytes,
               memory_working_set_bytes: data.metrics.memory?.working_set_bytes,
               swap_used_bytes: data.metrics.memory?.swap_used_bytes,
+              oom_kill_count: data.metrics.memory?.oom_kill_count,
               rootfs_used_bytes: data.metrics.rootfs?.used_bytes,
+              mounts: data.metrics.rootfs?.mounts,
               disk_read_bps: data.metrics.io?.read_bps,
               disk_write_bps: data.metrics.io?.write_bps,
+              read_iops: data.metrics.io?.read_iops,
+              write_iops: data.metrics.io?.write_iops,
+              io_util_pct: data.metrics.io?.io_util_pct,
               rx_bps: data.metrics.network?.rx_bps,
               tx_bps: data.metrics.network?.tx_bps,
               rx_total_bytes: data.metrics.network?.rx_total_bytes,
               tx_total_bytes: data.metrics.network?.tx_total_bytes,
+              tcp_established_count: data.metrics.network?.tcp_established_count,
+              tcp_tw_count: data.metrics.network?.tcp_tw_count,
+              tcp_total_count: data.metrics.network?.tcp_total_count,
+              udp_in_use: data.metrics.network?.udp_in_use,
               edge_rtt_ms: data.geo?.edge_rtt_ms,
               edge_transport: data.geo?.edge_transport,
               uptime_sec: data.metrics.uptime_sec,

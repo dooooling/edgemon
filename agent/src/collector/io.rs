@@ -8,6 +8,9 @@ use std::time::Instant;
 struct IoCounters {
     read_bytes: u64,
     write_bytes: u64,
+    read_ios: u64,
+    write_ios: u64,
+    io_ticks_ms: u64,
 }
 
 pub struct IoCollector {
@@ -35,24 +38,44 @@ impl IoCollector {
         };
 
         let now = Instant::now();
-        let (read_bps, write_bps) = if let (Some(prev), Some(curr), Some(last_inst)) = (
-            self.last_counters,
-            current_counters,
-            self.last_sample_instant,
-        ) {
-            let elapsed_sec = now.duration_since(last_inst).as_secs_f64();
-            if elapsed_sec > 0.0 {
-                let r_delta = curr.read_bytes.saturating_sub(prev.read_bytes) as f64;
-                let w_delta = curr.write_bytes.saturating_sub(prev.write_bytes) as f64;
-                let r_bps = (r_delta / elapsed_sec).round() as u64;
-                let w_bps = (w_delta / elapsed_sec).round() as u64;
-                (Some(r_bps), Some(w_bps))
+        let (read_bps, write_bps, read_iops, write_iops, io_util_pct) =
+            if let (Some(prev), Some(curr), Some(last_inst)) = (
+                self.last_counters,
+                current_counters,
+                self.last_sample_instant,
+            ) {
+                let elapsed_sec = now.duration_since(last_inst).as_secs_f64();
+                if elapsed_sec > 0.0 {
+                    let r_delta = curr.read_bytes.saturating_sub(prev.read_bytes) as f64;
+                    let w_delta = curr.write_bytes.saturating_sub(prev.write_bytes) as f64;
+                    let r_bps = (r_delta / elapsed_sec).round() as u64;
+                    let w_bps = (w_delta / elapsed_sec).round() as u64;
+
+                    let r_ios_delta = curr.read_ios.saturating_sub(prev.read_ios) as f64;
+                    let w_ios_delta = curr.write_ios.saturating_sub(prev.write_ios) as f64;
+                    let r_iops = (r_ios_delta / elapsed_sec).round() as u64;
+                    let w_iops = (w_ios_delta / elapsed_sec).round() as u64;
+
+                    let ticks_delta = curr.io_ticks_ms.saturating_sub(prev.io_ticks_ms) as f64;
+                    let util_pct = if ticks_delta > 0.0 {
+                        Some(((ticks_delta / (elapsed_sec * 1000.0)) * 100.0).clamp(0.0, 100.0))
+                    } else {
+                        Some(0.0)
+                    };
+
+                    (
+                        Some(r_bps),
+                        Some(w_bps),
+                        Some(r_iops),
+                        Some(w_iops),
+                        util_pct.map(|u| (u * 10.0).round() / 10.0),
+                    )
+                } else {
+                    (None, None, None, None, None)
+                }
             } else {
-                (None, None)
-            }
-        } else {
-            (None, None)
-        };
+                (None, None, None, None, None)
+            };
 
         self.last_sample_instant = Some(now);
         self.last_counters = current_counters;
@@ -60,6 +83,9 @@ impl IoCollector {
         DiskIoMetrics {
             read_bps,
             write_bps,
+            read_iops,
+            write_iops,
+            io_util_pct,
         }
     }
 }
@@ -71,6 +97,8 @@ fn read_cgroup_io_counters(cgroup_ctx: Option<&CgroupContext>) -> Option<IoCount
     if let Ok(content) = fs::read_to_string(ctx.io_path.join("io.stat")) {
         let mut total_rbytes = 0u64;
         let mut total_wbytes = 0u64;
+        let mut total_rios = 0u64;
+        let mut total_wios = 0u64;
         let mut found = false;
 
         for line in content.lines() {
@@ -85,6 +113,16 @@ fn read_cgroup_io_counters(cgroup_ctx: Option<&CgroupContext>) -> Option<IoCount
                         total_wbytes += v;
                         found = true;
                     }
+                } else if let Some(val) = part.strip_prefix("rios=") {
+                    if let Ok(v) = val.parse::<u64>() {
+                        total_rios += v;
+                        found = true;
+                    }
+                } else if let Some(val) = part.strip_prefix("wios=") {
+                    if let Ok(v) = val.parse::<u64>() {
+                        total_wios += v;
+                        found = true;
+                    }
                 }
             }
         }
@@ -93,6 +131,9 @@ fn read_cgroup_io_counters(cgroup_ctx: Option<&CgroupContext>) -> Option<IoCount
             return Some(IoCounters {
                 read_bytes: total_rbytes,
                 write_bytes: total_wbytes,
+                read_ios: total_rios,
+                write_ios: total_wios,
+                io_ticks_ms: 0,
             });
         }
     }
@@ -122,6 +163,9 @@ fn read_cgroup_io_counters(cgroup_ctx: Option<&CgroupContext>) -> Option<IoCount
                 return Some(IoCounters {
                     read_bytes: total_rbytes,
                     write_bytes: total_wbytes,
+                    read_ios: 0,
+                    write_ios: 0,
+                    io_ticks_ms: 0,
                 });
             }
         }
@@ -134,6 +178,9 @@ fn read_host_diskstats() -> Option<IoCounters> {
     let content = fs::read_to_string("/proc/diskstats").ok()?;
     let mut total_rbytes = 0u64;
     let mut total_wbytes = 0u64;
+    let mut total_rios = 0u64;
+    let mut total_wios = 0u64;
+    let mut total_ticks = 0u64;
     let mut found = false;
 
     for line in content.lines() {
@@ -142,10 +189,17 @@ fn read_host_diskstats() -> Option<IoCounters> {
             let dev_name = parts[2];
             // Filter major disk names (e.g. sda, vda, nvme0n1) to avoid duplicate partition sums
             if is_primary_disk(dev_name) {
+                let reads_completed = parts[3].parse::<u64>().unwrap_or(0);
                 let sectors_read = parts[5].parse::<u64>().unwrap_or(0);
+                let writes_completed = parts[7].parse::<u64>().unwrap_or(0);
                 let sectors_written = parts[9].parse::<u64>().unwrap_or(0);
+                let io_ticks = parts[12].parse::<u64>().unwrap_or(0);
+
                 total_rbytes += sectors_read * 512;
                 total_wbytes += sectors_written * 512;
+                total_rios += reads_completed;
+                total_wios += writes_completed;
+                total_ticks += io_ticks;
                 found = true;
             }
         }
@@ -155,6 +209,9 @@ fn read_host_diskstats() -> Option<IoCounters> {
         Some(IoCounters {
             read_bytes: total_rbytes,
             write_bytes: total_wbytes,
+            read_ios: total_rios,
+            write_ios: total_wios,
+            io_ticks_ms: total_ticks,
         })
     } else {
         None

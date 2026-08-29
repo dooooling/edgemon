@@ -8,7 +8,7 @@ import { NodeTable } from '../components/NodeTable';
 import { useTranslation } from '../i18n/I18nContext';
 
 export const OverviewPage: React.FC = () => {
-  const { data, isLoading, refetch } = usePublicNodesQuery();
+  const { data, isLoading, isFetching, refetch } = usePublicNodesQuery();
   const connectRealtime = useRealtimeStore((s) => s.connectRealtime);
   const overlays = useRealtimeStore((s) => s.overlays);
   const { t } = useTranslation();
@@ -94,8 +94,38 @@ export const OverviewPage: React.FC = () => {
             </button>
           </div>
 
-          <button className="button-ghost-on-dark button-ghost-sm" onClick={() => refetch()}>
-            {t('refresh_fleet')}
+          {/* Pure Icon Refresh Button with Spin Animation */}
+          <button
+            className="button-ghost-on-dark button-ghost-sm"
+            onClick={() => refetch()}
+            title={t('refresh_fleet')}
+            aria-label={t('refresh_fleet')}
+            style={{
+              width: '32px',
+              height: '32px',
+              padding: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                transition: 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                transform: isFetching ? 'rotate(360deg)' : 'none',
+              }}
+            >
+              <path d="M21.5 2v6h-6M2.5 22v-6h6" />
+              <path d="M21.5 15.5A9 9 0 0 1 6 18.5L2.5 16M2.5 8.5A9 9 0 0 1 18 5.5L21.5 8" />
+            </svg>
           </button>
         </div>
       </div>

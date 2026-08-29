@@ -210,25 +210,6 @@ export const AdminPage: React.FC = () => {
 
   return (
     <div className="page-container">
-      <div className="hero-banner-chassis" style={{ marginBottom: '32px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-          <div>
-            <span className="eyebrow-cap">MISSION CONTROL // SECURE GATEWAY</span>
-            <h1 className="display-xl" style={{ marginTop: '4px' }}>
-              {t('nav_console')}
-            </h1>
-            <p className="caption" style={{ marginTop: '8px' }}>
-              {t('hero_sub')}
-            </p>
-          </div>
-          {authenticated && (
-            <button className="button-ghost-on-dark button-ghost-sm" onClick={handleLogout}>
-              {t('admin_logout_btn')}
-            </button>
-          )}
-        </div>
-      </div>
-
       {adminBannerWarning && (
         <div className="detail-chassis-band" style={{ marginBottom: '24px', borderColor: '#e22718', backgroundColor: 'rgba(226, 39, 24, 0.08)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -244,53 +225,78 @@ export const AdminPage: React.FC = () => {
       )}
 
       {!authenticated ? (
-        <div className="detail-chassis-band" style={{ maxWidth: '480px', margin: '40px auto' }}>
-          <span className="eyebrow-cap">{t('admin_title')}</span>
-          <p className="caption" style={{ marginBottom: '24px' }}>
-            {t('admin_login_sub')}
-          </p>
+        <div style={{ maxWidth: '440px', margin: '80px auto', width: '100%' }}>
+          <div className="detail-chassis-band" style={{ padding: '36px 32px' }}>
+            <span className="eyebrow-cap" style={{ fontSize: '11px', color: 'var(--colors-m-blue-light)' }}>
+              MISSION CONTROL // SECURE GATEWAY
+            </span>
+            <h2 className="display-lg" style={{ fontSize: '22px', marginTop: '6px', marginBottom: '8px' }}>
+              {t('nav_console')}
+            </h2>
+            <p className="caption" style={{ marginBottom: '24px' }}>
+              {t('admin_login_sub')}
+            </p>
 
-          <form onSubmit={handleLogin}>
-            <div style={{ marginBottom: '20px' }}>
-              <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('admin_key_label')}</span>
-              <input
-                value={adminKey}
-                onChange={(e) => setAdminKey(e.target.value)}
-                type="password"
-                placeholder="ADMIN_KEY..."
-                className="spacex-input"
-                required
-              />
-            </div>
+            <form onSubmit={handleLogin}>
+              <div style={{ marginBottom: '20px' }}>
+                <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px', fontSize: '11px' }}>
+                  {t('admin_key_label')}
+                </span>
+                <input
+                  value={adminKey}
+                  onChange={(e) => setAdminKey(e.target.value)}
+                  type="password"
+                  placeholder="ADMIN_KEY..."
+                  className="spacex-input"
+                  required
+                  autoFocus
+                />
+              </div>
 
-            {loginError && (
-              <p className="caption" style={{ color: 'var(--colors-status-alert)', marginBottom: '16px' }}>
-                {loginError.toUpperCase()}
-              </p>
-            )}
+              {loginError && (
+                <p className="caption" style={{ color: 'var(--colors-status-alert)', marginBottom: '16px', fontWeight: 600 }}>
+                  ⚠️ {loginError.toUpperCase()}
+                </p>
+              )}
 
-            <button type="submit" className="button-ghost-on-dark" style={{ width: '100%' }} disabled={loggingIn}>
-              {loggingIn ? '...' : t('admin_login_btn')}
-            </button>
-          </form>
+              <button type="submit" className="button-ghost-on-dark" style={{ width: '100%', height: '42px' }} disabled={loggingIn}>
+                {loggingIn ? '...' : t('admin_login_btn')}
+              </button>
+            </form>
+          </div>
         </div>
       ) : (
         <div>
-          {/* Admin Header */}
+          {/* Admin Hero Header */}
+          <div className="hero-banner-chassis" style={{ marginBottom: '32px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+              <div>
+                <span className="eyebrow-cap">MISSION CONTROL // SECURE GATEWAY</span>
+                <h1 className="display-xl" style={{ marginTop: '4px' }}>
+                  {t('nav_console')}
+                </h1>
+                <p className="caption" style={{ marginTop: '8px' }}>
+                  {t('hero_sub')}
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button className="button-ghost-on-dark button-ghost-sm" onClick={() => setShowAddModal(true)}>
+                  {t('create_node_btn')}
+                </button>
+                <button className="button-ghost-on-dark button-ghost-sm" onClick={handleLogout}>
+                  {t('admin_logout_btn')}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Admin Section Title Bar */}
           <div className="section-title-bar">
             <div>
               <span className="eyebrow-cap">{t('admin_nodes_title')}</span>
               <h2 className="display-lg" style={{ fontSize: '24px', marginTop: '4px' }}>
                 {t('fleet_nodes_title')}
               </h2>
-            </div>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button className="button-ghost-on-dark button-ghost-sm" onClick={() => setShowAddModal(true)}>
-                {t('create_node_btn')}
-              </button>
-              <button className="button-ghost-on-dark button-ghost-sm" onClick={handleLogout}>
-                {t('admin_logout_btn')}
-              </button>
             </div>
           </div>
 

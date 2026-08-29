@@ -40,6 +40,38 @@ type SocketAttachment = AgentAttachment | BrowserAttachment;
 
 function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): boolean {
   try {
+    if (attachment.kind === 'agent') {
+      const compacted: AgentAttachment = {
+        ...attachment,
+        current_minute: attachment.current_minute
+          ? {
+              ...attachment.current_minute,
+              last_metrics: {
+                ...attachment.current_minute.last_metrics,
+                rootfs: {
+                  used_bytes: attachment.current_minute.last_metrics.rootfs?.used_bytes,
+                },
+                probes: (attachment.current_minute.last_metrics.probes || []).slice(0, 5),
+              },
+            }
+          : null,
+        historical_minutes: Object.fromEntries(
+          Object.entries(attachment.historical_minutes || {}).slice(-2).map(([k, v]) => [
+            k,
+            {
+              ...v,
+              last_metrics: {
+                ...v.last_metrics,
+                rootfs: { used_bytes: v.last_metrics.rootfs?.used_bytes },
+                probes: (v.last_metrics.probes || []).slice(0, 3),
+              },
+            },
+          ])
+        ),
+      };
+      ws.serializeAttachment(compacted);
+      return true;
+    }
     ws.serializeAttachment(attachment);
     return true;
   } catch (err) {

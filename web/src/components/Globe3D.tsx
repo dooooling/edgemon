@@ -98,6 +98,8 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
     return lastSeen ? Date.now() - lastSeen < 90 * 1000 : false;
   }
 
+  const onlineNodes = nodes.filter(isOnline);
+
   // Realistic 3D Globe <-> 2D Map Morphing Projection Math with Atmospheric Depth
   function projectMorphed(
     lat: number,
@@ -108,25 +110,19 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
     morph: number,
     centerX: number,
     centerY: number,
-    altitude = 0
+    altitude: number = 0
   ) {
+    const phi = (lat * Math.PI) / 180;
+    const theta = (lon * Math.PI) / 180;
+
+    // Smooth Cosine S-Curve Easing
     const ease = (1 - Math.cos(morph * Math.PI)) / 2;
 
-    // 1. 3D Spherical Position
-    const phi = (90 - lat) * (Math.PI / 180);
-    const theta = (lon + 180) * (Math.PI / 180) + rotY;
-
-    const rTotal = radius + altitude;
-    const x3dRaw = -rTotal * Math.sin(phi) * Math.cos(theta);
-    const y3dRaw = rTotal * Math.cos(phi);
-    const z3dRaw = rTotal * Math.sin(phi) * Math.sin(theta);
-
-    // Apply X-tilt
-    const cosX = Math.cos(rotX * (1 - ease));
-    const sinX = Math.sin(rotX * (1 - ease));
-    const x3d = x3dRaw;
-    const y3d = y3dRaw * cosX - z3dRaw * sinX;
-    const z3d = y3dRaw * sinX + z3dRaw * cosX;
+    // 1. 3D Spherical Coordinate Position with True Orbital Radius
+    const r3d = radius + altitude;
+    const x3d = r3d * Math.cos(phi) * Math.sin(theta - rotY);
+    const y3d = r3d * (Math.sin(phi) * Math.cos(rotX) - Math.cos(phi) * Math.cos(theta - rotY) * Math.sin(rotX));
+    const z3d = r3d * (Math.sin(phi) * Math.sin(rotX) + Math.cos(phi) * Math.cos(theta - rotY) * Math.cos(rotX));
 
     // 2. 2D Flat Plan Position
     const flatWidth = radius * 2.3;
@@ -166,14 +162,17 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
 
     function render() {
       if (!canvas || !ctx) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
 
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
+      if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
       }
 
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
       // 1. Procedural Deep Space Starfield
@@ -554,12 +553,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
         }
       });
 
-      // 11. Tactical HUD Legends
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.font = '700 9px monospace';
-      ctx.fillText(`VIEW: ${morph > 0.5 ? '2D EQUIDISTANT PLAN' : '3D ORBITAL GLOBE'} // WGS-84`, 16, height - 16);
-      ctx.fillText(`ACTIVE BEACONS: ${onlineNodes.length} / ${nodes.length}`, width - 180, height - 16);
-
+      ctx.restore();
       animId = requestAnimationFrame(render);
     }
 
@@ -799,6 +793,64 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
           )}
         </button>
       )}
+
+      {/* Bottom-Left: Tactical HUD Status Capsule (Crystal-Clear Active Beacons & Projection Mode) */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: '12px',
+          left: '12px',
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          backgroundColor: 'rgba(5, 5, 8, 0.85)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid var(--colors-hairline)',
+          borderRadius: '4px',
+          padding: '4px 10px',
+          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.6)',
+          pointerEvents: 'none',
+          userSelect: 'none',
+        }}
+      >
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span
+            style={{
+              width: '7px',
+              height: '7px',
+              borderRadius: '50%',
+              backgroundColor: onlineNodes.length > 0 ? 'var(--colors-status-live)' : 'var(--colors-status-alert)',
+              boxShadow: onlineNodes.length > 0 ? '0 0 8px var(--colors-status-live)' : 'none',
+            }}
+          />
+          <span
+            style={{
+              fontFamily: 'monospace',
+              fontSize: '11px',
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              color: '#ffffff',
+            }}
+          >
+            ACTIVE: {onlineNodes.length} / {nodes.length}
+          </span>
+        </span>
+
+        <span style={{ color: 'rgba(255, 255, 255, 0.25)', fontSize: '11px' }}>//</span>
+
+        <span
+          style={{
+            fontFamily: 'monospace',
+            fontSize: '11px',
+            fontWeight: 600,
+            letterSpacing: '0.04em',
+            color: 'rgba(255, 255, 255, 0.85)',
+          }}
+        >
+          VIEW: {mode === '2d' ? '2D EQUIDISTANT' : '3D ORBITAL'}
+        </span>
+      </div>
 
       {/* Map Zoom Controls (Bottom-Right Corner) */}
       <div

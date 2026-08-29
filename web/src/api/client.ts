@@ -196,19 +196,20 @@ export interface NodeServerConfig {
 
 export const PROBE_PRESETS = {
   china_3net: [
-    { id: 'ct-telecom', target: '219.141.136.10', protocol: 'icmp' as const },
-    { id: 'cu-unicom', target: '219.158.113.149', protocol: 'icmp' as const },
-    { id: 'cm-mobile', target: '211.136.17.107', protocol: 'icmp' as const },
-    { id: 'ali-dns', target: '223.5.5.5', protocol: 'icmp' as const },
+    { id: 'ct', target: '219.141.136.10', protocol: 'icmp' as const },
+    { id: 'cu', target: '219.158.113.149', protocol: 'icmp' as const },
+    { id: 'cm', target: '211.136.17.107', protocol: 'icmp' as const },
+    { id: 'ali', target: '223.5.5.5', protocol: 'icmp' as const },
+    { id: 'cf', target: '1.1.1.1', protocol: 'icmp' as const },
   ],
   global_infra: [
-    { id: 'cf-dns', target: '1.1.1.1', protocol: 'icmp' as const },
-    { id: 'google-dns', target: '8.8.8.8', protocol: 'icmp' as const },
-    { id: 'apple-cdn', target: '17.253.144.10', protocol: 'icmp' as const },
+    { id: 'cf', target: '1.1.1.1', protocol: 'icmp' as const },
+    { id: 'google', target: '8.8.8.8', protocol: 'icmp' as const },
+    { id: 'apple', target: '17.253.144.10', protocol: 'icmp' as const },
   ],
   minimal_ping: [
-    { id: 'cf-dns', target: '1.1.1.1', protocol: 'icmp' as const },
-    { id: 'google-dns', target: '8.8.8.8', protocol: 'icmp' as const },
+    { id: 'cf', target: '1.1.1.1', protocol: 'icmp' as const },
+    { id: 'google', target: '8.8.8.8', protocol: 'icmp' as const },
   ],
 };
 

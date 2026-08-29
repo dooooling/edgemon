@@ -96,11 +96,11 @@ export async function createNode(
     probe_interval_sec: 60,
     network_interface: 'auto',
     probes: [
-      { id: 'ct-telecom', target: '219.141.136.10', protocol: 'icmp' },
-      { id: 'cu-unicom', target: '219.158.113.149', protocol: 'icmp' },
-      { id: 'cm-mobile', target: '211.136.17.107', protocol: 'icmp' },
-      { id: 'ali-dns', target: '223.5.5.5', protocol: 'icmp' },
-      { id: 'cf-dns', target: '1.1.1.1', protocol: 'icmp' },
+      { id: 'ct', target: '219.141.136.10', protocol: 'icmp' },
+      { id: 'cu', target: '219.158.113.149', protocol: 'icmp' },
+      { id: 'cm', target: '211.136.17.107', protocol: 'icmp' },
+      { id: 'ali', target: '223.5.5.5', protocol: 'icmp' },
+      { id: 'cf', target: '1.1.1.1', protocol: 'icmp' },
     ],
   });
 

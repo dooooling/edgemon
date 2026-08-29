@@ -338,19 +338,24 @@ fn main() -> Result<()> {
         let probe_shared_config = Arc::clone(&shared_config);
         let probe_results_cache = Arc::clone(&shared_probes);
         thread::spawn(move || {
-            let mut last_probe_time = Instant::now() - Duration::from_secs(300);
+            let mut last_probe_time = Instant::now() - Duration::from_secs(3600);
+            let mut last_config_rev = 0u64;
             loop {
-                let (probe_interval, probes, allow_private) = {
+                let (probe_interval, probes, allow_private, config_rev) = {
                     let cfg = probe_shared_config.read().unwrap();
                     (
                         cfg.probe_interval_sec,
                         cfg.probes.clone(),
                         cfg.allow_private_probes,
+                        cfg.config_rev,
                     )
                 };
 
                 let now = Instant::now();
-                if now.duration_since(last_probe_time) >= Duration::from_secs(probe_interval) {
+                if (!probes.is_empty() && last_config_rev != config_rev)
+                    || now.duration_since(last_probe_time) >= Duration::from_secs(probe_interval)
+                {
+                    last_config_rev = config_rev;
                     let mut current_results = Vec::new();
                     for target in &probes {
                         let res = if target.method == "icmp" {

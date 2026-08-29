@@ -39,12 +39,20 @@ impl Default for ServerConfig {
     }
 }
 
+fn default_probe_method() -> String {
+    "icmp".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProbeTargetConfig {
     pub id: String,
-    pub name: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(alias = "target")]
     pub host: String,
+    #[serde(default = "default_probe_method", alias = "protocol")]
     pub method: String, // icmp | tcp
+    #[serde(default)]
     pub port: Option<u16>,
 }
 

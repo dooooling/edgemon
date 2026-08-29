@@ -308,16 +308,38 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
                   ) : null}
                 </td>
 
-                {/* RTT & Colo */}
+                {/* RTT & Colo & 3-Net */}
                 <td style={{ whiteSpace: 'nowrap', fontSize: '11px' }}>
                   {isOnline ? (
                     <div>
-                      <span style={{ fontWeight: 700, color: rttMs ? 'var(--colors-status-live)' : 'inherit' }}>
-                        {rttMs ? `${rttMs} ms` : 'N/A'}
-                      </span>
-                      <span style={{ color: 'var(--colors-muted)', marginLeft: '4px' }}>
-                        ({node.geo?.colo || 'CF'})
-                      </span>
+                      <div>
+                        <span style={{ fontWeight: 700, color: rttMs ? 'var(--colors-status-live)' : 'inherit' }}>
+                          {rttMs ? `${rttMs} ms` : 'N/A'}
+                        </span>
+                        <span style={{ color: 'var(--colors-muted)', marginLeft: '4px' }}>
+                          ({node.geo?.colo || 'CF'})
+                        </span>
+                      </div>
+                      {(() => {
+                        const probes = overlay?.probes ?? node.state?.probes ?? [];
+                        const ct = probes.find((p) => p.id.toLowerCase().includes('ct') || p.id.toLowerCase().includes('telecom') || p.id.toLowerCase().includes('电信'));
+                        const cu = probes.find((p) => p.id.toLowerCase().includes('cu') || p.id.toLowerCase().includes('unicom') || p.id.toLowerCase().includes('联通'));
+                        const cm = probes.find((p) => p.id.toLowerCase().includes('cm') || p.id.toLowerCase().includes('mobile') || p.id.toLowerCase().includes('移动'));
+                        if (!ct && !cu && !cm) return null;
+                        return (
+                          <div style={{ display: 'flex', gap: '5px', fontSize: '10px', fontWeight: 600, marginTop: '2px' }}>
+                            {ct?.latency_ms != null && (
+                              <span style={{ color: '#38bdf8' }} title="中国电信骨干延迟">电:{ct.latency_ms}m</span>
+                            )}
+                            {cu?.latency_ms != null && (
+                              <span style={{ color: '#f87171' }} title="中国联通骨干延迟">联:{cu.latency_ms}m</span>
+                            )}
+                            {cm?.latency_ms != null && (
+                              <span style={{ color: '#4ade80' }} title="中国移动骨干延迟">移:{cm.latency_ms}m</span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   ) : (
                     'N/A'

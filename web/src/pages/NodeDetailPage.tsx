@@ -398,19 +398,41 @@ export const NodeDetailPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {probes.map((p) => (
-                <tr key={p.id}>
-                  <td><strong>{p.id.toUpperCase()}</strong></td>
-                  <td>
-                    <span className="status-indicator-beacon">
-                      <span className={`beacon-dot ${p.status === 'ok' ? 'beacon-live' : 'beacon-idle'}`}></span>
-                      <span>{p.status.toUpperCase()}</span>
-                    </span>
-                  </td>
-                  <td>{p.latency_ms != null ? `${p.latency_ms} MS` : 'N/A'}</td>
-                  <td>{Math.round(p.loss_ratio * 100)}%</td>
-                </tr>
-              ))}
+              {probes.map((p) => {
+                const info = getProbeLabel(p.id);
+                return (
+                  <tr key={p.id}>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {info.tag && (
+                          <span
+                            className="spacex-chip"
+                            style={{
+                              borderColor: info.color || '#ffffff',
+                              color: info.color || '#ffffff',
+                              fontWeight: 700,
+                              fontSize: '10px',
+                            }}
+                          >
+                            {info.tag}
+                          </span>
+                        )}
+                        <strong>{info.label}</strong>
+                      </div>
+                    </td>
+                    <td>
+                      <span className="status-indicator-beacon">
+                        <span className={`beacon-dot ${p.status === 'ok' ? 'beacon-live' : 'beacon-idle'}`}></span>
+                        <span>{p.status.toUpperCase()}</span>
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 600, color: p.latency_ms ? '#00e676' : 'var(--colors-muted)' }}>
+                      {p.latency_ms != null ? `${p.latency_ms} MS` : 'N/A'}
+                    </td>
+                    <td>{Math.round(p.loss_ratio * 100)}%</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -465,4 +487,30 @@ function formatBps(bps?: number | null): string {
   if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(1) + ' MB/S';
   if (bps >= 1024) return (bps / 1024).toFixed(0) + ' KB/S';
   return bps + ' B/S';
+}
+
+export function getProbeLabel(id: string): { label: string; tag?: string; color?: string } {
+  const lower = id.toLowerCase();
+  if (lower.includes('ct') || lower.includes('telecom') || lower.includes('电信')) {
+    return { label: '中国电信骨干 (China Telecom)', tag: '电信 CT', color: '#0070c9' };
+  }
+  if (lower.includes('cu') || lower.includes('unicom') || lower.includes('联通')) {
+    return { label: '中国联通骨干 (China Unicom)', tag: '联通 CU', color: '#e60012' };
+  }
+  if (lower.includes('cm') || lower.includes('mobile') || lower.includes('移动')) {
+    return { label: '中国移动骨干 (China Mobile)', tag: '移动 CM', color: '#0085d0' };
+  }
+  if (lower.includes('ali')) {
+    return { label: '阿里云公共 DNS (223.5.5.5)', tag: '阿里 DNS', color: '#ff6a00' };
+  }
+  if (lower.includes('cf') || lower.includes('cloudflare')) {
+    return { label: 'Cloudflare Anycast (1.1.1.1)', tag: 'CLOUDFLARE', color: '#f38020' };
+  }
+  if (lower.includes('google')) {
+    return { label: 'Google Public DNS (8.8.8.8)', tag: 'GOOGLE', color: '#4285f4' };
+  }
+  if (lower.includes('apple')) {
+    return { label: 'Apple Global CDN', tag: 'APPLE', color: '#a2aaad' };
+  }
+  return { label: id.toUpperCase() };
 }

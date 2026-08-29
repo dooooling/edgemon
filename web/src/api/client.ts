@@ -177,3 +177,53 @@ export async function rotateAdminNodeToken(id: string): Promise<RotateTokenRespo
   const res = await fetch(`/api/admin/nodes/${id}/token`, { method: 'POST' });
   return await res.json();
 }
+
+export interface ProbeConfig {
+  id: string;
+  target: string;
+  protocol: 'icmp' | 'tcp';
+  port?: number;
+  allow_private?: boolean;
+}
+
+export interface NodeServerConfig {
+  sample_interval_sec?: number;
+  stream_interval_sec?: number;
+  probe_interval_sec?: number;
+  network_interface?: string;
+  probes?: ProbeConfig[];
+}
+
+export const PROBE_PRESETS = {
+  china_3net: [
+    { id: 'ct-telecom', target: '219.141.136.10', protocol: 'icmp' as const },
+    { id: 'cu-unicom', target: '219.158.113.149', protocol: 'icmp' as const },
+    { id: 'cm-mobile', target: '211.136.17.107', protocol: 'icmp' as const },
+    { id: 'ali-dns', target: '223.5.5.5', protocol: 'icmp' as const },
+  ],
+  global_infra: [
+    { id: 'cf-dns', target: '1.1.1.1', protocol: 'icmp' as const },
+    { id: 'google-dns', target: '8.8.8.8', protocol: 'icmp' as const },
+    { id: 'apple-cdn', target: '17.253.144.10', protocol: 'icmp' as const },
+  ],
+  minimal_ping: [
+    { id: 'cf-dns', target: '1.1.1.1', protocol: 'icmp' as const },
+    { id: 'google-dns', target: '8.8.8.8', protocol: 'icmp' as const },
+  ],
+};
+
+export async function fetchNodeConfig(id: string): Promise<{ revision: number; config: NodeServerConfig }> {
+  const res = await fetch(`/api/admin/nodes/${id}/config`);
+  if (!res.ok) throw new Error('Failed to fetch node config');
+  return await res.json();
+}
+
+export async function updateNodeConfig(id: string, config: NodeServerConfig): Promise<{ revision: number; config: NodeServerConfig }> {
+  const res = await fetch(`/api/admin/nodes/${id}/config`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) throw new Error('Failed to update node config');
+  return await res.json();
+}

@@ -179,11 +179,37 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
                 L: {load1}
               </span>
             )}
-            {probes.slice(0, 1).map((p) => (
-              <span key={p.id} className="spacex-chip">
-                {p.id}: {p.latency_ms != null ? `${p.latency_ms}MS` : 'ERR'}
-              </span>
-            ))}
+            {(() => {
+              const ct = probes.find((p) => p.id.toLowerCase().includes('ct') || p.id.toLowerCase().includes('telecom') || p.id.toLowerCase().includes('电信'));
+              const cu = probes.find((p) => p.id.toLowerCase().includes('cu') || p.id.toLowerCase().includes('unicom') || p.id.toLowerCase().includes('联通'));
+              const cm = probes.find((p) => p.id.toLowerCase().includes('cm') || p.id.toLowerCase().includes('mobile') || p.id.toLowerCase().includes('移动'));
+              if (ct || cu || cm) {
+                return (
+                  <>
+                    {ct?.latency_ms != null && (
+                      <span className="spacex-chip" style={{ color: '#38bdf8', borderColor: '#38bdf8' }}>
+                        电信 {ct.latency_ms}MS
+                      </span>
+                    )}
+                    {cu?.latency_ms != null && (
+                      <span className="spacex-chip" style={{ color: '#f87171', borderColor: '#f87171' }}>
+                        联通 {cu.latency_ms}MS
+                      </span>
+                    )}
+                    {cm?.latency_ms != null && (
+                      <span className="spacex-chip" style={{ color: '#4ade80', borderColor: '#4ade80' }}>
+                        移动 {cm.latency_ms}MS
+                      </span>
+                    )}
+                  </>
+                );
+              }
+              return probes.slice(0, 2).map((p) => (
+                <span key={p.id} className="spacex-chip">
+                  {p.id}: {p.latency_ms != null ? `${p.latency_ms}MS` : 'ERR'}
+                </span>
+              ));
+            })()}
           </div>
         </div>
       </div>

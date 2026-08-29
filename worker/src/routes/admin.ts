@@ -213,6 +213,33 @@ adminRoutes.post('/api/admin/nodes/:id/token', async (c) => {
   return c.json({ rawToken });
 });
 
+// GET /api/admin/nodes/:id/config
+adminRoutes.get('/api/admin/nodes/:id/config', async (c) => {
+  const id = c.req.param('id');
+  const configRow = await c.env.DB
+    .prepare('SELECT revision, config_json FROM node_config WHERE node_id = ?')
+    .bind(id)
+    .first<{ revision: number; config_json: string }>();
+
+  if (!configRow) {
+    return c.json({
+      revision: 1,
+      config: {
+        sample_interval_sec: 2,
+        stream_interval_sec: 2,
+        probe_interval_sec: 60,
+        network_interface: 'auto',
+        probes: [],
+      },
+    });
+  }
+
+  return c.json({
+    revision: configRow.revision,
+    config: JSON.parse(configRow.config_json),
+  });
+});
+
 // PATCH /api/admin/nodes/:id/config
 adminRoutes.patch('/api/admin/nodes/:id/config', async (c) => {
   const id = c.req.param('id');

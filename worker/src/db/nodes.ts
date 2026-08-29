@@ -89,13 +89,19 @@ export async function createNode(
     .bind(id, name, tokenHash, trafficResetDay, trafficQuotaBytes, expiresAtMs, note, now, now)
     .run();
 
-  // Create initial default agent config
+  // Create initial default agent config with 3-Net and Core Infrastructure probes
   const initialConfig = JSON.stringify({
     sample_interval_sec: 2,
     stream_interval_sec: 2,
     probe_interval_sec: 60,
     network_interface: 'auto',
-    probes: [],
+    probes: [
+      { id: 'ct-telecom', target: '219.141.136.10', protocol: 'icmp' },
+      { id: 'cu-unicom', target: '219.158.113.149', protocol: 'icmp' },
+      { id: 'cm-mobile', target: '211.136.17.107', protocol: 'icmp' },
+      { id: 'ali-dns', target: '223.5.5.5', protocol: 'icmp' },
+      { id: 'cf-dns', target: '1.1.1.1', protocol: 'icmp' },
+    ],
   });
 
   await db

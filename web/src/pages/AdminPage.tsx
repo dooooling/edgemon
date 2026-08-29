@@ -5,6 +5,11 @@ import {
   createAdminNode,
   deleteAdminNode,
   rotateAdminNodeToken,
+  fetchNodeConfig,
+  updateNodeConfig,
+  PROBE_PRESETS,
+  NodeServerConfig,
+  ProbeConfig,
 } from '../api/client';
 import { useAdminSessionQuery, useAdminNodesQuery } from '../queries/nodes';
 import { useTranslation } from '../i18n/I18nContext';
@@ -31,6 +36,79 @@ export const AdminPage: React.FC = () => {
   const [adminBannerWarning, setAdminBannerWarning] = useState<string | null>(null);
   const [cmdTab, setCmdTab] = useState<'binary' | 'docker' | 'systemd' | 'raw'>('binary');
   const [copyFeedback, setCopyFeedback] = useState(false);
+
+  const [probeModalNode, setProbeModalNode] = useState<{ id: string; name: string } | null>(null);
+  const [editingConfig, setEditingConfig] = useState<NodeServerConfig | null>(null);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [newProbeId, setNewProbeId] = useState('');
+  const [newProbeTarget, setNewProbeTarget] = useState('');
+  const [newProbeProtocol, setNewProbeProtocol] = useState<'icmp' | 'tcp'>('icmp');
+  const [newProbePort, setNewProbePort] = useState<number>(80);
+
+  async function openProbeModal(node: { id: string; name: string }) {
+    setProbeModalNode(node);
+    try {
+      const res = await fetchNodeConfig(node.id);
+      setEditingConfig(res.config);
+    } catch {
+      setEditingConfig({
+        sample_interval_sec: 2,
+        stream_interval_sec: 2,
+        probe_interval_sec: 60,
+        network_interface: 'auto',
+        probes: PROBE_PRESETS.china_3net,
+      });
+    }
+  }
+
+  function handleApplyPreset(preset: keyof typeof PROBE_PRESETS) {
+    if (!editingConfig) return;
+    setEditingConfig({
+      ...editingConfig,
+      probes: [...PROBE_PRESETS[preset]],
+    });
+  }
+
+  function handleAddProbe() {
+    if (!newProbeId || !newProbeTarget || !editingConfig) return;
+    const newProbe: ProbeConfig = {
+      id: newProbeId.trim(),
+      target: newProbeTarget.trim(),
+      protocol: newProbeProtocol,
+      port: newProbeProtocol === 'tcp' ? newProbePort : undefined,
+    };
+    setEditingConfig({
+      ...editingConfig,
+      probes: [...(editingConfig.probes || []), newProbe],
+    });
+    setNewProbeId('');
+    setNewProbeTarget('');
+  }
+
+  function handleRemoveProbe(idx: number) {
+    if (!editingConfig || !editingConfig.probes) return;
+    const updated = [...editingConfig.probes];
+    updated.splice(idx, 1);
+    setEditingConfig({
+      ...editingConfig,
+      probes: updated,
+    });
+  }
+
+  async function handleSaveProbeConfig() {
+    if (!probeModalNode || !editingConfig) return;
+    setSavingConfig(true);
+    try {
+      await updateNodeConfig(probeModalNode.id, editingConfig);
+      setProbeModalNode(null);
+      setEditingConfig(null);
+      alert('探针测速配置已更新并实时推送给节点！');
+    } catch (err: any) {
+      alert(err.message || '更新探针配置失败');
+    } finally {
+      setSavingConfig(false);
+    }
+  }
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -119,12 +197,42 @@ export const AdminPage: React.FC = () => {
 
   return (
     <div className="page-container">
+      <div className="hero-banner-chassis" style={{ marginBottom: '32px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+          <div>
+            <span className="eyebrow-cap">MISSION CONTROL // SECURE GATEWAY</span>
+            <h1 className="display-xl" style={{ marginTop: '4px' }}>
+              {t('nav_console')}
+            </h1>
+            <p className="caption" style={{ marginTop: '8px' }}>
+              {t('hero_sub')}
+            </p>
+          </div>
+          {authenticated && (
+            <button className="button-ghost-on-dark button-ghost-sm" onClick={handleLogout}>
+              {t('admin_logout_btn')}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {adminBannerWarning && (
+        <div className="detail-chassis-band" style={{ marginBottom: '24px', borderColor: '#e22718', backgroundColor: 'rgba(226, 39, 24, 0.08)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: '#e22718', fontSize: '12px', fontWeight: 600 }}>{adminBannerWarning}</span>
+            <button
+              style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer' }}
+              onClick={() => setAdminBannerWarning(null)}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {!authenticated ? (
-        <div className="admin-card-chassis">
+        <div className="detail-chassis-band" style={{ maxWidth: '480px', margin: '40px auto' }}>
           <span className="eyebrow-cap">{t('admin_title')}</span>
-          <h2 className="display-lg" style={{ fontSize: '24px', margin: '8px 0 16px' }}>
-            {t('nav_console')}
-          </h2>
           <p className="caption" style={{ marginBottom: '24px' }}>
             {t('admin_login_sub')}
           </p>
@@ -224,6 +332,12 @@ export const AdminPage: React.FC = () => {
                     <td>{new Date(n.created_at_ms).toISOString().split('T')[0]}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          className="button-ghost-on-dark button-ghost-sm"
+                          onClick={() => openProbeModal({ id: n.id, name: n.name })}
+                        >
+                          {t('probes_title')}
+                        </button>
                         <button
                           className="button-ghost-on-dark button-ghost-sm"
                           onClick={() => handleRotateToken(n.id)}
@@ -482,6 +596,190 @@ WantedBy=multi-user.target`;
               </div>
             );
           })()}
+
+          {/* Probe Configuration Modal */}
+          {probeModalNode && editingConfig && (
+            <div className="modal-backdrop-dark">
+              <div className="modal-box-dark" style={{ maxWidth: '640px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <div>
+                    <span className="eyebrow-cap">{t('probes_title')} // {probeModalNode.name}</span>
+                    <h3 style={{ fontSize: '18px', fontWeight: 700, marginTop: '4px' }}>网络连通性雷达探针配置</h3>
+                  </div>
+                  <button
+                    style={{ background: 'none', border: 'none', color: '#ffffff', fontSize: '18px', cursor: 'pointer' }}
+                    onClick={() => {
+                      setProbeModalNode(null);
+                      setEditingConfig(null);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Quick Presets Bar */}
+                <div style={{ marginBottom: '20px', padding: '12px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+                  <span className="eyebrow-cap" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>
+                    {t('probe_presets')}
+                  </span>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="button-ghost-on-dark button-ghost-sm"
+                      style={{ borderColor: '#38bdf8', color: '#38bdf8' }}
+                      onClick={() => handleApplyPreset('china_3net')}
+                    >
+                      🇨🇳 {t('preset_china_3net')}
+                    </button>
+                    <button
+                      type="button"
+                      className="button-ghost-on-dark button-ghost-sm"
+                      onClick={() => handleApplyPreset('global_infra')}
+                    >
+                      🌐 {t('preset_global_infra')}
+                    </button>
+                    <button
+                      type="button"
+                      className="button-ghost-on-dark button-ghost-sm"
+                      onClick={() => handleApplyPreset('minimal_ping')}
+                    >
+                      ⚡ {t('preset_minimal_ping')}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Probes List */}
+                <div style={{ marginBottom: '20px' }}>
+                  <span className="eyebrow-cap" style={{ fontSize: '11px', display: 'block', marginBottom: '8px' }}>
+                    已配置探测目标 ({(editingConfig.probes || []).length})
+                  </span>
+                  {(!editingConfig.probes || editingConfig.probes.length === 0) ? (
+                    <div style={{ padding: '16px', textAlign: 'center', color: 'var(--colors-muted)', fontSize: '12px', border: '1px dashed var(--colors-hairline-on-dark)', borderRadius: '4px' }}>
+                      暂未配置探测目标，请点击上方预设或手动添加。
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '200px', overflowY: 'auto' }}>
+                      {editingConfig.probes.map((p, idx) => (
+                        <div
+                          key={p.id + idx}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '8px 12px',
+                            background: 'rgba(255, 255, 255, 0.03)',
+                            borderRadius: '4px',
+                            border: '1px solid var(--colors-hairline-on-dark)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span className="spacex-chip" style={{ fontSize: '10px' }}>{p.protocol.toUpperCase()}</span>
+                            <span style={{ fontWeight: 600, fontSize: '12px' }}>{p.id}</span>
+                            <span style={{ color: 'var(--colors-muted)', fontSize: '11px' }}>
+                              ➔ {p.target}{p.port ? `:${p.port}` : ''}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            className="button-ghost-on-dark button-ghost-sm button-ghost-danger"
+                            style={{ padding: '2px 8px', minHeight: 'auto', fontSize: '11px' }}
+                            onClick={() => handleRemoveProbe(idx)}
+                          >
+                            ✕ 删除
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Add Custom Probe Form */}
+                <div style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)', marginBottom: '20px' }}>
+                  <span className="eyebrow-cap" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>
+                    + 添加自定义探测目标
+                  </span>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 80px 1fr', gap: '8px', alignItems: 'center' }}>
+                    <input
+                      placeholder="标识 (如 ct-hk)"
+                      value={newProbeId}
+                      onChange={(e) => setNewProbeId(e.target.value)}
+                      className="spacex-input"
+                      style={{ fontSize: '12px', padding: '6px 8px' }}
+                    />
+                    <input
+                      placeholder="IP 或域名 (如 1.1.1.1)"
+                      value={newProbeTarget}
+                      onChange={(e) => setNewProbeTarget(e.target.value)}
+                      className="spacex-input"
+                      style={{ fontSize: '12px', padding: '6px 8px' }}
+                    />
+                    <select
+                      value={newProbeProtocol}
+                      onChange={(e) => setNewProbeProtocol(e.target.value as any)}
+                      className="spacex-input"
+                      style={{ fontSize: '12px', padding: '6px 8px', background: '#000000', color: '#ffffff' }}
+                    >
+                      <option value="icmp">ICMP</option>
+                      <option value="tcp">TCP</option>
+                    </select>
+                    {newProbeProtocol === 'tcp' ? (
+                      <input
+                        type="number"
+                        placeholder="端口"
+                        value={newProbePort}
+                        onChange={(e) => setNewProbePort(parseInt(e.target.value) || 80)}
+                        className="spacex-input"
+                        style={{ fontSize: '12px', padding: '6px 8px' }}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className="button-ghost-on-dark button-ghost-sm"
+                        onClick={handleAddProbe}
+                        style={{ width: '100%', justifyContent: 'center' }}
+                      >
+                        + 添加
+                      </button>
+                    )}
+                  </div>
+                  {newProbeProtocol === 'tcp' && (
+                    <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        className="button-ghost-on-dark button-ghost-sm"
+                        onClick={handleAddProbe}
+                      >
+                        + 确认添加此 TCP 探测
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer Save / Cancel */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                  <button
+                    type="button"
+                    className="button-ghost-on-dark button-ghost-sm"
+                    onClick={() => {
+                      setProbeModalNode(null);
+                      setEditingConfig(null);
+                    }}
+                  >
+                    {t('cancel_btn')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingConfig}
+                    className="button-ghost-on-dark button-ghost-sm"
+                    style={{ backgroundColor: '#ffffff', color: '#000000', fontWeight: 700 }}
+                    onClick={handleSaveProbeConfig}
+                  >
+                    {savingConfig ? '正在保存并热推送...' : '保存并即时生效 ➔'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

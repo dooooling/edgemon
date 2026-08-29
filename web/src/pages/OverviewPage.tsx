@@ -12,7 +12,7 @@ export const OverviewPage: React.FC = () => {
   const connectRealtime = useRealtimeStore((s) => s.connectRealtime);
   const overlays = useRealtimeStore((s) => s.overlays);
   const { t } = useTranslation();
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'map'>('grid');
 
   useEffect(() => {
     connectRealtime('overview');
@@ -63,10 +63,7 @@ export const OverviewPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Orbital World Map */}
-      <WorldMap nodes={nodes} />
-
-      {/* 4. Fleet Nodes Grid / Table Section */}
+      {/* 2. Fleet Nodes Section with 3-Mode Selector (Grid / Table / 3D Map) */}
       <div className="section-title-bar">
         <div>
           <span className="eyebrow-cap">{t('fleet_nodes_title')}</span>
@@ -75,7 +72,7 @@ export const OverviewPage: React.FC = () => {
           </h2>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* View Mode Toggle */}
+          {/* 3-Tab View Mode Toggle: 卡片矩阵 / 紧凑表格 / 3D 视图 */}
           <div className="range-capsules">
             <button
               className={`range-capsule-btn ${viewMode === 'grid' ? 'active' : ''}`}
@@ -88,6 +85,12 @@ export const OverviewPage: React.FC = () => {
               onClick={() => setViewMode('table')}
             >
               {t('view_table')}
+            </button>
+            <button
+              className={`range-capsule-btn ${viewMode === 'map' ? 'active' : ''}`}
+              onClick={() => setViewMode('map')}
+            >
+              {t('view_map')}
             </button>
           </div>
 
@@ -111,6 +114,8 @@ export const OverviewPage: React.FC = () => {
             </Link>
           </div>
         </div>
+      ) : viewMode === 'map' ? (
+        <WorldMap nodes={nodes} />
       ) : viewMode === 'table' ? (
         <NodeTable nodes={nodes} />
       ) : (

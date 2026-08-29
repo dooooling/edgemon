@@ -49,7 +49,13 @@ export const AdminPage: React.FC = () => {
     setProbeModalNode(node);
     try {
       const res = await fetchNodeConfig(node.id);
-      setEditingConfig(res.config);
+      setEditingConfig({
+        sample_interval_sec: res.config?.sample_interval_sec ?? 2,
+        stream_interval_sec: res.config?.stream_interval_sec ?? 2,
+        probe_interval_sec: res.config?.probe_interval_sec ?? 60,
+        network_interface: res.config?.network_interface ?? 'auto',
+        probes: Array.isArray(res.config?.probes) && res.config.probes.length > 0 ? res.config.probes : PROBE_PRESETS.china_3net,
+      });
     } catch {
       setEditingConfig({
         sample_interval_sec: 2,
@@ -99,7 +105,14 @@ export const AdminPage: React.FC = () => {
     if (!probeModalNode || !editingConfig) return;
     setSavingConfig(true);
     try {
-      await updateNodeConfig(probeModalNode.id, editingConfig);
+      const payloadToSave: NodeServerConfig = {
+        sample_interval_sec: editingConfig.sample_interval_sec ?? 2,
+        stream_interval_sec: editingConfig.stream_interval_sec ?? 2,
+        probe_interval_sec: editingConfig.probe_interval_sec ?? 60,
+        network_interface: editingConfig.network_interface ?? 'auto',
+        probes: editingConfig.probes || [],
+      };
+      await updateNodeConfig(probeModalNode.id, payloadToSave);
       setProbeModalNode(null);
       setEditingConfig(null);
       alert('探针测速配置已更新并实时推送给节点！');

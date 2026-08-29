@@ -266,16 +266,20 @@ export function validateServerConfig(cfg: any): { valid: boolean; error?: string
   if (!cfg || typeof cfg !== 'object') {
     return { valid: false, error: 'Config must be an object' };
   }
-  if (!Number.isInteger(cfg.sample_interval_sec) || cfg.sample_interval_sec < 1 || cfg.sample_interval_sec > 60) {
+  const sampleInterval = cfg.sample_interval_sec ?? 2;
+  if (!Number.isInteger(sampleInterval) || sampleInterval < 1 || sampleInterval > 60) {
     return { valid: false, error: 'sample_interval_sec must be an integer between 1 and 60' };
   }
-  if (!Number.isInteger(cfg.stream_interval_sec) || cfg.stream_interval_sec < 1 || cfg.stream_interval_sec > 60) {
+  const streamInterval = cfg.stream_interval_sec ?? 2;
+  if (!Number.isInteger(streamInterval) || streamInterval < 1 || streamInterval > 60) {
     return { valid: false, error: 'stream_interval_sec must be an integer between 1 and 60' };
   }
-  if (!Number.isInteger(cfg.probe_interval_sec) || cfg.probe_interval_sec < 10 || cfg.probe_interval_sec > 3600) {
+  const probeInterval = cfg.probe_interval_sec ?? 60;
+  if (!Number.isInteger(probeInterval) || probeInterval < 10 || probeInterval > 3600) {
     return { valid: false, error: 'probe_interval_sec must be an integer between 10 and 3600' };
   }
-  if (typeof cfg.network_interface !== 'string' || cfg.network_interface.trim().length === 0 || cfg.network_interface.length > 32) {
+  const iface = cfg.network_interface ?? 'auto';
+  if (typeof iface !== 'string' || iface.trim().length === 0 || iface.length > 32) {
     return { valid: false, error: 'network_interface must be a non-empty string with max length 32' };
   }
   if (cfg.probes !== undefined) {

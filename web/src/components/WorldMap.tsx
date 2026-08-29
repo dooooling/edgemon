@@ -25,28 +25,17 @@ export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
           </h2>
         </div>
 
-        {/* 2-Mode Dynamic Selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <span className="eyebrow-cap">{geoNodes.length} {t('nav_active_count')}</span>
-          <div className="range-capsules">
-            <button
-              className={`range-capsule-btn ${mapMode === '3d' ? 'active' : ''}`}
-              onClick={() => setMapMode('3d')}
-            >
-              {t('mode_3d_globe')}
-            </button>
-            <button
-              className={`range-capsule-btn ${mapMode === '2d' ? 'active' : ''}`}
-              onClick={() => setMapMode('2d')}
-            >
-              {t('mode_2d_map')}
-            </button>
-          </div>
         </div>
       </div>
 
-      {/* Single Continuous Canvas with Unfolding Morph Animation */}
-      <Globe3D nodes={nodes} mode={mapMode} />
+      {/* Single Continuous Canvas with Unfolding Morph Animation and Internal Corner Controls */}
+      <Globe3D
+        nodes={nodes}
+        mode={mapMode}
+        onToggleMode={() => setMapMode((prev) => (prev === '3d' ? '2d' : '3d'))}
+      />
     </div>
   );
 };

@@ -221,22 +221,18 @@ adminRoutes.get('/api/admin/nodes/:id/config', async (c) => {
     .bind(id)
     .first<{ revision: number; config_json: string }>();
 
-  if (!configRow) {
-    return c.json({
-      revision: 1,
-      config: {
-        sample_interval_sec: 2,
-        stream_interval_sec: 2,
-        probe_interval_sec: 60,
-        network_interface: 'auto',
-        probes: [],
-      },
-    });
-  }
+  const rawConfig = configRow ? JSON.parse(configRow.config_json) : {};
+  const normalizedConfig = {
+    sample_interval_sec: rawConfig.sample_interval_sec ?? 2,
+    stream_interval_sec: rawConfig.stream_interval_sec ?? 2,
+    probe_interval_sec: rawConfig.probe_interval_sec ?? 60,
+    network_interface: rawConfig.network_interface ?? 'auto',
+    probes: Array.isArray(rawConfig.probes) ? rawConfig.probes : [],
+  };
 
   return c.json({
-    revision: configRow.revision,
-    config: JSON.parse(configRow.config_json),
+    revision: configRow ? configRow.revision : 1,
+    config: normalizedConfig,
   });
 });
 
@@ -246,7 +242,15 @@ adminRoutes.patch('/api/admin/nodes/:id/config', async (c) => {
   const body = await c.req.json();
   const now = Date.now();
 
-  const validation = validateServerConfig(body);
+  const normalizedBody = {
+    sample_interval_sec: body.sample_interval_sec ?? 2,
+    stream_interval_sec: body.stream_interval_sec ?? 2,
+    probe_interval_sec: body.probe_interval_sec ?? 60,
+    network_interface: body.network_interface ?? 'auto',
+    probes: Array.isArray(body.probes) ? body.probes : [],
+  };
+
+  const validation = validateServerConfig(normalizedBody);
   if (!validation.valid) {
     return c.json({ error: validation.error || 'Invalid configuration' }, 400);
   }
@@ -262,7 +266,7 @@ adminRoutes.patch('/api/admin/nodes/:id/config', async (c) => {
     .first<{ revision: number }>();
 
   const newRevision = (configRow?.revision || 0) + 1;
-  const configJson = JSON.stringify(body);
+  const configJson = JSON.stringify(normalizedBody);
 
   await c.env.DB
     .prepare(
@@ -280,12 +284,12 @@ adminRoutes.patch('/api/admin/nodes/:id/config', async (c) => {
   const hubId = c.env.REALTIME.idFromName('main');
   const hubStub = c.env.REALTIME.get(hubId);
   try {
-    await (hubStub as any).pushConfig(id, body, newRevision);
+    await (hubStub as any).pushConfig(id, normalizedBody, newRevision);
   } catch {
     // best-effort
   }
 
-  return c.json({ revision: newRevision, config: body });
+  return c.json({ revision: newRevision, config: normalizedBody });
 });
 
 export { adminRoutes };

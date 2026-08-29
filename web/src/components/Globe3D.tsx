@@ -10,6 +10,7 @@ import { WORLD_POLYGONS, MAJOR_REGIONS, LAND_POINTS, CITY_LIGHTS, STARFIELD } fr
 interface Globe3DProps {
   nodes: NodeItem[];
   mode?: '3d' | '2d';
+  onToggleMode?: () => void;
 }
 
 function formatBytes(bytes?: number | null): string {
@@ -65,7 +66,7 @@ function interpolateGreatCircle(lat1: number, lon1: number, lat2: number, lon2: 
   return [lat, lon];
 }
 
-export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
+export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMode }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const navigate = useNavigate();
   const [tooltipData, setTooltipData] = useState<{ node: NodeItem; x: number; y: number } | null>(null);
@@ -723,40 +724,22 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         overflow: 'hidden',
       }}
     >
-      {/* Zoom Control Buttons */}
-      <div
-        className="range-capsules"
-        style={{
-          position: 'absolute',
-          top: '16px',
-          left: '16px',
-          zIndex: 10,
-        }}
-      >
-        <button className="range-capsule-btn" onClick={handleZoomIn} title="Zoom In">
-          +
-        </button>
-        <button className="range-capsule-btn" onClick={handleZoomOut} title="Zoom Out">
-          -
-        </button>
-        <button className="range-capsule-btn" onClick={handleZoomReset} title="Reset View">
-          {currentZoom}%
-        </button>
-      </div>
-
-      {/* Real-time Cursor Coordinates Readout */}
+      {/* Real-time Cursor Coordinates Readout (Top-Left) */}
       {cursorCoords && (
         <div
           style={{
             position: 'absolute',
-            top: '16px',
-            right: '16px',
+            top: '12px',
+            left: '12px',
             zIndex: 10,
-            fontSize: '11px',
+            fontSize: '10px',
             fontFamily: 'monospace',
-            color: 'rgba(255, 255, 255, 0.7)',
-            backgroundColor: 'rgba(0, 0, 0, 0.6)',
-            padding: '4px 10px',
+            letterSpacing: '0.05em',
+            color: 'rgba(255, 255, 255, 0.75)',
+            backgroundColor: 'rgba(5, 5, 8, 0.75)',
+            backdropFilter: 'blur(8px)',
+            padding: '4px 8px',
+            borderRadius: '4px',
             border: '1px solid var(--colors-hairline)',
             pointerEvents: 'none',
           }}
@@ -765,6 +748,101 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
           {Math.abs(cursorCoords.lon).toFixed(1)}°{cursorCoords.lon >= 0 ? 'E' : 'W'}
         </div>
       )}
+
+      {/* 3D / 2D Single Mode Toggle Icon Button (Top-Right Corner) */}
+      {onToggleMode && (
+        <button
+          onClick={onToggleMode}
+          title={mode === '3d' ? '切换至 2D 平面投影地图 / Switch to 2D Planar Map' : '切换至 3D 轨道三维地球 / Switch to 3D Orbital Globe'}
+          className="button-ghost-on-dark button-ghost-sm"
+          style={{
+            position: 'absolute',
+            top: '12px',
+            right: '12px',
+            zIndex: 10,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '5px 10px',
+            minHeight: 'auto',
+            backgroundColor: 'rgba(5, 5, 8, 0.75)',
+            backdropFilter: 'blur(8px)',
+            borderColor: 'var(--colors-hairline)',
+            borderRadius: '4px',
+            color: '#ffffff',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: 700,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
+          }}
+        >
+          {mode === '3d' ? (
+            /* Icon representing switching to 2D Folded Map / Plane */
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+                <line x1="8" y1="2" x2="8" y2="18" />
+                <line x1="16" y1="6" x2="16" y2="22" />
+              </svg>
+              <span>2D</span>
+            </>
+          ) : (
+            /* Icon representing switching to 3D Globe / Sphere */
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+              <span>3D</span>
+            </>
+          )}
+        </button>
+      )}
+
+      {/* Map Zoom Controls (Bottom-Right Corner) */}
+      <div
+        className="range-capsules"
+        style={{
+          position: 'absolute',
+          bottom: '12px',
+          right: '12px',
+          zIndex: 10,
+          backgroundColor: 'rgba(5, 5, 8, 0.75)',
+          backdropFilter: 'blur(8px)',
+          border: '1px solid var(--colors-hairline)',
+          borderRadius: '4px',
+          padding: '2px',
+          display: 'flex',
+          gap: '2px',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
+        }}
+      >
+        <button
+          className="range-capsule-btn"
+          onClick={handleZoomIn}
+          title="Zoom In (放大)"
+          style={{ width: '26px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700 }}
+        >
+          +
+        </button>
+        <button
+          className="range-capsule-btn"
+          onClick={handleZoomOut}
+          title="Zoom Out (缩小)"
+          style={{ width: '26px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700 }}
+        >
+          -
+        </button>
+        <button
+          className="range-capsule-btn"
+          onClick={handleZoomReset}
+          title="Reset Zoom / 重置视野"
+          style={{ height: '24px', padding: '0 8px', fontSize: '10px', fontFamily: 'monospace' }}
+        >
+          {currentZoom}%
+        </button>
+      </div>
 
       <canvas
         ref={canvasRef}

@@ -22,6 +22,9 @@ export const translations = {
 
     // Section Titles & Cards
     map_title: '全球边缘节点物理分布图',
+    mode_3d_globe: '3D 地球',
+    mode_sandtable: '3D 沙盘',
+    mode_2d_map: '2D 平面',
     unfold_map_btn: '展开为 2D 平面地图 ➔',
     fold_globe_btn: '合拢为 3D 立体地球 ➔',
     fleet_nodes_title: '分布式计算节点列表',
@@ -159,6 +162,9 @@ export const translations = {
 
     // Section Titles & Cards
     map_title: 'GLOBAL EDGE COLO DISTRIBUTIONS',
+    mode_3d_globe: '3D GLOBE',
+    mode_sandtable: '3D SANDTABLE',
+    mode_2d_map: '2D MAP',
     unfold_map_btn: 'UNFOLD TO 2D MAP ➔',
     fold_globe_btn: 'FOLD TO 3D GLOBE ➔',
     fleet_nodes_title: 'DISTRIBUTED COMPUTE NODES',

@@ -8,7 +8,7 @@ interface WorldMapProps {
 }
 
 export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
-  const [mapMode, setMapMode] = useState<'3d' | '2d'>('3d');
+  const [mapMode, setMapMode] = useState<'3d' | 'sandtable' | '2d'>('3d');
   const { t } = useTranslation();
 
   const geoNodes = nodes.filter(
@@ -25,19 +25,33 @@ export const WorldMap: React.FC<WorldMapProps> = ({ nodes }) => {
           </h2>
         </div>
 
-        {/* Single Dynamic Morph Action Button */}
+        {/* 3-Mode Dynamic Selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <span className="eyebrow-cap">{geoNodes.length} {t('nav_active_count')}</span>
-          <button
-            className="button-ghost-on-dark button-ghost-sm"
-            onClick={() => setMapMode((prev) => (prev === '3d' ? '2d' : '3d'))}
-          >
-            {mapMode === '3d' ? t('unfold_map_btn') : t('fold_globe_btn')}
-          </button>
+          <div className="range-capsules">
+            <button
+              className={`range-capsule-btn ${mapMode === '3d' ? 'active' : ''}`}
+              onClick={() => setMapMode('3d')}
+            >
+              {t('mode_3d_globe')}
+            </button>
+            <button
+              className={`range-capsule-btn ${mapMode === 'sandtable' ? 'active' : ''}`}
+              onClick={() => setMapMode('sandtable')}
+            >
+              {t('mode_sandtable')}
+            </button>
+            <button
+              className={`range-capsule-btn ${mapMode === '2d' ? 'active' : ''}`}
+              onClick={() => setMapMode('2d')}
+            >
+              {t('mode_2d_map')}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Single Continuous Canvas with Unfolding Morph Animation */}
+      {/* Single Continuous Canvas with Multi-Morph Animation */}
       <Globe3D nodes={nodes} mode={mapMode} />
     </div>
   );

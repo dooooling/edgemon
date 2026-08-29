@@ -9,7 +9,7 @@ import { WORLD_POLYGONS, MAJOR_REGIONS, LAND_POINTS } from './world-geo-data';
 
 interface Globe3DProps {
   nodes: NodeItem[];
-  mode?: '3d' | '2d';
+  mode?: '3d' | 'sandtable' | '2d';
 }
 
 function formatBytes(bytes?: number | null): string {
@@ -82,7 +82,12 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
   const targetPanYRef = useRef<number>(0);
   const scaleRef = useRef<number>(1.0);
   const targetScaleRef = useRef<number>(1.0);
-  const morphRef = useRef<number>(mode === '2d' ? 1 : 0);
+
+  // Multi-Morph Continuous Weights (Globe, Sandtable, 2D Flat Map)
+  const wGRef = useRef<number>(mode === '3d' ? 1 : 0);
+  const wSRef = useRef<number>(mode === 'sandtable' ? 1 : 0);
+  const wFRef = useRef<number>(mode === '2d' ? 1 : 0);
+
   const isDraggingRef = useRef<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const lastMouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -96,51 +101,74 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     return lastSeen ? Date.now() - lastSeen < 90 * 1000 : false;
   }
 
-  // Continuous Morphing 3D Sphere <-> 2D Flat Map Projection Math
+  // Unified 3D Globe <-> 3D Tactical Sandtable <-> 2D Flat Map Projection Math
   function projectMorphed(
     lat: number,
     lon: number,
     radius: number,
     rotX: number,
     rotY: number,
-    morph: number,
+    wG: number,
+    wS: number,
+    wF: number,
     centerX: number,
-    centerY: number
+    centerY: number,
+    altitude = 0
   ) {
-    const ease = (1 - Math.cos(morph * Math.PI)) / 2;
-
-    // 1. 3D Spherical Position
+    // 1. 3D Globe Spherical Position
     const phi = (90 - lat) * (Math.PI / 180);
     const theta = (lon + 180) * (Math.PI / 180) + rotY;
 
-    const x3dRaw = -radius * Math.sin(phi) * Math.cos(theta);
-    const y3dRaw = radius * Math.cos(phi);
-    const z3dRaw = radius * Math.sin(phi) * Math.sin(theta);
+    const rTotal = radius + altitude;
+    const x3dRaw = -rTotal * Math.sin(phi) * Math.cos(theta);
+    const y3dRaw = rTotal * Math.cos(phi);
+    const z3dRaw = rTotal * Math.sin(phi) * Math.sin(theta);
 
-    // Apply X-tilt (rotX)
-    const cosX = Math.cos(rotX * (1 - ease));
-    const sinX = Math.sin(rotX * (1 - ease));
+    const cosX = Math.cos(rotX);
+    const sinX = Math.sin(rotX);
     const x3d = x3dRaw;
     const y3d = y3dRaw * cosX - z3dRaw * sinX;
     const z3d = y3dRaw * sinX + z3dRaw * cosX;
 
-    // 2. 2D Flat Rectangular Position
-    const flatWidth = radius * 2.3;
-    const flatHeight = radius * 1.15;
-    const x2d = (lon / 180) * flatWidth;
-    const y2d = (lat / 90) * flatHeight;
+    // 2. 3D Tactical Sandtable Position (Isometric Pitch & Extruded Altitude)
+    const flatWidth = radius * 2.2;
+    const flatHeight = radius * 1.1;
+    const xPlan = (lon / 180) * flatWidth;
+    const yPlan = (lat / 90) * flatHeight;
+
+    const sandPitch = 1.05 + rotX * 0.45; // ~60 degree tilt
+    const cosSandY = Math.cos(rotY * 0.6);
+    const sinSandY = Math.sin(rotY * 0.6);
+
+    const xRot = xPlan * cosSandY - yPlan * sinSandY;
+    const yRot = xPlan * sinSandY + yPlan * cosSandY;
+
+    const cosPitch = Math.cos(sandPitch);
+    const sinPitch = Math.sin(sandPitch);
+
+    const xSandRaw = xRot;
+    const ySandRaw = yRot * cosPitch - altitude;
+    const zSandRaw = yRot * sinPitch;
+
+    const focalLength = radius * 3.2;
+    const perspective = focalLength / (focalLength + zSandRaw * 0.5);
+
+    const xSand = xSandRaw * perspective;
+    const ySand = ySandRaw * perspective;
+    const zSand = zSandRaw;
+
+    // 3. 2D Flat Plan Position
+    const x2d = (lon / 180) * (radius * 2.3);
+    const y2d = (lat / 90) * (radius * 1.15) + altitude * 0.5;
     const z2d = 0;
 
-    // 3. Morph Linear Blend
-    const xMorphed = (1 - ease) * x3d + ease * x2d;
-    const yMorphed = (1 - ease) * y3d + ease * y2d;
-    const zMorphed = (1 - ease) * z3d + ease * z2d;
+    // 4. Weighted Linear Blend
+    const screenX = centerX + (wG * x3d + wS * xSand + wF * x2d);
+    const screenY = centerY - (wG * y3d + wS * ySand + wF * y2d);
+    const zMorphed = wG * z3d + wS * zSand + wF * z2d;
 
-    const screenX = centerX + xMorphed;
-    const screenY = centerY - yMorphed;
-
-    const visible = z3d >= -20 || ease > 0.35;
-    const alpha = Math.min(1.0, Math.max(0.12, (z3d + radius) / (radius * 2) + ease * 0.7));
+    const visible = (wG * (z3d >= -20 ? 1 : 0) + (wS + wF)) > 0.35 || z3d >= -20;
+    const alpha = Math.min(1.0, Math.max(0.12, ((z3d + radius) / (radius * 2)) * wG + (wS + wF) * 0.9));
 
     return { x: screenX, y: screenY, z: zMorphed, alpha, visible };
   }
@@ -169,16 +197,24 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
       // Apply Zoom Scale Interpolation
       scaleRef.current += (targetScaleRef.current - scaleRef.current) * 0.12;
       const scale = scaleRef.current;
-      const baseRadius = Math.min(width, height) * 0.36;
+      const baseRadius = Math.min(width, height) * 0.35;
       const radius = baseRadius * scale;
 
-      // Target morph interpolation (0 = 3D Sphere, 1 = 2D Map)
-      const targetMorph = mode === '2d' ? 1.0 : 0.0;
-      morphRef.current += (targetMorph - morphRef.current) * 0.06;
-      const morph = morphRef.current;
+      // Multi-Morph Target Weight Interpolation
+      const targetWG = mode === '3d' ? 1.0 : 0.0;
+      const targetWS = mode === 'sandtable' ? 1.0 : 0.0;
+      const targetWF = mode === '2d' ? 1.0 : 0.0;
+
+      wGRef.current += (targetWG - wGRef.current) * 0.08;
+      wSRef.current += (targetWS - wSRef.current) * 0.08;
+      wFRef.current += (targetWF - wFRef.current) * 0.08;
+
+      const wG = wGRef.current;
+      const wS = wSRef.current;
+      const wF = wFRef.current;
 
       // Strict Dynamic Pan Boundary Clamping
-      if (morph > 0.3) {
+      if (wF > 0.5 || wS > 0.5) {
         const flatHalfWidth = radius * 2.3;
         const flatHalfHeight = radius * 1.15;
         const maxPanX = Math.max(0, flatHalfWidth - width / 2 + 24);
@@ -196,19 +232,20 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
       panYRef.current += (targetPanYRef.current - panYRef.current) * 0.2;
 
       const centerX = width / 2 + panXRef.current;
-      const centerY = height / 2 + panYRef.current;
+      const centerY = height / 2 + panYRef.current + wS * (radius * 0.15);
 
-      if (!isDraggingRef.current && morph < 0.8) {
-        rotYRef.current += 0.0018 * (1 - morph); // Subtle rotation when in 3D
+      if (!isDraggingRef.current) {
+        if (wG > 0.5) rotYRef.current += 0.0018 * wG; // Globe spin
+        if (wS > 0.5) rotYRef.current += 0.001 * wS;  // Sandtable slow orbit
       }
       pulsePhase += 0.035;
 
       const rotX = rotXRef.current;
       const rotY = rotYRef.current;
 
-      // 1. Atmosphere Halo Gradient
-      if (morph < 0.95) {
-        const glowAlpha = (1 - morph) * 0.18;
+      // 1. Atmosphere Halo (Globe Mode)
+      if (wG > 0.05) {
+        const glowAlpha = wG * 0.18;
         const glowGrad = ctx.createRadialGradient(
           centerX,
           centerY,
@@ -226,10 +263,45 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         ctx.fill();
       }
 
-      // 2. Base Sphere / Ocean Fill
-      if (morph < 0.1) {
+      // 2. 3D Sandtable Command Platform Base (Pedestal & Floor Grid)
+      if (wS > 0.05) {
+        const baseAlpha = wS;
+        const cornerNW = projectMorphed(80, -175, radius, rotX, rotY, wG, wS, wF, centerX, centerY, -4);
+        const cornerNE = projectMorphed(80, 175, radius, rotX, rotY, wG, wS, wF, centerX, centerY, -4);
+        const cornerSE = projectMorphed(-75, 175, radius, rotX, rotY, wG, wS, wF, centerX, centerY, -4);
+        const cornerSW = projectMorphed(-75, -175, radius, rotX, rotY, wG, wS, wF, centerX, centerY, -4);
+
+        // Ground Floor Fill
+        ctx.fillStyle = `rgba(6, 8, 14, ${baseAlpha * 0.9})`;
+        ctx.strokeStyle = `rgba(0, 150, 255, ${baseAlpha * 0.4})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(cornerNW.x, cornerNW.y);
+        ctx.lineTo(cornerNE.x, cornerNE.y);
+        ctx.lineTo(cornerSE.x, cornerSE.y);
+        ctx.lineTo(cornerSW.x, cornerSW.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Floor Extrusion Depth (Bottom Edge Bevel)
+        const bevelDepth = 12 * wS;
+        ctx.fillStyle = `rgba(2, 4, 8, ${baseAlpha * 0.95})`;
+        ctx.strokeStyle = `rgba(0, 102, 177, ${baseAlpha * 0.3})`;
+        ctx.beginPath();
+        ctx.moveTo(cornerSW.x, cornerSW.y);
+        ctx.lineTo(cornerSE.x, cornerSE.y);
+        ctx.lineTo(cornerSE.x, cornerSE.y + bevelDepth);
+        ctx.lineTo(cornerSW.x, cornerSW.y + bevelDepth);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // 3. Globe Sphere Base Fill
+      if (wG > 0.1) {
         ctx.fillStyle = '#06070a';
-        ctx.strokeStyle = 'rgba(0, 102, 177, 0.3)';
+        ctx.strokeStyle = `rgba(0, 102, 177, ${wG * 0.3})`;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
@@ -237,13 +309,12 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         ctx.stroke();
       }
 
-      // 3. Coordinate Graticule Grid Lines & Degrees
-      // Latitude Parallels
+      // 4. Coordinate Graticule Grid Lines
       [-60, -30, 0, 30, 60].forEach((lat) => {
         const isEquator = lat === 0;
         ctx.strokeStyle = isEquator
-          ? `rgba(0, 230, 118, ${0.15 + morph * 0.1})`
-          : `rgba(255, 255, 255, ${0.04 + morph * 0.03})`;
+          ? `rgba(0, 230, 118, ${0.15 * wG + 0.25 * wS + 0.2 * wF})`
+          : `rgba(255, 255, 255, ${0.04 * wG + 0.08 * wS + 0.05 * wF})`;
         ctx.lineWidth = isEquator ? 1.0 : 0.6;
         if (isEquator) ctx.setLineDash([6, 4]);
         else ctx.setLineDash([]);
@@ -251,7 +322,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         ctx.beginPath();
         let started = false;
         for (let lon = -180; lon <= 180; lon += 4) {
-          const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
+          const pt = projectMorphed(lat, lon, radius, rotX, rotY, wG, wS, wF, centerX, centerY, 0);
           if (pt.visible) {
             if (!started) {
               ctx.moveTo(pt.x, pt.y);
@@ -265,30 +336,21 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         }
         ctx.stroke();
         ctx.setLineDash([]);
-
-        // Degree label along Prime Meridian
-        const labelPt = projectMorphed(lat, 0, radius, rotX, rotY, morph, centerX, centerY);
-        if (labelPt.visible && labelPt.alpha > 0.4) {
-          ctx.fillStyle = `rgba(140, 150, 170, ${labelPt.alpha * 0.5})`;
-          ctx.font = '600 8px monospace';
-          ctx.fillText(lat === 0 ? 'EQ 0°' : `${Math.abs(lat)}°${lat > 0 ? 'N' : 'S'}`, labelPt.x + 3, labelPt.y - 2);
-        }
       });
 
-      // Longitude Meridians
       [-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150, 180].forEach((lon) => {
         const isPrime = lon === 0;
         ctx.strokeStyle = isPrime
-          ? `rgba(0, 150, 255, ${0.18 + morph * 0.1})`
-          : `rgba(255, 255, 255, ${0.04 + morph * 0.03})`;
+          ? `rgba(0, 150, 255, ${0.18 * wG + 0.28 * wS + 0.2 * wF})`
+          : `rgba(255, 255, 255, ${0.04 * wG + 0.08 * wS + 0.05 * wF})`;
         ctx.lineWidth = isPrime ? 1.0 : 0.6;
         if (isPrime) ctx.setLineDash([6, 4]);
         else ctx.setLineDash([]);
 
         ctx.beginPath();
         let started = false;
-        for (let lat = -88; lat <= 88; lat += 4) {
-          const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
+        for (let lat = -85; lat <= 85; lat += 4) {
+          const pt = projectMorphed(lat, lon, radius, rotX, rotY, wG, wS, wF, centerX, centerY, 0);
           if (pt.visible) {
             if (!started) {
               ctx.moveTo(pt.x, pt.y);
@@ -304,16 +366,49 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         ctx.setLineDash([]);
       });
 
-      // 4. High-Precision Vector World Coastline Polygons
+      // 5. 3D Sandtable Landmass Relief Extrusions & Topographic Plates
+      const terrainHeight = 14 * wS; // 3D Extrusion Height on Sandtable
+
+      // 5a. Extruded Landmass Vertical Side Walls (Sandtable 3D Relief)
+      if (wS > 0.1) {
+        WORLD_POLYGONS.forEach((poly) => {
+          ctx.fillStyle = `rgba(0, 50, 90, ${wS * 0.45})`;
+          ctx.strokeStyle = `rgba(0, 102, 177, ${wS * 0.35})`;
+          ctx.lineWidth = 0.8;
+
+          for (let i = 0; i < poly.points.length - 1; i++) {
+            const [latA, lonA] = poly.points[i];
+            const [latB, lonB] = poly.points[i + 1];
+
+            const ptABase = projectMorphed(latA, lonA, radius, rotX, rotY, wG, wS, wF, centerX, centerY, 0);
+            const ptATop = projectMorphed(latA, lonA, radius, rotX, rotY, wG, wS, wF, centerX, centerY, terrainHeight);
+            const ptBTop = projectMorphed(latB, lonB, radius, rotX, rotY, wG, wS, wF, centerX, centerY, terrainHeight);
+            const ptBBase = projectMorphed(latB, lonB, radius, rotX, rotY, wG, wS, wF, centerX, centerY, 0);
+
+            if (ptABase.visible && ptBBase.visible) {
+              ctx.beginPath();
+              ctx.moveTo(ptABase.x, ptABase.y);
+              ctx.lineTo(ptATop.x, ptATop.y);
+              ctx.lineTo(ptBTop.x, ptBTop.y);
+              ctx.lineTo(ptBBase.x, ptBBase.y);
+              ctx.closePath();
+              ctx.fill();
+              ctx.stroke();
+            }
+          }
+        });
+      }
+
+      // 5b. Top Elevated Landmass Polygons
       WORLD_POLYGONS.forEach((poly) => {
-        ctx.fillStyle = `rgba(0, 102, 177, ${0.07 + morph * 0.05})`; // Deep Blue Fill
-        ctx.strokeStyle = `rgba(0, 160, 255, ${0.45 + morph * 0.25})`; // Bright Vector Outline
+        ctx.fillStyle = `rgba(0, 102, 177, ${0.08 * wG + 0.22 * wS + 0.12 * wF})`;
+        ctx.strokeStyle = `rgba(0, 180, 255, ${0.45 * wG + 0.75 * wS + 0.55 * wF})`;
         ctx.lineWidth = 1.1;
 
         ctx.beginPath();
         let pathStarted = false;
         poly.points.forEach(([lat, lon]) => {
-          const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
+          const pt = projectMorphed(lat, lon, radius, rotX, rotY, wG, wS, wF, centerX, centerY, terrainHeight);
           if (pt.visible) {
             if (!pathStarted) {
               ctx.moveTo(pt.x, pt.y);
@@ -330,22 +425,22 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         }
       });
 
-      // 5. Morphing 500+ Landmass Tactical Dot-Matrix Point Cloud
+      // 6. Tactical Dot-Matrix Mesh (Elevated on Sandtable)
       LAND_POINTS.forEach(([lat, lon]) => {
-        const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
+        const pt = projectMorphed(lat, lon, radius, rotX, rotY, wG, wS, wF, centerX, centerY, terrainHeight);
         if (pt.visible) {
-          ctx.fillStyle = `rgba(130, 160, 200, ${pt.alpha * 0.85})`;
+          ctx.fillStyle = `rgba(130, 180, 230, ${pt.alpha * (0.75 + wS * 0.25)})`;
           ctx.beginPath();
-          ctx.arc(pt.x, pt.y, 1.4, 0, Math.PI * 2);
+          ctx.arc(pt.x, pt.y, 1.4 + wS * 0.4, 0, Math.PI * 2);
           ctx.fill();
         }
       });
 
-      // 6. Major Continental / Ocean Region Labels
+      // 7. Major Region Labels
       MAJOR_REGIONS.forEach((reg) => {
-        const pt = projectMorphed(reg.lat, reg.lon, radius, rotX, rotY, morph, centerX, centerY);
+        const pt = projectMorphed(reg.lat, reg.lon, radius, rotX, rotY, wG, wS, wF, centerX, centerY, terrainHeight + 4);
         if (pt.visible && pt.alpha > 0.35) {
-          ctx.fillStyle = `rgba(160, 180, 210, ${pt.alpha * 0.7})`;
+          ctx.fillStyle = `rgba(180, 210, 240, ${pt.alpha * 0.75})`;
           ctx.font = '700 9px Inter, sans-serif';
           ctx.textAlign = 'center';
           ctx.fillText(reg.name, pt.x, pt.y);
@@ -353,22 +448,92 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         }
       });
 
-      // 7. Inter-Node Geodesic Telemetry Arcs & Photon Pulses
+      // 8. 3D Laser Light Pillars & Elevation Beacons (Sandtable Hologram Effect)
       const onlineNodes = geoNodes.filter(isOnline);
+      const pillarAltitude = 38 * wS; // Laser pillar height
+
+      geoNodes.forEach((node) => {
+        const online = isOnline(node);
+        const ptGround = projectMorphed(node.geo.lat!, node.geo.lon!, radius, rotX, rotY, wG, wS, wF, centerX, centerY, terrainHeight);
+        const ptTop = projectMorphed(node.geo.lat!, node.geo.lon!, radius, rotX, rotY, wG, wS, wF, centerX, centerY, terrainHeight + pillarAltitude);
+
+        if (ptGround.visible) {
+          // 8a. Concentric Radar Scan Rings on Ground
+          if (online) {
+            const wave1 = 6 + (pulsePhase * 4) % 14;
+            const alpha1 = Math.max(0, 1 - wave1 / 20);
+            ctx.strokeStyle = `rgba(0, 230, 118, ${alpha1 * 0.8})`;
+            ctx.lineWidth = 1.0;
+            ctx.beginPath();
+            ctx.arc(ptGround.x, ptGround.y, wave1, 0, Math.PI * 2);
+            ctx.stroke();
+
+            const wave2 = 6 + ((pulsePhase * 4 + 7) % 14);
+            const alpha2 = Math.max(0, 1 - wave2 / 20);
+            ctx.strokeStyle = `rgba(0, 230, 118, ${alpha2 * 0.6})`;
+            ctx.beginPath();
+            ctx.arc(ptGround.x, ptGround.y, wave2, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+
+          // 8b. Vertical Holographic Laser Light Pillar in 3D Space
+          if (wS > 0.05) {
+            // Neon Laser Column
+            const pillarGrad = ctx.createLinearGradient(ptGround.x, ptGround.y, ptTop.x, ptTop.y);
+            pillarGrad.addColorStop(0, online ? 'rgba(0, 230, 118, 0.15)' : 'rgba(226, 39, 24, 0.15)');
+            pillarGrad.addColorStop(1, online ? 'rgba(0, 230, 118, 0.85)' : 'rgba(226, 39, 24, 0.85)');
+
+            ctx.strokeStyle = pillarGrad;
+            ctx.lineWidth = 2.0;
+            ctx.beginPath();
+            ctx.moveTo(ptGround.x, ptGround.y);
+            ctx.lineTo(ptTop.x, ptTop.y);
+            ctx.stroke();
+
+            // Graduation Tick Marks
+            [0.33, 0.66].forEach((fraction) => {
+              const tickX = ptGround.x + (ptTop.x - ptGround.x) * fraction;
+              const tickY = ptGround.y + (ptTop.y - ptGround.y) * fraction;
+              ctx.strokeStyle = online ? 'rgba(0, 230, 118, 0.6)' : 'rgba(226, 39, 24, 0.6)';
+              ctx.lineWidth = 1.0;
+              ctx.beginPath();
+              ctx.moveTo(tickX - 3, tickY);
+              ctx.lineTo(tickX + 3, tickY);
+              ctx.stroke();
+            });
+          }
+
+          // 8c. Solid Beacon Core (at Top Altitude)
+          ctx.fillStyle = online ? '#00e676' : '#e22718';
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 1.8;
+          ctx.beginPath();
+          ctx.arc(ptTop.x, ptTop.y, 5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+
+          // Node Label & Airport Colo Tag
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '700 11px Inter, sans-serif';
+          const coloTag = node.geo?.colo ? ` [${node.geo.colo}]` : '';
+          ctx.fillText(`${node.name.toUpperCase()}${coloTag}`, ptTop.x + 9, ptTop.y + 4);
+        }
+      });
+
+      // 9. High-Altitude 3D Geodesic Arcs & Travelling Photons
       if (onlineNodes.length >= 2) {
         for (let i = 0; i < onlineNodes.length; i++) {
           for (let j = i + 1; j < onlineNodes.length; j++) {
             const nodeA = onlineNodes[i];
             const nodeB = onlineNodes[j];
 
-            ctx.strokeStyle = 'rgba(0, 230, 118, 0.22)';
+            ctx.strokeStyle = 'rgba(0, 230, 118, 0.28)';
             ctx.lineWidth = 1.0;
             ctx.setLineDash([4, 4]);
 
             ctx.beginPath();
             let arcStarted = false;
-            const steps = 24;
-            const arcPts: Array<{ x: number; y: number; visible: boolean }> = [];
+            const steps = 28;
 
             for (let s = 0; s <= steps; s++) {
               const tStep = s / steps;
@@ -379,8 +544,9 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
                 nodeB.geo.lon!,
                 tStep
               );
-              const pt = projectMorphed(arcLat, arcLon, radius, rotX, rotY, morph, centerX, centerY);
-              arcPts.push(pt);
+              // Parabolic mid-air altitude boost
+              const parabolicAlt = terrainHeight + pillarAltitude + Math.sin(tStep * Math.PI) * (28 * wS + 12 * wF);
+              const pt = projectMorphed(arcLat, arcLon, radius, rotX, rotY, wG, wS, wF, centerX, centerY, parabolicAlt);
 
               if (pt.visible) {
                 if (!arcStarted) {
@@ -396,7 +562,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
             }
             ctx.setLineDash([]);
 
-            // Animated Travelling Photon Pulse along the telemetry arc
+            // Animated Travelling Photon Pulse
             const pulseT = ((pulsePhase * 0.25 + i * 0.3 + j * 0.2) % 1.0);
             const [photonLat, photonLon] = interpolateGreatCircle(
               nodeA.geo.lat!,
@@ -405,7 +571,9 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
               nodeB.geo.lon!,
               pulseT
             );
-            const photonPt = projectMorphed(photonLat, photonLon, radius, rotX, rotY, morph, centerX, centerY);
+            const photonAlt = terrainHeight + pillarAltitude + Math.sin(pulseT * Math.PI) * (28 * wS + 12 * wF);
+            const photonPt = projectMorphed(photonLat, photonLon, radius, rotX, rotY, wG, wS, wF, centerX, centerY, photonAlt);
+
             if (photonPt.visible) {
               ctx.fillStyle = '#00e676';
               ctx.shadowColor = '#00e676';
@@ -419,60 +587,11 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         }
       }
 
-      // 8. Active Telemetry Node Beacons with Radar Waves
-      geoNodes.forEach((node) => {
-        const pt = projectMorphed(
-          node.geo.lat!,
-          node.geo.lon!,
-          radius,
-          rotX,
-          rotY,
-          morph,
-          centerX,
-          centerY
-        );
-        const online = isOnline(node);
-
-        if (pt.visible) {
-          if (online) {
-            // Concentric Expanding Radar Waves
-            const wave1 = 6 + (pulsePhase * 4) % 14;
-            const alpha1 = Math.max(0, 1 - wave1 / 20);
-            ctx.strokeStyle = `rgba(0, 230, 118, ${alpha1 * 0.8})`;
-            ctx.lineWidth = 1.0;
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, wave1, 0, Math.PI * 2);
-            ctx.stroke();
-
-            const wave2 = 6 + ((pulsePhase * 4 + 7) % 14);
-            const alpha2 = Math.max(0, 1 - wave2 / 20);
-            ctx.strokeStyle = `rgba(0, 230, 118, ${alpha2 * 0.6})`;
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, wave2, 0, Math.PI * 2);
-            ctx.stroke();
-          }
-
-          // Beacon Solid Core
-          ctx.fillStyle = online ? '#00e676' : '#e22718';
-          ctx.strokeStyle = '#000000';
-          ctx.lineWidth = 1.8;
-          ctx.beginPath();
-          ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-
-          // Node Name & CF Colo Airport Tag
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '700 11px Inter, sans-serif';
-          const coloTag = node.geo?.colo ? ` [${node.geo.colo}]` : '';
-          ctx.fillText(`${node.name.toUpperCase()}${coloTag}`, pt.x + 9, pt.y + 4);
-        }
-      });
-
-      // 9. Tactical Telemetry HUD Legends & Crosshairs
+      // 10. Tactical HUD Legends
       ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
       ctx.font = '700 9px monospace';
-      ctx.fillText('COORD SYS: WGS-84 // INCLINATION 23.5°', 16, height - 16);
+      const modeLabel = wS > 0.5 ? '3D TACTICAL SANDTABLE' : wG > 0.5 ? '3D ORBITAL GLOBE' : '2D GEODESIC PLAN';
+      ctx.fillText(`VIEW: ${modeLabel} // REF WGS-84`, 16, height - 16);
       ctx.fillText(`ACTIVE BEACONS: ${onlineNodes.length} / ${nodes.length}`, width - 180, height - 16);
 
       animId = requestAnimationFrame(render);
@@ -538,11 +657,11 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
       const deltaX = e.clientX - lastMouseRef.current.x;
       const deltaY = e.clientY - lastMouseRef.current.y;
 
-      if (mode === '3d' && morphRef.current < 0.5) {
+      if (mode === '3d' || mode === 'sandtable') {
         rotYRef.current += deltaX * 0.008;
         rotXRef.current = Math.max(-1.0, Math.min(1.0, rotXRef.current + deltaY * 0.008));
       } else {
-        const baseRadius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.36;
+        const baseRadius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.35;
         const radius = baseRadius * scaleRef.current;
         const flatHalfWidth = radius * 2.3;
         const flatHalfHeight = radius * 1.15;
@@ -566,8 +685,8 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
     const centerX = canvas.clientWidth / 2 + panXRef.current;
-    const centerY = canvas.clientHeight / 2 + panYRef.current;
-    const radius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.36 * scaleRef.current;
+    const centerY = canvas.clientHeight / 2 + panYRef.current + wSRef.current * (Math.min(canvas.clientWidth, canvas.clientHeight) * 0.35 * scaleRef.current * 0.15);
+    const radius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.35 * scaleRef.current;
 
     // Calculate Geographic Cursor Coordinates
     const flatWidth = radius * 2.3;
@@ -581,6 +700,8 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
     }
 
     let hovered: { node: NodeItem; x: number; y: number } | null = null;
+    const pillarAltitude = (14 + 38) * wSRef.current;
+
     for (const node of geoNodes) {
       const pt = projectMorphed(
         node.geo.lat!,
@@ -588,9 +709,12 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d' }) => {
         radius,
         rotXRef.current,
         rotYRef.current,
-        morphRef.current,
+        wGRef.current,
+        wSRef.current,
+        wFRef.current,
         centerX,
-        centerY
+        centerY,
+        pillarAltitude
       );
       if (pt.visible) {
         const dist = Math.hypot(mouseX - pt.x, mouseY - pt.y);

@@ -278,18 +278,27 @@ export function validateServerConfig(cfg: any): { valid: boolean; error?: string
   if (typeof cfg.network_interface !== 'string' || cfg.network_interface.trim().length === 0 || cfg.network_interface.length > 32) {
     return { valid: false, error: 'network_interface must be a non-empty string with max length 32' };
   }
-  if (!Array.isArray(cfg.probes) || cfg.probes.length > 20) {
-    return { valid: false, error: 'probes must be an array with at most 20 probe targets' };
-  }
-  for (const p of cfg.probes) {
-    if (!p || typeof p !== 'object') return { valid: false, error: 'Each probe must be an object' };
-    if (typeof p.id !== 'string' || p.id.trim().length === 0 || p.id.length > 64) return { valid: false, error: 'Probe id must be a non-empty string <= 64 chars' };
-    if (typeof p.name !== 'string' || p.name.trim().length === 0 || p.name.length > 64) return { valid: false, error: 'Probe name must be a non-empty string <= 64 chars' };
-    if (typeof p.host !== 'string' || p.host.trim().length === 0 || p.host.length > 256 || /\s/.test(p.host)) return { valid: false, error: 'Probe host must be a valid non-empty hostname/IP' };
-    if (p.method !== 'icmp' && p.method !== 'tcp') return { valid: false, error: 'Probe method must be either "icmp" or "tcp"' };
-    if (p.port !== undefined && p.port !== null) {
-      if (!Number.isInteger(p.port) || p.port < 1 || p.port > 65535) {
-        return { valid: false, error: 'Probe port must be an integer between 1 and 65535' };
+  if (cfg.probes !== undefined) {
+    if (!Array.isArray(cfg.probes) || cfg.probes.length > 20) {
+      return { valid: false, error: 'probes must be an array with at most 20 probe targets' };
+    }
+    for (const p of cfg.probes) {
+      if (!p || typeof p !== 'object') return { valid: false, error: 'Each probe must be an object' };
+      if (typeof p.id !== 'string' || p.id.trim().length === 0 || p.id.length > 64) {
+        return { valid: false, error: 'Probe id must be a non-empty string <= 64 chars' };
+      }
+      const host = p.target || p.host;
+      if (typeof host !== 'string' || host.trim().length === 0 || host.length > 256 || /\s/.test(host)) {
+        return { valid: false, error: 'Probe target/host must be a valid non-empty hostname/IP' };
+      }
+      const method = p.protocol || p.method || 'icmp';
+      if (method !== 'icmp' && method !== 'tcp') {
+        return { valid: false, error: 'Probe protocol/method must be either "icmp" or "tcp"' };
+      }
+      if (p.port !== undefined && p.port !== null) {
+        if (!Number.isInteger(p.port) || p.port < 1 || p.port > 65535) {
+          return { valid: false, error: 'Probe port must be an integer between 1 and 65535' };
+        }
       }
     }
   }

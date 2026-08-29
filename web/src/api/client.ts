@@ -225,6 +225,9 @@ export async function updateNodeConfig(id: string, config: NodeServerConfig): Pr
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
   });
-  if (!res.ok) throw new Error('Failed to update node config');
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Failed to update node config (${res.status})`);
+  }
   return await res.json();
 }

@@ -92,9 +92,9 @@ export const translations = {
     token_notice: '请妥善保存以下节点 Token 与 Agent 启动命令。',
 
     // View Toggles & Table Headers
-    view_grid: '卡片矩阵',
-    view_table: '紧凑表格',
-    view_map: '3D 视图',
+    view_grid: '卡片',
+    view_table: '列表',
+    view_map: '3D',
     th_status: '状态',
     th_node: '节点 / 系统',
     th_cpu: 'CPU',
@@ -248,9 +248,9 @@ export const translations = {
     token_notice: 'Save the following node token and agent execution command securely.',
 
     // View Toggles & Table Headers
-    view_grid: 'GRID MATRIX',
-    view_table: 'FLEET TABLE',
-    view_map: '3D GLOBE',
+    view_grid: 'CARDS',
+    view_table: 'LIST',
+    view_map: '3D',
     th_status: 'STATUS',
     th_node: 'NODE / SYSTEM',
     th_cpu: 'CPU',

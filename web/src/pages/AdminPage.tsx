@@ -228,7 +228,7 @@ export const AdminPage: React.FC = () => {
         <div style={{ maxWidth: '440px', margin: '80px auto', width: '100%' }}>
           <div className="detail-chassis-band" style={{ padding: '36px 32px' }}>
             <span className="eyebrow-cap" style={{ fontSize: '11px', color: 'var(--colors-m-blue-light)' }}>
-              MISSION CONTROL // SECURE GATEWAY
+              EDGEMON // ADMIN GATEWAY
             </span>
             <h2 className="display-lg" style={{ fontSize: '22px', marginTop: '6px', marginBottom: '8px' }}>
               {t('nav_console')}
@@ -271,7 +271,7 @@ export const AdminPage: React.FC = () => {
           <div className="hero-banner-chassis" style={{ marginBottom: '32px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
               <div>
-                <span className="eyebrow-cap">MISSION CONTROL // SECURE GATEWAY</span>
+                <span className="eyebrow-cap">EDGEMON · ADMIN</span>
                 <h1 className="display-xl" style={{ marginTop: '4px' }}>
                   {t('nav_console')}
                 </h1>

@@ -15,6 +15,7 @@ export const NodeDetailPage: React.FC = () => {
   const connectRealtime = useRealtimeStore((s) => s.connectRealtime);
   const clearOverlay = useRealtimeStore((s) => s.clearOverlay);
   const overlay = useRealtimeStore((s) => (id ? s.overlays[id] : undefined));
+  const realtimeSeries = useRealtimeStore((s) => (id ? s.realtimeSeries[id] ?? [] : []));
   const { t } = useTranslation();
 
   useEffect(() => {
@@ -103,7 +104,6 @@ export const NodeDetailPage: React.FC = () => {
     ? Math.min(100, Math.round((trafficUsed / trafficQuota) * 100))
     : 0;
 
-  const realtimeSeries = useRealtimeStore((s) => (id ? s.realtimeSeries[id] ?? [] : []));
   const cpuTemp = overlay?.cpu_temp_celsius ?? node.state?.cpu_temp_celsius;
   const hasTemp = cpuTemp != null || realtimeSeries.some((p) => p.cpu_temp_celsius != null);
   const load1 = overlay?.load1 ?? node.state?.load1;

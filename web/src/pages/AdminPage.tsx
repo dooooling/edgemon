@@ -13,6 +13,7 @@ import {
 } from '../api/client';
 import { useAdminSessionQuery, useAdminNodesQuery } from '../queries/nodes';
 import { useTranslation } from '../i18n/I18nContext';
+import { formatBeijingDate } from '../utils/time';
 
 export const AdminPage: React.FC = () => {
   const { data: sessionData, refetch: refetchSession } = useAdminSessionQuery();
@@ -350,7 +351,7 @@ export const AdminPage: React.FC = () => {
                       </span>
                     </td>
                     <td>{t('day_prefix')}{n.traffic_reset_day}{t('day_suffix')}</td>
-                    <td>{new Date(n.created_at_ms).toISOString().split('T')[0]}</td>
+                    <td>{formatBeijingDate(n.created_at_ms)}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button

@@ -4,6 +4,7 @@ import { usePublicNodesQuery } from '../queries/nodes';
 import { useRealtimeStore } from '../realtime/store';
 import { HistoryChart } from '../components/HistoryChart';
 import { useTranslation } from '../i18n/I18nContext';
+import { formatBeijingDate } from '../utils/time';
 import { OsIcon } from '../components/OsIcon';
 import { CountryFlag } from '../components/CountryFlag';
 
@@ -358,7 +359,7 @@ export const NodeDetailPage: React.FC = () => {
               <div className="spec-entry">
                 <span className="spec-entry-label">{t('th_expire')}</span>
                 <span className="spec-entry-val" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>{new Date(node.expires_at_ms).toLocaleDateString()}</span>
+                  <span>{formatBeijingDate(node.expires_at_ms)}</span>
                   {(() => {
                     const daysLeft = Math.ceil((node.expires_at_ms - Date.now()) / (1000 * 60 * 60 * 24));
                     if (daysLeft < 0) {

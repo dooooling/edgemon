@@ -4,6 +4,7 @@ import 'uplot/dist/uPlot.min.css';
 import { useNodeHistoryQuery } from '../queries/nodes';
 import { useRealtimeStore, RealtimePoint } from '../realtime/store';
 import { useTranslation } from '../i18n/I18nContext';
+import { formatBeijingAxis, formatBeijingTimeOnly } from '../utils/time';
 
 interface HistoryChartProps {
   nodeId: string;
@@ -128,6 +129,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
             stroke: '#a0a0a8',
             grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
             ticks: { stroke: 'transparent' },
+            values: (_u, splits) => splits.map((ts) => formatBeijingAxis(ts, range)),
           },
           {
             stroke: '#a0a0a8',
@@ -151,8 +153,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
                 const ts = u.data[0][idx];
                 const val = u.data[1][idx];
                 if (timeValRef.current) {
-                  const d = new Date(ts * 1000);
-                  timeValRef.current.textContent = d.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                  timeValRef.current.textContent = formatBeijingTimeOnly(ts * 1000, true);
                 }
                 if (metricValRef.current) {
                   metricValRef.current.textContent = val != null ? formatValue(val, unit) : 'N/A';

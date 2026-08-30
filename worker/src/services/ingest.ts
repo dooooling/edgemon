@@ -153,7 +153,7 @@ export function mergeIntoAccumulator(
 }
 
 export function finalizeAccumulator(acc: MinuteAccumulator): RawBucketMetric {
-  const last = acc.last_metrics;
+  const last = acc.last_metrics || ({} as Partial<ReportMetrics>);
   const avgCpu = acc.cpu_count > 0 ? Number((acc.cpu_sum / acc.cpu_count).toFixed(2)) : last.cpu?.usage_pct ?? null;
   const avgMem = acc.memory_count > 0 ? Math.round(acc.memory_sum / acc.memory_count) : last.memory?.used_bytes ?? null;
   const avgRead = acc.read_bps_count > 0 ? Math.round(acc.read_bps_sum / acc.read_bps_count) : last.io?.read_bps ?? null;
@@ -162,7 +162,7 @@ export function finalizeAccumulator(acc: MinuteAccumulator): RawBucketMetric {
   const avgTxBps = acc.tx_bps_count > 0 ? Math.round(acc.tx_bps_sum / acc.tx_bps_count) : last.network?.tx_bps ?? null;
 
   const report: ReportMetrics = {
-    config_rev: last.config_rev,
+    config_rev: last.config_rev ?? 0,
     boot_id: last.boot_id,
     cpu: {
       usage_pct: avgCpu,
@@ -189,7 +189,7 @@ export function finalizeAccumulator(acc: MinuteAccumulator): RawBucketMetric {
       tx_total_bytes: last.network?.tx_total_bytes ?? 0,
     },
     uptime_sec: last.uptime_sec,
-    probes: last.probes,
+    probes: last.probes || [],
   };
 
   return {

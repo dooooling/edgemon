@@ -82,8 +82,8 @@ agentRoutes.post('/api/agent/v1/hello', async (c) => {
     .first<{ revision: number; config_json: string }>();
 
   const serverConfig = configRow ? JSON.parse(configRow.config_json) : {
-    sample_interval_sec: 2,
-    stream_interval_sec: 2,
+    sample_interval_sec: 30,
+    stream_interval_sec: 30,
     probe_interval_sec: 60,
     network_interface: 'auto',
     probes: [],

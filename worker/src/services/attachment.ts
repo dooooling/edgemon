@@ -1,24 +1,25 @@
 import { AgentAttachment, MinuteAccumulator } from './ingest';
 import { ReportMetrics } from '../protocol/types';
+import { NormalizedGeo } from './geo';
 
 export function compactReportMetrics(metrics: ReportMetrics): ReportMetrics {
   return {
     config_rev: metrics.config_rev,
     cpu: {
       usage_pct: metrics.cpu?.usage_pct,
-      throttled_pct: metrics.cpu?.throttled_pct,
-      temp_celsius: metrics.cpu?.temp_celsius,
+      throttled_pct: metrics.cpu?.throttled_pct ?? undefined,
+      temp_celsius: metrics.cpu?.temp_celsius ?? undefined,
     },
     memory: {
       used_bytes: metrics.memory?.used_bytes,
     },
-    rootfs: {
+    rootfs: metrics.rootfs?.used_bytes !== undefined ? {
       used_bytes: metrics.rootfs?.used_bytes,
-    },
-    io: {
+    } : undefined,
+    io: (metrics.io?.read_bps !== undefined || metrics.io?.write_bps !== undefined) ? {
       read_bps: metrics.io?.read_bps,
       write_bps: metrics.io?.write_bps,
-    },
+    } : undefined,
     network: {
       interface: metrics.network?.interface || 'eth0',
       rx_bps: metrics.network?.rx_bps,
@@ -37,7 +38,7 @@ export function compactMinuteAccumulator(acc: MinuteAccumulator, isHistorical = 
       last_sample_seq: 0,
       rx_delta_sum: Math.round(acc.rx_delta_sum || 0),
       tx_delta_sum: Math.round(acc.tx_delta_sum || 0),
-      cpu_sum: Math.round((acc.cpu_sum || 0) * 100) / 100,
+      cpu_sum: Math.round((acc.cpu_sum || 0) * 10) / 10,
       cpu_count: acc.cpu_count || 0,
       cpu_throttled_max: acc.cpu_throttled_max ?? null,
       memory_sum: Math.round(acc.memory_sum || 0),
@@ -59,7 +60,7 @@ export function compactMinuteAccumulator(acc: MinuteAccumulator, isHistorical = 
     last_sample_seq: acc.last_sample_seq,
     rx_delta_sum: Math.round(acc.rx_delta_sum || 0),
     tx_delta_sum: Math.round(acc.tx_delta_sum || 0),
-    cpu_sum: Math.round((acc.cpu_sum || 0) * 100) / 100,
+    cpu_sum: Math.round((acc.cpu_sum || 0) * 10) / 10,
     cpu_count: acc.cpu_count || 0,
     cpu_throttled_max: acc.cpu_throttled_max ?? null,
     memory_sum: Math.round(acc.memory_sum || 0),
@@ -97,7 +98,7 @@ export function compactAgentAttachment(attachment: AgentAttachment): AgentAttach
     config_rev: attachment.config_rev,
     last_persist_bucket_ms: attachment.last_persist_bucket_ms,
     persisted_sample_seq: attachment.persisted_sample_seq,
-    last_counter_id: attachment.last_counter_id,
+    last_counter_id: attachment.last_counter_id ? attachment.last_counter_id.slice(0, 16) : null,
     last_rx_total_bytes: attachment.last_rx_total_bytes,
     last_tx_total_bytes: attachment.last_tx_total_bytes,
     last_ping_ts_ms: attachment.last_ping_ts_ms,
@@ -114,10 +115,11 @@ export function compactAgentAttachment(attachment: AgentAttachment): AgentAttach
       period_start_ms: attachment.traffic_state?.period_start_ms ?? 0,
       finalized_rx_bytes: attachment.traffic_state?.finalized_rx_bytes ?? 0,
       finalized_tx_bytes: attachment.traffic_state?.finalized_tx_bytes ?? 0,
-      active_counter_id: null,
-      active_rx_base_bytes: null,
-      active_tx_base_bytes: null,
-      dirty: false,
+      active_counter_id: attachment.traffic_state?.active_counter_id ?? null,
+      active_rx_base_bytes: attachment.traffic_state?.active_rx_base_bytes ?? null,
+      active_tx_base_bytes: attachment.traffic_state?.active_tx_base_bytes ?? null,
+      dirty: attachment.traffic_state?.dirty ?? false,
+      prev_period_settlement: attachment.traffic_state?.prev_period_settlement || undefined,
     },
   };
 }

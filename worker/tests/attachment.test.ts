@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AgentAttachment, MinuteAccumulator } from '../src/services/ingest';
+import { AgentAttachment, MinuteAccumulator, finalizeAccumulator, mergeIntoAccumulator } from '../src/services/ingest';
 import { ReportMetrics } from '../protocol/types';
 import { compactAgentAttachment } from '../src/services/attachment';
 
@@ -85,7 +85,7 @@ function createMockMinute(metrics: ReportMetrics): MinuteAccumulator {
   };
 }
 
-describe('DO WebSocket Attachment 2048-Byte Boundary Tests', () => {
+describe('DO WebSocket Attachment 2048-Byte Boundary & Lifecycle Tests', () => {
   it('compacts heavy attachments (10 mounts, 20 probes) strictly under 2048 bytes limit', () => {
     const rawMetrics = createMockMetrics(10, 20);
     const minute = createMockMinute(rawMetrics);
@@ -135,7 +135,7 @@ describe('DO WebSocket Attachment 2048-Byte Boundary Tests', () => {
         active_counter_id: 'a94a8fe5ccb19ba6',
         active_rx_base_bytes: 98765432109876,
         active_tx_base_bytes: 12345678901234,
-        dirty: false,
+        dirty: true,
       },
     };
 
@@ -150,69 +150,114 @@ describe('DO WebSocket Attachment 2048-Byte Boundary Tests', () => {
     expect(compacted.traffic_state.finalized_rx_bytes).toBe(600000000);
   });
 
-  it('guarantees lossless fallback preserving crucial traffic and token states', () => {
-    const rawMetrics = createMockMetrics(20, 50);
+  it('preserves active traffic segment baselines completely intact during compaction', () => {
+    const rawMetrics = createMockMetrics(2, 2);
     const minute = createMockMinute(rawMetrics);
 
     const attachment: AgentAttachment = {
       kind: 'agent',
-      node_id: '550e8400-e29b-41d4-a716-446655440000',
-      node_name: 'production-node',
-      instance_id: '01991f4e-a3d7-7c4e-aef1-9a1b6c03d442',
+      node_id: 'test-node-traffic',
+      node_name: 'test-node',
+      instance_id: 'test-inst',
       traffic_reset_day: 1,
       is_hidden: false,
-      geo: {
-        geo_country: null,
-        geo_region: null,
-        geo_region_code: null,
-        geo_city: null,
-        geo_lat: null,
-        geo_lon: null,
-        geo_timezone: null,
-        geo_continent: null,
-        asn: null,
-        as_org: null,
-        cf_colo: null,
-        egress_ip: null,
-        edge_rtt_ms: 15.0,
-        edge_transport: 'tcp',
-      },
+      geo: { geo_country: 'US', cf_colo: 'SJC', edge_rtt_ms: 5.0, edge_transport: 'quic', geo_region: null, geo_region_code: null, geo_city: null, geo_lat: null, geo_lon: null, geo_timezone: null, geo_continent: null, asn: null, as_org: null, egress_ip: null },
       hello_ok: true,
-      connected_at_ms: 1787640000000,
-      last_seq: 2000,
-      last_report_received_at_ms: 1787640060000,
-      config_rev: 5,
-      last_persist_bucket_ms: 1787640000000,
-      persisted_sample_seq: 1950,
-      last_counter_id: 'counter-abc-123',
-      last_rx_total_bytes: 5000000000,
-      last_tx_total_bytes: 2000000000,
-      last_ping_ts_ms: 1787640060000,
+      connected_at_ms: 1000,
+      last_seq: 10,
+      last_report_received_at_ms: 2000,
+      config_rev: 1,
+      last_persist_bucket_ms: 0,
+      persisted_sample_seq: 0,
+      last_counter_id: 'counter-xyz',
+      last_rx_total_bytes: 50000,
+      last_tx_total_bytes: 30000,
+      last_ping_ts_ms: 2000,
       current_minute: minute,
       historical_minutes: {},
       traffic_state: {
-        period_start_ms: 1787616000000,
-        finalized_rx_bytes: 3000000000,
-        finalized_tx_bytes: 2000000000,
-        active_counter_id: 'counter-abc-123',
-        active_rx_base_bytes: 5000000000,
-        active_tx_base_bytes: 2000000000,
-        dirty: false,
+        period_start_ms: 1000,
+        finalized_rx_bytes: 100000,
+        finalized_tx_bytes: 80000,
+        active_counter_id: 'counter-xyz',
+        active_rx_base_bytes: 40000, // +10000 active rx
+        active_tx_base_bytes: 25000, // +5000 active tx
+        dirty: true,
       },
     };
 
-    const fallback: AgentAttachment = {
-      ...attachment,
-      current_minute: null,
-      historical_minutes: {},
+    const compacted = compactAgentAttachment(attachment);
+
+    // Assert active segment is preserved so DO wakeup never loses active delta
+    expect(compacted.traffic_state.active_counter_id).toBe('counter-xyz');
+    expect(compacted.traffic_state.active_rx_base_bytes).toBe(40000);
+    expect(compacted.traffic_state.active_tx_base_bytes).toBe(25000);
+    expect(compacted.traffic_state.dirty).toBe(true);
+  });
+
+  it('guarantees full lifecycle: compaction -> deserialize -> accumulate -> minute rollover -> finalizeAccumulator without null errors', () => {
+    const rawMetrics = createMockMetrics(2, 2);
+    const minute = createMockMinute(rawMetrics);
+
+    const originalAttachment: AgentAttachment = {
+      kind: 'agent',
+      node_id: 'node-lifecycle',
+      node_name: 'test-node',
+      instance_id: 'inst-1',
+      traffic_reset_day: 1,
+      is_hidden: false,
+      geo: { geo_country: 'JP', cf_colo: 'NRT', edge_rtt_ms: 20.0, edge_transport: 'tcp', geo_region: null, geo_region_code: null, geo_city: null, geo_lat: null, geo_lon: null, geo_timezone: null, geo_continent: null, asn: null, as_org: null, egress_ip: null },
+      hello_ok: true,
+      connected_at_ms: 1787640000000,
+      last_seq: 100,
+      last_report_received_at_ms: 1787640060000,
+      config_rev: 2,
+      last_persist_bucket_ms: 1787639940000,
+      persisted_sample_seq: 90,
+      last_counter_id: 'ctr-1',
+      last_rx_total_bytes: 10000,
+      last_tx_total_bytes: 5000,
+      last_ping_ts_ms: 1787640060000,
+      current_minute: minute,
+      historical_minutes: {
+        '1787639940000': minute,
+      },
+      traffic_state: {
+        period_start_ms: 1787616000000,
+        finalized_rx_bytes: 5000,
+        finalized_tx_bytes: 2000,
+        active_counter_id: 'ctr-1',
+        active_rx_base_bytes: 1000,
+        active_tx_base_bytes: 500,
+        dirty: true,
+      },
     };
 
-    const fallbackJson = JSON.stringify(fallback);
-    const fallbackBytes = new TextEncoder().encode(fallbackJson).length;
+    // 1. Simulate DO compaction and serialization
+    const compacted = compactAgentAttachment(originalAttachment);
+    const serialized = JSON.stringify(compacted);
 
-    expect(fallbackBytes).toBeLessThan(1200);
-    expect(fallback.node_id).toBe('550e8400-e29b-41d4-a716-446655440000');
-    expect(fallback.last_counter_id).toBe('counter-abc-123');
-    expect(fallback.traffic_state.finalized_rx_bytes).toBe(3000000000);
+    // 2. Simulate DO hibernation wake-up (deserialization)
+    const restored: AgentAttachment = JSON.parse(serialized);
+
+    // 3. Accumulate next sample into restored current_minute
+    const nextMetrics = createMockMetrics(2, 2);
+    nextMetrics.cpu.usage_pct = 50.0;
+    mergeIntoAccumulator(restored.current_minute!, {
+      sample_seq: 101,
+      sampled_at_ms: Date.now(),
+      metrics: nextMetrics,
+    }, 1000, 2000);
+
+    // 4. Finalize historical minute and current minute
+    const histAcc = restored.historical_minutes['1787639940000'];
+    expect(histAcc).toBeDefined();
+    const finalizedHist = finalizeAccumulator(histAcc);
+    expect(finalizedHist.report.config_rev).toBeDefined();
+    expect(finalizedHist.report.network.interface).toBe('eth0');
+
+    const finalizedCurrent = finalizeAccumulator(restored.current_minute!);
+    expect(finalizedCurrent.report.cpu.usage_pct).toBeDefined();
+    expect(finalizedCurrent.rxDelta).toBeGreaterThan(0);
   });
 });

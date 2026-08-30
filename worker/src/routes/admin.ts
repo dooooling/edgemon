@@ -223,8 +223,8 @@ adminRoutes.get('/api/admin/nodes/:id/config', async (c) => {
 
   const rawConfig = configRow ? JSON.parse(configRow.config_json) : {};
   const normalizedConfig = {
-    sample_interval_sec: rawConfig.sample_interval_sec ?? 2,
-    stream_interval_sec: rawConfig.stream_interval_sec ?? 2,
+    sample_interval_sec: rawConfig.sample_interval_sec ?? 30,
+    stream_interval_sec: rawConfig.stream_interval_sec ?? 30,
     probe_interval_sec: rawConfig.probe_interval_sec ?? 60,
     network_interface: rawConfig.network_interface ?? 'auto',
     probes: Array.isArray(rawConfig.probes) ? rawConfig.probes : [],
@@ -243,8 +243,8 @@ adminRoutes.patch('/api/admin/nodes/:id/config', async (c) => {
   const now = Date.now();
 
   const normalizedBody = {
-    sample_interval_sec: body.sample_interval_sec ?? 2,
-    stream_interval_sec: body.stream_interval_sec ?? 2,
+    sample_interval_sec: body.sample_interval_sec ?? 30,
+    stream_interval_sec: body.stream_interval_sec ?? 30,
     probe_interval_sec: body.probe_interval_sec ?? 60,
     network_interface: body.network_interface ?? 'auto',
     probes: Array.isArray(body.probes) ? body.probes : [],

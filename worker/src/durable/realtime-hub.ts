@@ -47,23 +47,32 @@ function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): b
           ? {
               ...attachment.current_minute,
               last_metrics: {
-                ...attachment.current_minute.last_metrics,
+                cpu_usage_pct: attachment.current_minute.last_metrics.cpu_usage_pct,
+                memory_used_bytes: attachment.current_minute.last_metrics.memory_used_bytes,
+                rx_bps: attachment.current_minute.last_metrics.rx_bps,
+                tx_bps: attachment.current_minute.last_metrics.tx_bps,
+                edge_rtt_ms: attachment.current_minute.last_metrics.edge_rtt_ms,
+                cpu_temp_celsius: attachment.current_minute.last_metrics.cpu_temp_celsius,
                 rootfs: {
                   used_bytes: attachment.current_minute.last_metrics.rootfs?.used_bytes,
                 },
-                probes: (attachment.current_minute.last_metrics.probes || []).slice(0, 5),
+                probes: (attachment.current_minute.last_metrics.probes || []).slice(0, 3),
               },
             }
           : null,
         historical_minutes: Object.fromEntries(
-          Object.entries(attachment.historical_minutes || {}).slice(-2).map(([k, v]) => [
+          Object.entries(attachment.historical_minutes || {}).slice(-1).map(([k, v]) => [
             k,
             {
               ...v,
               last_metrics: {
-                ...v.last_metrics,
+                cpu_usage_pct: v.last_metrics.cpu_usage_pct,
+                memory_used_bytes: v.last_metrics.memory_used_bytes,
+                rx_bps: v.last_metrics.rx_bps,
+                tx_bps: v.last_metrics.tx_bps,
+                edge_rtt_ms: v.last_metrics.edge_rtt_ms,
                 rootfs: { used_bytes: v.last_metrics.rootfs?.used_bytes },
-                probes: (v.last_metrics.probes || []).slice(0, 3),
+                probes: (v.last_metrics.probes || []).slice(0, 2),
               },
             },
           ])
@@ -75,7 +84,30 @@ function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): b
     ws.serializeAttachment(attachment);
     return true;
   } catch (err) {
-    console.error('[RealtimeHub] serializeAttachment failed, closing connection to trigger clean Agent replay from last durable cut:', err);
+    console.error('[RealtimeHub] serializeAttachment failed, attempting minimal fallback:', err);
+    try {
+      if (attachment.kind === 'agent') {
+        const fallback: AgentAttachment = {
+          kind: 'agent',
+          node_id: attachment.node_id,
+          instance_id: attachment.instance_id,
+          last_seq: attachment.last_seq,
+          last_seen_at_ms: attachment.last_seen_at_ms,
+          billing_period_start_sec: attachment.billing_period_start_sec,
+          traffic_period_total_bytes: attachment.traffic_period_total_bytes,
+          traffic_period_rx_bytes: attachment.traffic_period_rx_bytes,
+          traffic_period_tx_bytes: attachment.traffic_period_tx_bytes,
+          last_rx_bytes: attachment.last_rx_bytes,
+          last_tx_bytes: attachment.last_tx_bytes,
+          current_minute: null,
+          historical_minutes: {},
+        };
+        ws.serializeAttachment(fallback);
+        return true;
+      }
+    } catch {
+      // ignore
+    }
     try {
       ws.close(CloseCodes.SERVER_RECONNECT, 'ATTACHMENT_LIMIT_EXCEEDED');
     } catch {

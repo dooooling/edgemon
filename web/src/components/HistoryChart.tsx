@@ -129,13 +129,13 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
             stroke: '#a0a0a8',
             grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
             ticks: { stroke: 'transparent' },
-            values: (_u, splits) => splits.map((ts) => formatBeijingAxis(ts, range)),
+            values: (_u, splits) => (Array.isArray(splits) ? splits.map((ts) => formatBeijingAxis(Number(ts), range)) : []),
           },
           {
             stroke: '#a0a0a8',
             grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
             ticks: { stroke: 'transparent' },
-            values: (_u, vals) => vals.map((v) => formatValue(v, unit)),
+            values: (_u, vals) => (Array.isArray(vals) ? vals.map((v) => formatValue(v, unit)) : []),
           },
         ],
         cursor: {
@@ -176,6 +176,9 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
         ],
       };
 
+      if (chartRef.current) {
+        chartRef.current.innerHTML = '';
+      }
       uplotInstance.current = new uPlot(opts, alignedData, chartRef.current);
       prevConfigRef.current = { range, metricKey };
     }
@@ -220,12 +223,19 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
         )}
       </div>
 
-      <div style={{ minHeight: '190px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }} ref={chartRef}>
+      <div style={{ position: 'relative', minHeight: '190px', width: '100%' }}>
+        {/* Isolated empty DOM container for uPlot canvas to avoid React child reconciliation crash */}
+        <div ref={chartRef} style={{ width: '100%', minHeight: '190px' }} />
+
         {isLoading && (
-          <span className="eyebrow-cap">{t('chart_loading')}</span>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <span className="eyebrow-cap">{t('chart_loading')}</span>
+          </div>
         )}
         {!isLoading && (!data?.points || data.points.length === 0) && realtimeSeries.length === 0 && (
-          <span className="eyebrow-cap">{t('chart_no_data')}</span>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <span className="eyebrow-cap">{t('chart_no_data')}</span>
+          </div>
         )}
       </div>
 

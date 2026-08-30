@@ -103,7 +103,9 @@ export const NodeDetailPage: React.FC = () => {
     ? Math.min(100, Math.round((trafficUsed / trafficQuota) * 100))
     : 0;
 
+  const realtimeSeries = useRealtimeStore((s) => (id ? s.realtimeSeries[id] ?? [] : []));
   const cpuTemp = overlay?.cpu_temp_celsius ?? node.state?.cpu_temp_celsius;
+  const hasTemp = cpuTemp != null || realtimeSeries.some((p) => p.cpu_temp_celsius != null);
   const load1 = overlay?.load1 ?? node.state?.load1;
   const load5 = overlay?.load5 ?? node.state?.load5;
   const load15 = overlay?.load15 ?? node.state?.load15;
@@ -470,6 +472,16 @@ export const NodeDetailPage: React.FC = () => {
           </div>
         </div>
         <HistoryChart nodeId={node.id} range={range} title={t('chart_cpu_title')} metricKey="cpu_usage_pct" unit="%" strokeColor="#ffffff" />
+        {hasTemp && (
+          <HistoryChart
+            nodeId={node.id}
+            range={range}
+            title={t('chart_temp_title')}
+            metricKey="cpu_temp_celsius"
+            unit="°C"
+            strokeColor="#ff9100"
+          />
+        )}
         <HistoryChart
           nodeId={node.id}
           range={range}

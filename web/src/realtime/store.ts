@@ -50,6 +50,7 @@ export interface RealtimeMetricsOverlay {
 export interface RealtimePoint {
   ts_ms: number;
   cpu_usage_pct: number | null;
+  cpu_temp_celsius?: number | null;
   memory_used_bytes: number | null;
   rx_bps: number | null;
   tx_bps: number | null;
@@ -149,6 +150,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               ? data.samples.map((s: any) => ({
                   ts_ms: s.sampled_at_ms,
                   cpu_usage_pct: s.metrics?.cpu?.usage_pct ?? null,
+                  cpu_temp_celsius: s.metrics?.cpu?.temp_celsius ?? null,
                   memory_used_bytes: s.metrics?.memory?.used_bytes ?? null,
                   rx_bps: s.metrics?.network?.rx_bps ?? null,
                   tx_bps: s.metrics?.network?.tx_bps ?? null,
@@ -158,6 +160,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
                   {
                     ts_ms: receivedAt,
                     cpu_usage_pct: data.metrics.cpu?.usage_pct ?? null,
+                    cpu_temp_celsius: data.metrics.cpu?.temp_celsius ?? null,
                     memory_used_bytes: data.metrics.memory?.used_bytes ?? null,
                     rx_bps: data.metrics.network?.rx_bps ?? null,
                     tx_bps: data.metrics.network?.tx_bps ?? null,

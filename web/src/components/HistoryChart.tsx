@@ -268,6 +268,9 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
 
 function formatValue(v: number | null | undefined, unit: string): string {
   if (v == null) return '';
+  if (unit === '°C' || unit === '℃' || unit.toLowerCase() === 'c') {
+    return `${Number(v).toFixed(1)} °C`;
+  }
   if (unit === 'B') {
     if (v >= 1024 * 1024 * 1024) return (v / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
     if (v >= 1024 * 1024) return (v / (1024 * 1024)).toFixed(1) + ' MB';

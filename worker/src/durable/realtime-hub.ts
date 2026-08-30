@@ -20,6 +20,7 @@ import {
   createDefaultAttachment,
   ingestReportCore,
 } from '../services/ingest';
+import { compactAgentAttachment } from '../services/attachment';
 import { loadTrafficRuntimeState, computeBillingPeriodStart } from '../db/traffic';
 import { verifyAdminSession, getAdminSessionExpiry } from '../services/session';
 
@@ -39,75 +40,10 @@ export interface BrowserAttachment {
 
 type SocketAttachment = AgentAttachment | BrowserAttachment;
 
-function compactReportMetrics(metrics: ReportMetrics): ReportMetrics {
-  return {
-    config_rev: metrics.config_rev,
-    boot_id: metrics.boot_id,
-    cpu: {
-      usage_pct: metrics.cpu?.usage_pct,
-      throttled_pct: metrics.cpu?.throttled_pct,
-      temp_celsius: metrics.cpu?.temp_celsius,
-      load1: metrics.cpu?.load1,
-      load5: metrics.cpu?.load5,
-      load15: metrics.cpu?.load15,
-      process_total_count: metrics.cpu?.process_total_count,
-      process_running_count: metrics.cpu?.process_running_count,
-    },
-    memory: {
-      used_bytes: metrics.memory?.used_bytes,
-      working_set_bytes: metrics.memory?.working_set_bytes,
-      swap_used_bytes: metrics.memory?.swap_used_bytes,
-      oom_kill_count: metrics.memory?.oom_kill_count,
-    },
-    rootfs: {
-      used_bytes: metrics.rootfs?.used_bytes,
-      mounts: (metrics.rootfs?.mounts || []).slice(0, 3),
-    },
-    io: {
-      read_bps: metrics.io?.read_bps,
-      write_bps: metrics.io?.write_bps,
-      read_iops: metrics.io?.read_iops,
-      write_iops: metrics.io?.write_iops,
-      io_util_pct: metrics.io?.io_util_pct,
-    },
-    network: {
-      interface: metrics.network?.interface || 'eth0',
-      counter_id: metrics.network?.counter_id,
-      rx_bps: metrics.network?.rx_bps,
-      tx_bps: metrics.network?.tx_bps,
-      rx_total_bytes: metrics.network?.rx_total_bytes ?? 0,
-      tx_total_bytes: metrics.network?.tx_total_bytes ?? 0,
-      tcp_established_count: metrics.network?.tcp_established_count,
-      tcp_tw_count: metrics.network?.tcp_tw_count,
-      tcp_total_count: metrics.network?.tcp_total_count,
-      udp_in_use: metrics.network?.udp_in_use,
-    },
-    uptime_sec: metrics.uptime_sec,
-    probes: (metrics.probes || []).slice(0, 3),
-  };
-}
-
 function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): boolean {
   try {
     if (attachment.kind === 'agent') {
-      const compacted: AgentAttachment = {
-        ...attachment,
-        current_minute: attachment.current_minute
-          ? {
-              ...attachment.current_minute,
-              last_metrics: compactReportMetrics(attachment.current_minute.last_metrics),
-            }
-          : null,
-        historical_minutes: Object.fromEntries(
-          Object.entries(attachment.historical_minutes || {}).slice(-1).map(([k, v]) => [
-            k,
-            {
-              ...v,
-              last_metrics: compactReportMetrics(v.last_metrics),
-            },
-          ])
-        ),
-      };
+      const compacted = compactAgentAttachment(attachment);
       ws.serializeAttachment(compacted);
       return true;
     }

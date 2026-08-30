@@ -54,6 +54,9 @@ importers:
       vite:
         specifier: ^6.1.0
         version: 6.4.3
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7
 
   worker:
     dependencies:

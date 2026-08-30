@@ -8,10 +8,11 @@
     "build:agent": "cargo build --release -p edgemon-agent",
     "test:agent": "cargo test --target-dir target/test_build -p edgemon-agent",
     "test:worker": "pnpm --filter edgemon-worker test",
+    "test:web": "pnpm --filter edgemon-web test",
     "typecheck:worker": "pnpm --filter edgemon-worker typecheck",
     "typecheck:web": "pnpm --filter edgemon-web build",
     "typecheck:all": "pnpm typecheck:worker && pnpm typecheck:web",
-    "test:all": "pnpm test:worker && pnpm test:agent",
+    "test:all": "pnpm test:worker && pnpm test:agent && pnpm test:web",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "deploy": "pnpm build:web && wrangler deploy"

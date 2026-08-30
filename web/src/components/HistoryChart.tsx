@@ -140,7 +140,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
             grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
             ticks: { stroke: 'transparent' },
             font: '10px monospace',
-            size: unit === 'B/S' || unit === 'B' ? 80 : 66,
+            size: 80, // Unified fixed width across all charts ensuring 100% pixel-perfect vertical alignment
             gap: 8,
             values: (_u, vals) => (Array.isArray(vals) ? vals.map((v) => formatValue(v, unit)) : []),
           },

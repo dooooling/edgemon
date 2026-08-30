@@ -3,10 +3,34 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::time::{Duration, Instant};
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NetCounters {
     pub rx_bytes: u64,
     pub tx_bytes: u64,
+}
+
+pub fn compute_rates(
+    prev: Option<NetCounters>,
+    curr: Option<NetCounters>,
+    elapsed_sec: f64,
+) -> (Option<u64>, Option<u64>) {
+    match (prev, curr) {
+        (Some(p), Some(c)) if elapsed_sec > 0.0 => {
+            if c.rx_bytes >= p.rx_bytes && c.tx_bytes >= p.tx_bytes {
+                let rx_delta = c.rx_bytes - p.rx_bytes;
+                let tx_delta = c.tx_bytes - p.tx_bytes;
+
+                let rx_rate = (rx_delta as f64) / elapsed_sec;
+                let tx_rate = (tx_delta as f64) / elapsed_sec;
+
+                (Some(rx_rate.round() as u64), Some(tx_rate.round() as u64))
+            } else {
+                // Counter rolled over or interface reset: rate is None (Golden Rule 1: Accuracy First, never negative rates)
+                (None, None)
+            }
+        }
+        _ => (None, None),
+    }
 }
 
 pub struct NetworkCollector {
@@ -102,31 +126,12 @@ impl NetworkCollector {
 
         let current_counters = read_network_counters(&self.active_interface);
 
-        let (rx_bps, tx_bps) = match (
-            self.last_counters,
-            current_counters,
-            self.last_sample_instant,
-        ) {
-            (Some(prev), Some(curr), Some(prev_time)) => {
-                let elapsed_sec = now.duration_since(prev_time).as_secs_f64();
-                if elapsed_sec > 0.0 {
-                    if curr.rx_bytes >= prev.rx_bytes && curr.tx_bytes >= prev.tx_bytes {
-                        let rx_delta = curr.rx_bytes - prev.rx_bytes;
-                        let tx_delta = curr.tx_bytes - prev.tx_bytes;
+        let elapsed_sec = self
+            .last_sample_instant
+            .map(|t| now.duration_since(t).as_secs_f64())
+            .unwrap_or(0.0);
 
-                        let rx_rate = (rx_delta as f64) / elapsed_sec;
-                        let tx_rate = (tx_delta as f64) / elapsed_sec;
-
-                        (Some(rx_rate.round() as u64), Some(tx_rate.round() as u64))
-                    } else {
-                        (None, None)
-                    }
-                } else {
-                    (None, None)
-                }
-            }
-            _ => (None, None),
-        };
+        let (rx_bps, tx_bps) = compute_rates(self.last_counters, current_counters, elapsed_sec);
 
         let (rx_total, tx_total, counter_id_to_report) = match current_counters {
             Some(c) => {

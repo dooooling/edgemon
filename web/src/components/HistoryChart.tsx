@@ -22,11 +22,13 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
   title,
   metricKey,
   unit,
-  range = '24h',
+  range = '10m',
   strokeColor = '#ffffff',
   limitBytes,
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
+  const timeValRef = useRef<HTMLSpanElement>(null);
+  const metricValRef = useRef<HTMLSpanElement>(null);
   const uplotInstance = useRef<uPlot | null>(null);
   const prevConfigRef = useRef<{ range: string; metricKey: string }>({ range, metricKey });
   const { t } = useTranslation();
@@ -134,24 +136,41 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
             values: (_u, vals) => vals.map((v) => formatValue(v, unit)),
           },
         ],
-        series: [
-          {
-            label: '时间',
-            value: (_u, rawValue) => {
-              if (rawValue == null) return '--:--:--';
-              const d = new Date(rawValue * 1000);
-              return d.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        cursor: {
+          drag: { x: false, y: false },
+          sync: { key: 'history-charts' },
+        },
+        legend: {
+          show: false, // Disabled built-in jumping table legend
+        },
+        hooks: {
+          setCursor: [
+            (u) => {
+              const idx = u.cursor.idx;
+              if (idx != null && u.data[0][idx] != null) {
+                const ts = u.data[0][idx];
+                const val = u.data[1][idx];
+                if (timeValRef.current) {
+                  const d = new Date(ts * 1000);
+                  timeValRef.current.textContent = d.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                }
+                if (metricValRef.current) {
+                  metricValRef.current.textContent = val != null ? formatValue(val, unit) : 'N/A';
+                }
+              } else {
+                if (timeValRef.current) timeValRef.current.textContent = '--:--:--';
+                if (metricValRef.current) metricValRef.current.textContent = '--';
+              }
             },
-          },
+          ],
+        },
+        series: [
+          {},
           {
             label: title,
             stroke: strokeColor,
             width: 1.5,
             fill: 'rgba(255, 255, 255, 0.05)',
-            value: (_u, rawValue) => {
-              if (rawValue == null) return '--';
-              return formatValue(rawValue, unit);
-            },
           },
         ],
       };
@@ -207,6 +226,40 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
         {!isLoading && (!data?.points || data.points.length === 0) && realtimeSeries.length === 0 && (
           <span className="eyebrow-cap">{t('chart_no_data')}</span>
         )}
+      </div>
+
+      {/* Fixed Grid HUD Strip: Permanent locked columns, 0 shifting */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(140px, auto) minmax(200px, 1fr)',
+          alignItems: 'center',
+          gap: '20px',
+          padding: '8px 14px',
+          marginTop: '10px',
+          backgroundColor: 'rgba(255, 255, 255, 0.02)',
+          border: '1px solid var(--colors-hairline-subtle)',
+          borderRadius: '4px',
+          fontFamily: 'monospace',
+          fontSize: '11px',
+        }}
+      >
+        {/* Column 1: Time */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>
+          <span style={{ color: 'var(--colors-muted)', textTransform: 'uppercase' }}>TIME:</span>
+          <span ref={timeValRef} style={{ fontWeight: 700, color: 'var(--colors-on-dark)', fontVariantNumeric: 'tabular-nums' }}>
+            --:--:--
+          </span>
+        </div>
+
+        {/* Column 2: Metric Value */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>
+          <span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: strokeColor, borderRadius: '2px', flexShrink: 0 }}></span>
+          <span style={{ color: 'var(--colors-muted)', textTransform: 'uppercase' }}>{title}:</span>
+          <span ref={metricValRef} style={{ fontWeight: 700, color: 'var(--colors-on-dark)', fontVariantNumeric: 'tabular-nums' }}>
+            --
+          </span>
+        </div>
       </div>
     </div>
   );

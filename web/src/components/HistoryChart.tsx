@@ -120,6 +120,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
       const opts: uPlot.Options = {
         width,
         height: 190,
+        padding: [10, 16, 10, 10],
         scales: {
           x: { time: true },
           y: { auto: true },
@@ -129,12 +130,18 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
             stroke: '#a0a0a8',
             grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
             ticks: { stroke: 'transparent' },
+            font: '10px monospace',
+            gap: 6,
+            size: 30,
             values: (_u, splits) => (Array.isArray(splits) ? splits.map((ts) => formatBeijingAxis(Number(ts), range)) : []),
           },
           {
             stroke: '#a0a0a8',
             grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
             ticks: { stroke: 'transparent' },
+            font: '10px monospace',
+            size: unit === 'B/S' || unit === 'B' ? 80 : 66,
+            gap: 8,
             values: (_u, vals) => (Array.isArray(vals) ? vals.map((v) => formatValue(v, unit)) : []),
           },
         ],

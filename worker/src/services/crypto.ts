@@ -17,11 +17,17 @@ export function generateRandomToken(bytes = 32): string {
     .replace(/=+$/, '');
 }
 
-// AES-GCM encryption with 96-bit random nonce
-export async function encryptSecret(plainText: string, secretKeyHex: string): Promise<{ nonceB64: string; cipherB64: string }> {
+// Derives a cryptographic 256-bit AES-GCM key from arbitrary secret via SHA-256
+async function deriveAesKey(secret: string, usages: ('encrypt' | 'decrypt')[]): Promise<CryptoKey> {
   const enc = new TextEncoder();
-  const keyData = enc.encode(secretKeyHex.padEnd(32, '0').slice(0, 32));
-  const cryptoKey = await crypto.subtle.importKey('raw', keyData, 'AES-GCM', false, ['encrypt']);
+  const keyDigest = await crypto.subtle.digest('SHA-256', enc.encode(secret));
+  return await crypto.subtle.importKey('raw', keyDigest, 'AES-GCM', false, usages);
+}
+
+// AES-GCM encryption with 96-bit random nonce
+export async function encryptSecret(plainText: string, secretKey: string): Promise<{ nonceB64: string; cipherB64: string }> {
+  const enc = new TextEncoder();
+  const cryptoKey = await deriveAesKey(secretKey, ['encrypt']);
 
   const nonce = new Uint8Array(12);
   crypto.getRandomValues(nonce);
@@ -38,10 +44,8 @@ export async function encryptSecret(plainText: string, secretKeyHex: string): Pr
   return { nonceB64, cipherB64 };
 }
 
-export async function decryptSecret(nonceB64: string, cipherB64: string, secretKeyHex: string): Promise<string> {
-  const enc = new TextEncoder();
-  const keyData = enc.encode(secretKeyHex.padEnd(32, '0').slice(0, 32));
-  const cryptoKey = await crypto.subtle.importKey('raw', keyData, 'AES-GCM', false, ['decrypt']);
+export async function decryptSecret(nonceB64: string, cipherB64: string, secretKey: string): Promise<string> {
+  const cryptoKey = await deriveAesKey(secretKey, ['decrypt']);
 
   const nonce = Uint8Array.from(atob(nonceB64), (c) => c.charCodeAt(0));
   const cipher = Uint8Array.from(atob(cipherB64), (c) => c.charCodeAt(0));

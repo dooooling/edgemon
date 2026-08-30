@@ -3,6 +3,7 @@ import {
   AgentEnvelope,
   HelloPayload,
   ReportPayload,
+  ReportMetrics,
   ConfigAckData,
   ServerEnvelope,
   WelcomeData,
@@ -38,6 +39,54 @@ export interface BrowserAttachment {
 
 type SocketAttachment = AgentAttachment | BrowserAttachment;
 
+function compactReportMetrics(metrics: ReportMetrics): ReportMetrics {
+  return {
+    config_rev: metrics.config_rev,
+    boot_id: metrics.boot_id,
+    cpu: {
+      usage_pct: metrics.cpu?.usage_pct,
+      throttled_pct: metrics.cpu?.throttled_pct,
+      temp_celsius: metrics.cpu?.temp_celsius,
+      load1: metrics.cpu?.load1,
+      load5: metrics.cpu?.load5,
+      load15: metrics.cpu?.load15,
+      process_total_count: metrics.cpu?.process_total_count,
+      process_running_count: metrics.cpu?.process_running_count,
+    },
+    memory: {
+      used_bytes: metrics.memory?.used_bytes,
+      working_set_bytes: metrics.memory?.working_set_bytes,
+      swap_used_bytes: metrics.memory?.swap_used_bytes,
+      oom_kill_count: metrics.memory?.oom_kill_count,
+    },
+    rootfs: {
+      used_bytes: metrics.rootfs?.used_bytes,
+      mounts: (metrics.rootfs?.mounts || []).slice(0, 3),
+    },
+    io: {
+      read_bps: metrics.io?.read_bps,
+      write_bps: metrics.io?.write_bps,
+      read_iops: metrics.io?.read_iops,
+      write_iops: metrics.io?.write_iops,
+      io_util_pct: metrics.io?.io_util_pct,
+    },
+    network: {
+      interface: metrics.network?.interface || 'eth0',
+      counter_id: metrics.network?.counter_id,
+      rx_bps: metrics.network?.rx_bps,
+      tx_bps: metrics.network?.tx_bps,
+      rx_total_bytes: metrics.network?.rx_total_bytes ?? 0,
+      tx_total_bytes: metrics.network?.tx_total_bytes ?? 0,
+      tcp_established_count: metrics.network?.tcp_established_count,
+      tcp_tw_count: metrics.network?.tcp_tw_count,
+      tcp_total_count: metrics.network?.tcp_total_count,
+      udp_in_use: metrics.network?.udp_in_use,
+    },
+    uptime_sec: metrics.uptime_sec,
+    probes: (metrics.probes || []).slice(0, 3),
+  };
+}
+
 function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): boolean {
   try {
     if (attachment.kind === 'agent') {
@@ -46,18 +95,7 @@ function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): b
         current_minute: attachment.current_minute
           ? {
               ...attachment.current_minute,
-              last_metrics: {
-                cpu_usage_pct: attachment.current_minute.last_metrics.cpu_usage_pct,
-                memory_used_bytes: attachment.current_minute.last_metrics.memory_used_bytes,
-                rx_bps: attachment.current_minute.last_metrics.rx_bps,
-                tx_bps: attachment.current_minute.last_metrics.tx_bps,
-                edge_rtt_ms: attachment.current_minute.last_metrics.edge_rtt_ms,
-                cpu_temp_celsius: attachment.current_minute.last_metrics.cpu_temp_celsius,
-                rootfs: {
-                  used_bytes: attachment.current_minute.last_metrics.rootfs?.used_bytes,
-                },
-                probes: (attachment.current_minute.last_metrics.probes || []).slice(0, 3),
-              },
+              last_metrics: compactReportMetrics(attachment.current_minute.last_metrics),
             }
           : null,
         historical_minutes: Object.fromEntries(
@@ -65,15 +103,7 @@ function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): b
             k,
             {
               ...v,
-              last_metrics: {
-                cpu_usage_pct: v.last_metrics.cpu_usage_pct,
-                memory_used_bytes: v.last_metrics.memory_used_bytes,
-                rx_bps: v.last_metrics.rx_bps,
-                tx_bps: v.last_metrics.tx_bps,
-                edge_rtt_ms: v.last_metrics.edge_rtt_ms,
-                rootfs: { used_bytes: v.last_metrics.rootfs?.used_bytes },
-                probes: (v.last_metrics.probes || []).slice(0, 2),
-              },
+              last_metrics: compactReportMetrics(v.last_metrics),
             },
           ])
         ),
@@ -88,17 +118,7 @@ function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): b
     try {
       if (attachment.kind === 'agent') {
         const fallback: AgentAttachment = {
-          kind: 'agent',
-          node_id: attachment.node_id,
-          instance_id: attachment.instance_id,
-          last_seq: attachment.last_seq,
-          last_seen_at_ms: attachment.last_seen_at_ms,
-          billing_period_start_sec: attachment.billing_period_start_sec,
-          traffic_period_total_bytes: attachment.traffic_period_total_bytes,
-          traffic_period_rx_bytes: attachment.traffic_period_rx_bytes,
-          traffic_period_tx_bytes: attachment.traffic_period_tx_bytes,
-          last_rx_bytes: attachment.last_rx_bytes,
-          last_tx_bytes: attachment.last_tx_bytes,
+          ...attachment,
           current_minute: null,
           historical_minutes: {},
         };

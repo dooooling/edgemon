@@ -337,8 +337,7 @@ pub fn discover_default_interface() -> Option<String> {
     }
 }
 
-pub fn read_proc_net_dev_counters(target_iface: &str) -> Option<NetCounters> {
-    let content = fs::read_to_string("/proc/net/dev").ok()?;
+pub fn parse_proc_net_dev_str(content: &str, target_iface: &str) -> Option<NetCounters> {
     for line in content.lines().skip(2) {
         if let Some(idx) = line.find(':') {
             let iface = line[..idx].trim();
@@ -353,6 +352,11 @@ pub fn read_proc_net_dev_counters(target_iface: &str) -> Option<NetCounters> {
         }
     }
     None
+}
+
+pub fn read_proc_net_dev_counters(target_iface: &str) -> Option<NetCounters> {
+    let content = fs::read_to_string("/proc/net/dev").ok()?;
+    parse_proc_net_dev_str(&content, target_iface)
 }
 
 pub fn get_netns_inode() -> Option<u64> {

@@ -1,0 +1,6 @@
+# EdgeMon Local Dev Environment Variables (Example Template)
+# Copy this file to .dev.vars for local development (wrangler dev)
+
+ADMIN_KEY=123456
+SESSION_SECRET=local-session-secret-key-32bytes-long
+DATA_ENCRYPTION_KEY=local-data-encryption-key-32bytes

@@ -47,28 +47,14 @@ pub fn resolve_cgroup_context(is_container: bool) -> Option<CgroupContext> {
     }
 }
 
-fn resolve_cgroup_v2(is_container: bool) -> Option<CgroupContext> {
-    let base_root = PathBuf::from("/sys/fs/cgroup");
-    if !base_root.exists() {
-        return None;
-    }
-
-    // Determine target cgroup relative path
-    // In containers, prefer /proc/1/cgroup or /proc/self/cgroup
-    let rel_path = get_cgroup_v2_path(is_container).unwrap_or_else(|| "/".to_string());
-    let mut current = base_root.join(rel_path.trim_start_matches('/'));
-
-    if !current.exists() {
-        current = base_root.clone();
-    }
-
+pub fn resolve_cgroup_v2_ancestor_limits(base_root: &Path, current: &Path) -> EffectiveLimits {
     let mut min_cpu_quota_cores: Option<f64> = None;
     let mut min_memory_max: Option<u64> = None;
     let mut min_swap_max: Option<u64> = None;
     let mut effective_cpuset: Option<f64> = None;
 
-    // Traverse ancestors up to /sys/fs/cgroup
-    let mut dir: Option<PathBuf> = Some(current.clone());
+    // Traverse ancestors up to base_root
+    let mut dir: Option<PathBuf> = Some(current.to_path_buf());
     while let Some(d) = dir {
         // Read cpu.max
         if let Ok(content) = fs::read_to_string(d.join("cpu.max")) {
@@ -122,6 +108,31 @@ fn resolve_cgroup_v2(is_container: bool) -> Option<CgroupContext> {
         dir = d.parent().map(|p| p.to_path_buf());
     }
 
+    EffectiveLimits {
+        cpu_quota_cores: min_cpu_quota_cores,
+        cpuset_cores: effective_cpuset,
+        memory_max_bytes: min_memory_max,
+        swap_max_bytes: min_swap_max,
+    }
+}
+
+fn resolve_cgroup_v2(is_container: bool) -> Option<CgroupContext> {
+    let base_root = PathBuf::from("/sys/fs/cgroup");
+    if !base_root.exists() {
+        return None;
+    }
+
+    // Determine target cgroup relative path
+    // In containers, prefer /proc/1/cgroup or /proc/self/cgroup
+    let rel_path = get_cgroup_v2_path(is_container).unwrap_or_else(|| "/".to_string());
+    let mut current = base_root.join(rel_path.trim_start_matches('/'));
+
+    if !current.exists() {
+        current = base_root.clone();
+    }
+
+    let limits = resolve_cgroup_v2_ancestor_limits(&base_root, &current);
+
     Some(CgroupContext {
         version: CgroupVersion::V2,
         base_path: current.clone(),
@@ -129,12 +140,7 @@ fn resolve_cgroup_v2(is_container: bool) -> Option<CgroupContext> {
         memory_path: current.clone(),
         io_path: current.clone(),
         relative_path: rel_path,
-        limits: EffectiveLimits {
-            cpu_quota_cores: min_cpu_quota_cores,
-            cpuset_cores: effective_cpuset,
-            memory_max_bytes: min_memory_max,
-            swap_max_bytes: min_swap_max,
-        },
+        limits,
     })
 }
 

@@ -8,15 +8,26 @@ pub struct MemoryCollector {
     cgroup_ctx: Option<CgroupContext>,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-struct ProcMemInfo {
-    total_bytes: u64,
-    free_bytes: u64,
-    available_bytes: Option<u64>,
-    buffers_bytes: u64,
-    cached_bytes: u64,
-    swap_total_bytes: u64,
-    swap_free_bytes: u64,
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProcMemInfo {
+    pub total_bytes: u64,
+    pub free_bytes: u64,
+    pub available_bytes: Option<u64>,
+    pub buffers_bytes: u64,
+    pub cached_bytes: u64,
+    pub swap_total_bytes: u64,
+    pub swap_free_bytes: u64,
+}
+
+impl ProcMemInfo {
+    pub fn used_bytes(&self) -> u64 {
+        if let Some(avail) = self.available_bytes {
+            self.total_bytes.saturating_sub(avail)
+        } else {
+            self.total_bytes
+                .saturating_sub(self.free_bytes + self.buffers_bytes + self.cached_bytes)
+        }
+    }
 }
 
 impl MemoryCollector {
@@ -226,33 +237,37 @@ fn read_windows_memory() -> Option<WindowsMemInfo> {
     None
 }
 
-fn read_proc_meminfo() -> Option<ProcMemInfo> {
-    if let Ok(content) = fs::read_to_string("/proc/meminfo") {
-        let mut info = ProcMemInfo::default();
-        for line in content.lines() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 2 {
-                let key = parts[0].trim_end_matches(':');
-                let val_kb = parts[1].parse::<u64>().unwrap_or(0);
-                let val_bytes = val_kb * 1024;
+pub fn parse_proc_meminfo_str(content: &str) -> Option<ProcMemInfo> {
+    let mut info = ProcMemInfo::default();
+    for line in content.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let key = parts[0].trim_end_matches(':');
+            let val_kb = parts[1].parse::<u64>().unwrap_or(0);
+            let val_bytes = val_kb * 1024;
 
-                match key {
-                    "MemTotal" => info.total_bytes = val_bytes,
-                    "MemFree" => info.free_bytes = val_bytes,
-                    "MemAvailable" => info.available_bytes = Some(val_bytes),
-                    "Buffers" => info.buffers_bytes = val_bytes,
-                    "Cached" => info.cached_bytes = val_bytes,
-                    "SwapTotal" => info.swap_total_bytes = val_bytes,
-                    "SwapFree" => info.swap_free_bytes = val_bytes,
-                    _ => {}
-                }
+            match key {
+                "MemTotal" => info.total_bytes = val_bytes,
+                "MemFree" => info.free_bytes = val_bytes,
+                "MemAvailable" => info.available_bytes = Some(val_bytes),
+                "Buffers" => info.buffers_bytes = val_bytes,
+                "Cached" => info.cached_bytes = val_bytes,
+                "SwapTotal" => info.swap_total_bytes = val_bytes,
+                "SwapFree" => info.swap_free_bytes = val_bytes,
+                _ => {}
             }
         }
-        if info.total_bytes > 0 {
-            return Some(info);
-        }
     }
-    None
+    if info.total_bytes > 0 {
+        Some(info)
+    } else {
+        None
+    }
+}
+
+fn read_proc_meminfo() -> Option<ProcMemInfo> {
+    let content = fs::read_to_string("/proc/meminfo").ok()?;
+    parse_proc_meminfo_str(&content)
 }
 
 fn parse_memory_stat_inactive_file(content: &str) -> u64 {

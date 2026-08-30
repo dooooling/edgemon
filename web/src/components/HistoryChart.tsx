@@ -135,12 +135,23 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
           },
         ],
         series: [
-          {},
+          {
+            label: '时间',
+            value: (_u, rawValue) => {
+              if (rawValue == null) return '--:--:--';
+              const d = new Date(rawValue * 1000);
+              return d.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            },
+          },
           {
             label: title,
             stroke: strokeColor,
             width: 1.5,
             fill: 'rgba(255, 255, 255, 0.05)',
+            value: (_u, rawValue) => {
+              if (rawValue == null) return '--';
+              return formatValue(rawValue, unit);
+            },
           },
         ],
       };

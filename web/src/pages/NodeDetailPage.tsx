@@ -9,7 +9,7 @@ import { CountryFlag } from '../components/CountryFlag';
 
 export const NodeDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const [range, setRange] = React.useState('24h');
+  const [range, setRange] = React.useState('10m');
   const { data, isLoading } = usePublicNodesQuery();
   const connectRealtime = useRealtimeStore((s) => s.connectRealtime);
   const clearOverlay = useRealtimeStore((s) => s.clearOverlay);

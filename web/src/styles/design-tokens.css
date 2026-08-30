@@ -698,3 +698,57 @@ body {
   align-items: center;
   color: var(--colors-muted);
 }
+
+/* ==========================================================================
+   uPlot Chart & Solid Fixed-Position Legend
+   ========================================================================== */
+
+.uplot {
+  font-family: monospace;
+}
+
+.uplot .u-legend {
+  font-family: monospace;
+  font-size: 11px;
+  display: flex !important;
+  align-items: center !important;
+  gap: 20px !important;
+  padding: 8px 14px !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid var(--colors-hairline-subtle) !important;
+  border-radius: 4px !important;
+  margin-top: 10px !important;
+  text-align: left !important;
+  justify-content: flex-start !important;
+}
+
+.uplot .u-legend .u-series {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: 160px !important; /* Fixed width slot prevents text jitter */
+  white-space: nowrap !important;
+}
+
+.uplot .u-legend .u-series:first-child {
+  min-width: 130px !important; /* Fixed slot for Time label */
+}
+
+.uplot .u-legend .u-marker {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 2px !important;
+}
+
+.uplot .u-legend .u-label {
+  color: var(--colors-muted) !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+}
+
+.uplot .u-legend .u-value {
+  font-weight: 700 !important;
+  color: var(--colors-on-dark) !important;
+  font-variant-numeric: tabular-nums !important;
+}
+

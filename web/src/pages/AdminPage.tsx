@@ -290,13 +290,15 @@ export const AdminPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Admin Section Title Bar */}
+          {/* Admin Section Title Bar (CFMS Style) */}
           <div className="section-title-bar">
-            <div>
-              <span className="eyebrow-cap">{t('admin_nodes_title')}</span>
-              <h2 className="display-lg" style={{ fontSize: '24px', marginTop: '4px' }}>
-                {t('fleet_nodes_title')}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <h2 className="display-lg" style={{ fontSize: '20px' }}>
+                {t('admin_nodes_title')}
               </h2>
+              <span className="spacex-chip" style={{ fontSize: '11px', fontFamily: 'monospace' }}>
+                {adminNodes.length}
+              </span>
             </div>
           </div>
 
@@ -485,11 +487,8 @@ WantedBy=multi-user.target`;
             return (
               <div className="modal-backdrop-dark">
                 <div className="modal-box-dark" style={{ maxWidth: '640px' }}>
-                  <span className="eyebrow-cap" style={{ color: 'var(--colors-status-live)' }}>
-                    {t('token_modal_title')}
-                  </span>
-                  <h3 className="display-lg" style={{ fontSize: '20px', margin: '8px 0' }}>
-                    {t('token_modal_title')}
+                  <h3 className="display-lg" style={{ fontSize: '18px', margin: '0 0 8px 0', color: 'var(--colors-status-live)' }}>
+                    🔑 {t('token_modal_title')}
                   </h3>
                   <p className="caption" style={{ color: 'var(--colors-status-alert)' }}>
                     {t('token_notice')}

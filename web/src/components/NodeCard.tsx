@@ -66,16 +66,10 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
   return (
     <div className="node-card-tile">
       <div>
-        {/* Header */}
+        {/* Single Header (CFMS Style) */}
         <div className="node-card-header">
           <div className="node-title-group">
-            <span className="eyebrow-cap" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={13} />
-              <span>
-                {node.system?.os_version || (node.environment?.type || 'INSTANCE').toUpperCase()} · {node.resources?.cpu_capacity_cores || 1} {t('node_cores')}
-              </span>
-            </span>
-            <h3 className="node-name-text" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+            <h3 className="node-name-text" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <CountryFlag countryCode={node.geo?.country} />
               <span>{node.name}</span>
               {node.expires_at_ms && (() => {
@@ -93,9 +87,15 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
             </h3>
           </div>
 
-          <div className="status-indicator-beacon">
-            <span className={`beacon-dot ${isOnline ? 'beacon-live' : 'beacon-idle'}`}></span>
-            <span style={{ fontSize: '10px' }}>{isOnline ? t('node_online') : t('node_offline')}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: 'var(--colors-on-primary-mute)' }}>
+              <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={13} />
+              <span>{node.resources?.cpu_capacity_cores || 1}C</span>
+            </span>
+            <div className="status-indicator-beacon">
+              <span className={`beacon-dot ${isOnline ? 'beacon-live' : 'beacon-idle'}`}></span>
+              <span style={{ fontSize: '10px' }}>{isOnline ? t('node_online') : t('node_offline')}</span>
+            </div>
           </div>
         </div>
 

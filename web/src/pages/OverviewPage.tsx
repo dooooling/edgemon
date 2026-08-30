@@ -65,11 +65,13 @@ export const OverviewPage: React.FC = () => {
 
       {/* 2. Fleet Nodes Section with 3-Mode Selector (Grid / Table / 3D Map) */}
       <div className="section-title-bar">
-        <div>
-          <span className="eyebrow-cap">{t('fleet_nodes_title')}</span>
-          <h2 className="display-lg" style={{ fontSize: '24px', marginTop: '4px' }}>
-            {t('registered_instances')} ({nodes.length})
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <h2 className="display-lg" style={{ fontSize: '20px' }}>
+            {t('registered_instances')}
           </h2>
+          <span className="spacex-chip" style={{ fontSize: '11px', fontFamily: 'monospace' }}>
+            {nodes.length}
+          </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {/* 3-Tab View Mode Toggle: 卡片矩阵 / 紧凑表格 / 3D 视图 */}

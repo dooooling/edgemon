@@ -137,15 +137,15 @@ export const NodeDetailPage: React.FC = () => {
         <div style={{ padding: '32px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
             <div>
-              <span className="eyebrow-cap" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={14} />
-                <span>{t('spec_title')} // {node.system?.os_version || (node.environment?.type || 'INSTANCE').toUpperCase()}</span>
-              </span>
-              <h1 className="display-xl" style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <h1 className="display-xl" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                 <CountryFlag countryCode={node.geo?.country} width={26} />
                 <span>{node.name}</span>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--colors-body)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={14} />
+                  <span>{node.system?.os_version || (node.environment?.type || 'INSTANCE').toUpperCase()} · {node.resources?.cpu_capacity_cores || 1}C</span>
+                </span>
               </h1>
-              <span className="eyebrow-cap" style={{ fontSize: '11px', marginTop: '8px', display: 'block' }}>
+              <span className="eyebrow-cap" style={{ fontSize: '11px', marginTop: '6px', display: 'block', color: 'var(--colors-muted)' }}>
                 UUID: {node.id}
               </span>
             </div>
@@ -387,7 +387,14 @@ export const NodeDetailPage: React.FC = () => {
       {/* Probes Results Table */}
       {probes.length > 0 && (
         <div className="detail-chassis-band" style={{ marginBottom: '24px' }}>
-          <span className="eyebrow-cap">{t('probes_title')}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 className="section-title" style={{ fontSize: '16px', fontWeight: 700 }}>
+              {t('probes_title')}
+            </h3>
+            <span className="spacex-chip" style={{ fontSize: '11px', fontFamily: 'monospace' }}>
+              {probes.length} TARGETS
+            </span>
+          </div>
           <table className="spacex-table" style={{ marginTop: '16px' }}>
             <thead>
               <tr>
@@ -441,9 +448,13 @@ export const NodeDetailPage: React.FC = () => {
       {/* History Telemetry Charts */}
       <div className="detail-chassis-band">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <span className="eyebrow-cap">{t('charts_title')}</span>
-            <h3 className="section-title" style={{ marginTop: '4px' }}>{t('chart_live_badge')}</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h3 className="section-title" style={{ fontSize: '16px', fontWeight: 700 }}>
+              {t('charts_title')}
+            </h3>
+            <span className="spacex-chip" style={{ fontSize: '10px', color: 'var(--colors-status-live)', borderColor: 'var(--colors-status-live)' }}>
+              LIVE STREAM
+            </span>
           </div>
           <div className="range-selector-capsule">
             {(['10m', '1h', '24h', '7d', '30d'] as const).map((r) => (

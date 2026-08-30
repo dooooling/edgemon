@@ -15,7 +15,12 @@ export const NodeDetailPage: React.FC = () => {
   const connectRealtime = useRealtimeStore((s) => s.connectRealtime);
   const clearOverlay = useRealtimeStore((s) => s.clearOverlay);
   const overlay = useRealtimeStore((s) => (id ? s.overlays[id] : undefined));
-  const realtimeSeries = useRealtimeStore((s) => (id ? s.realtimeSeries[id] ?? [] : []));
+  const hasRealtimeTemp = useRealtimeStore((s) => {
+    if (!id) return false;
+    if (s.overlays[id]?.cpu_temp_celsius != null) return true;
+    const series = s.realtimeSeries[id];
+    return series ? series.some((p) => p.cpu_temp_celsius != null) : false;
+  });
   const { t } = useTranslation();
 
   useEffect(() => {
@@ -105,7 +110,7 @@ export const NodeDetailPage: React.FC = () => {
     : 0;
 
   const cpuTemp = overlay?.cpu_temp_celsius ?? node.state?.cpu_temp_celsius;
-  const hasTemp = cpuTemp != null || realtimeSeries.some((p) => p.cpu_temp_celsius != null);
+  const hasTemp = cpuTemp != null || hasRealtimeTemp;
   const load1 = overlay?.load1 ?? node.state?.load1;
   const load5 = overlay?.load5 ?? node.state?.load5;
   const load15 = overlay?.load15 ?? node.state?.load15;

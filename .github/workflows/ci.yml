@@ -48,7 +48,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -64,6 +64,9 @@ jobs:
 
       - name: Worker Unit & Contract Tests
         run: pnpm --filter edgemon-worker test
+
+      - name: Web Unit Tests
+        run: pnpm --filter edgemon-web test
 
       - name: Build Web Dashboard
         run: pnpm --filter edgemon-web build

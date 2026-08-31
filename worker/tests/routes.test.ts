@@ -425,4 +425,59 @@ describe('RealtimeHub & Route Revocation State Machine (P0-2, P1-4)', () => {
     expect(executedSql).toContain('created_at_ms, updated_at_ms');
     expect(boundValues.length).toBe(8); // 8 parameters including timestamps
   });
+
+  it('DELETE /api/admin/alerts/rules/:id: atomically batches deletion of alert rule and secret_settings', async () => {
+    const { adminRoutes } = await import('../src/routes/admin');
+    const { signSession } = await import('../src/services/crypto');
+
+    let batchCalls: any[] = [];
+    const mockDb = {
+      prepare(sql: string) {
+        return {
+          bind(...args: any[]) {
+            return {
+              sql,
+              args,
+              async first() {
+                return {
+                  config_json: JSON.stringify({ secret_key: 'alert_webhook:12345' }),
+                };
+              },
+            };
+          },
+          async first() {
+            return {
+              config_json: JSON.stringify({ secret_key: 'alert_webhook:12345' }),
+            };
+          },
+        };
+      },
+      async batch(stmts: any[]) {
+        batchCalls = stmts;
+        return [];
+      },
+    };
+
+    const sessionSecret = 'test-secret-at-least-32-chars-long!!';
+    const sessionToken = await signSession(
+      JSON.stringify({ role: 'admin', expires_at_ms: Date.now() + 3600000 }),
+      sessionSecret
+    );
+
+    const res = await adminRoutes.request('http://localhost/api/admin/alerts/rules/42', {
+      method: 'DELETE',
+      headers: {
+        Cookie: `edgemon_session=${sessionToken}`,
+      },
+    }, {
+      DB: mockDb as any,
+      SESSION_SECRET: sessionSecret,
+      REALTIME: {} as any,
+    });
+
+    expect(res.status).toBe(200);
+    expect(batchCalls.length).toBe(2);
+    expect(batchCalls[0].sql).toContain('DELETE FROM alert_rules');
+    expect(batchCalls[1].sql).toContain('DELETE FROM secret_settings');
+  });
 });

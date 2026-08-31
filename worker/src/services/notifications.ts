@@ -64,13 +64,17 @@ export function isAllowedWebhookUrl(rawUrl: string, allowHttp = false): boolean 
       return false;
     }
 
-    const host = parsed.hostname.toLowerCase();
+    const rawHost = parsed.hostname.toLowerCase();
+    // Normalize IPv6 literals by stripping brackets: "[::1]" -> "::1"
+    const host = rawHost.replace(/^\[/, '').replace(/\]$/, '');
 
     // 1. Loopback & localhost
     if (
       host === 'localhost' ||
       host === '127.0.0.1' ||
       host === '::1' ||
+      host === '0:0:0:0:0:0:0:1' ||
+      host === '::' ||
       host === '0.0.0.0' ||
       host.endsWith('.localhost') ||
       host.endsWith('.local')
@@ -95,15 +99,39 @@ export function isAllowedWebhookUrl(rawUrl: string, allowHttp = false): boolean 
       if (a === 100 && b >= 64 && b <= 127) return false; // 100.64.0.0/10 Carrier-grade NAT
     }
 
-    // 3. IPv6 validation for private/link-local ranges
+    // 3. IPv6 validation for private/link-local/mapped ranges
     if (
-      host.startsWith('fc') ||
+      host.startsWith('fc') || // ULA fc00::/7 (fc00:: - fdff::)
       host.startsWith('fd') ||
-      host.startsWith('fe80') ||
-      host.startsWith('::ffff:127.') ||
-      host.startsWith('::ffff:10.') ||
-      host.startsWith('::ffff:192.168.')
+      host.startsWith('fe8') || // Link-local fe80::/10 (fe80:: - febf::)
+      host.startsWith('fe9') ||
+      host.startsWith('fea') ||
+      host.startsWith('feb') ||
+      host.startsWith('2001:db8:') // Documentation prefix RFC3849
     ) {
+      return false;
+    }
+
+    // Check IPv4-mapped IPv6 (::ffff:x.x.x.x or WHATWG hex normalized ::ffff:hhhh:hhhh)
+    if (host.startsWith('::ffff:')) {
+      const suffix = host.slice(7);
+      if (suffix.includes('.')) {
+        return isAllowedWebhookUrl(`https://${suffix}/`, false);
+      }
+      const parts = suffix.split(':');
+      if (parts.length === 2) {
+        const hi = parseInt(parts[0], 16);
+        const lo = parseInt(parts[1], 16);
+        if (!isNaN(hi) && !isNaN(lo)) {
+          const mappedIpv4 = [
+            (hi >> 8) & 0xff,
+            hi & 0xff,
+            (lo >> 8) & 0xff,
+            lo & 0xff,
+          ].join('.');
+          return isAllowedWebhookUrl(`https://${mappedIpv4}/`, false);
+        }
+      }
       return false;
     }
 
@@ -123,11 +151,11 @@ export async function validateDnsAndSsrf(rawUrl: string, allowHttp = false): Pro
 
   try {
     const parsed = new URL(rawUrl);
-    const host = parsed.hostname.toLowerCase();
+    const host = parsed.hostname.toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
 
     // If host is an IP literal, isAllowedWebhookUrl has already validated its range
     const isIpv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
-    const isIpv6 = host.startsWith('[') || host.includes(':');
+    const isIpv6 = host.includes(':');
     if (isIpv4 || isIpv6) {
       return true;
     }

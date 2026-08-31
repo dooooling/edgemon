@@ -164,11 +164,23 @@ describe('Alert Engine & State Machine', () => {
     expect(isAllowedWebhookUrl('https://100.64.0.1/webhook')).toBe(false); // Carrier grade NAT
     expect(isAllowedWebhookUrl('ftp://example.com/webhook')).toBe(false);
 
+    // IPv6 bracketed literals blocked targets
+    expect(isAllowedWebhookUrl('https://[::1]/')).toBe(false);
+    expect(isAllowedWebhookUrl('https://[::]/')).toBe(false);
+    expect(isAllowedWebhookUrl('https://[fc00::1]/')).toBe(false);
+    expect(isAllowedWebhookUrl('https://[fd00::1]/')).toBe(false);
+    expect(isAllowedWebhookUrl('https://[fe80::1]/')).toBe(false);
+    expect(isAllowedWebhookUrl('https://[::ffff:127.0.0.1]/')).toBe(false);
+    expect(isAllowedWebhookUrl('https://[::ffff:10.0.0.1]/')).toBe(false);
+    expect(isAllowedWebhookUrl('https://[::ffff:192.168.1.1]/')).toBe(false);
+    expect(isAllowedWebhookUrl('https://[2001:db8::1]/')).toBe(false);
+
     // Allowed public HTTPS webhook targets
     expect(isAllowedWebhookUrl('https://discord.com/api/webhooks/123/abc')).toBe(true);
     expect(isAllowedWebhookUrl('https://api.telegram.org/bot123:abc/sendMessage')).toBe(true);
     expect(isAllowedWebhookUrl('https://hooks.slack.com/services/T00/B00/X00')).toBe(true);
     expect(isAllowedWebhookUrl('https://notify.example.com/alerts')).toBe(true);
+    expect(isAllowedWebhookUrl('https://[2606:4700:4700::1111]/')).toBe(true); // Public Cloudflare IPv6
   });
 
   it('formats notification payloads properly for Discord, Telegram, and Generic channels', async () => {

@@ -377,7 +377,7 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
   return c.json({ success: true, id: res.meta?.last_row_id }, 201);
 });
 
-// DELETE /api/admin/alerts/rules/:id (Cascades deletion to secret_settings if encrypted)
+// DELETE /api/admin/alerts/rules/:id (Atomically cascades deletion to secret_settings via D1 batch)
 adminRoutes.delete('/api/admin/alerts/rules/:id', async (c) => {
   const id = c.req.param('id');
   const existing = await c.env.DB
@@ -385,18 +385,29 @@ adminRoutes.delete('/api/admin/alerts/rules/:id', async (c) => {
     .bind(id)
     .first<{ config_json: string | null }>();
 
+  let secretKey: string | null = null;
   if (existing?.config_json) {
     try {
       const parsed = JSON.parse(existing.config_json);
-      if (parsed.secret_key) {
-        await c.env.DB.prepare('DELETE FROM secret_settings WHERE key = ?').bind(parsed.secret_key).run();
+      if (parsed.secret_key && typeof parsed.secret_key === 'string') {
+        secretKey = parsed.secret_key;
       }
     } catch {
       // ignore
     }
   }
 
-  await c.env.DB.prepare('DELETE FROM alert_rules WHERE id = ?').bind(id).run();
+  const statements = [
+    c.env.DB.prepare('DELETE FROM alert_rules WHERE id = ?').bind(id),
+  ];
+
+  if (secretKey) {
+    statements.push(
+      c.env.DB.prepare('DELETE FROM secret_settings WHERE key = ?').bind(secretKey)
+    );
+  }
+
+  await c.env.DB.batch(statements);
   return c.json({ success: true });
 });
 

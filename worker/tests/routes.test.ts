@@ -354,4 +354,75 @@ describe('RealtimeHub & Route Revocation State Machine (P0-2, P1-4)', () => {
     recordLoginSuccess(testIp);
     expect(checkLoginRateLimit(testIp).allowed).toBe(true);
   });
+
+  it('Alert Rules API: enforces DATA_ENCRYPTION_KEY when webhook is provided and sets timestamps', async () => {
+    const { adminRoutes } = await import('../src/routes/admin');
+    const { signSession } = await import('../src/services/crypto');
+
+    let executedSql = '';
+    let boundValues: any[] = [];
+
+    const mockDb = {
+      prepare(sql: string) {
+        executedSql = sql;
+        return {
+          bind(...args: any[]) {
+            boundValues = args;
+            return {
+              async run() {
+                return { meta: { last_row_id: 42 } };
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const sessionSecret = 'test-secret-at-least-32-chars-long!!';
+    const sessionToken = await signSession(
+      JSON.stringify({ role: 'admin', expires_at_ms: Date.now() + 3600000 }),
+      sessionSecret
+    );
+
+    // 1. Webhook rule without DATA_ENCRYPTION_KEY -> fail-closed 500 error
+    const resNoKey = await adminRoutes.request('http://localhost/api/admin/alerts/rules', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `edgemon_session=${sessionToken}`,
+      },
+      body: JSON.stringify({
+        type: 'webhook',
+        config: { webhook_url: 'https://discord.com/api/webhooks/123/xyz' },
+      }),
+    }, {
+      DB: mockDb as any,
+      SESSION_SECRET: sessionSecret,
+      REALTIME: {} as any,
+    });
+
+    expect(resNoKey.status).toBe(500);
+
+    // 2. Normal CPU alert rule -> inserts created_at_ms and updated_at_ms cleanly
+    const resCpu = await adminRoutes.request('http://localhost/api/admin/alerts/rules', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `edgemon_session=${sessionToken}`,
+      },
+      body: JSON.stringify({
+        type: 'cpu',
+        threshold: 85,
+        duration_sec: 60,
+      }),
+    }, {
+      DB: mockDb as any,
+      SESSION_SECRET: sessionSecret,
+      REALTIME: {} as any,
+    });
+
+    expect(resCpu.status).toBe(201);
+    expect(executedSql).toContain('created_at_ms, updated_at_ms');
+    expect(boundValues.length).toBe(8); // 8 parameters including timestamps
+  });
 });

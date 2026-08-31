@@ -328,12 +328,20 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
   const enabledNum = body.enabled !== undefined ? (body.enabled ? 1 : 0) : 1;
   const config = body.config || {};
   const encryptionKey = c.env.DATA_ENCRYPTION_KEY;
+  const now = Date.now();
 
   let configJson = JSON.stringify(config);
 
-  // If webhook contains sensitive URL or headers, encrypt into secret_settings
-  const ruleKey = `alert_webhook:${crypto.randomUUID()}`;
-  if (config.webhook_url && encryptionKey) {
+  // If webhook contains sensitive URL or headers, require DATA_ENCRYPTION_KEY and encrypt into secret_settings
+  if (config.webhook_url) {
+    if (!encryptionKey) {
+      return c.json(
+        { error: 'Server misconfiguration: DATA_ENCRYPTION_KEY secret is required to safely store Webhook credentials' },
+        500
+      );
+    }
+
+    const ruleKey = `alert_webhook:${crypto.randomUUID()}`;
     const { saveSecretSetting } = await import('../services/crypto');
     await saveSecretSetting(
       c.env.DB,
@@ -351,8 +359,8 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
 
   const res = await c.env.DB
     .prepare(
-      `INSERT INTO alert_rules (node_id, type, threshold, duration_sec, enabled, config_json)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO alert_rules (node_id, type, threshold, duration_sec, enabled, config_json, created_at_ms, updated_at_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       body.node_id || null,
@@ -360,16 +368,34 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
       body.threshold ?? null,
       body.duration_sec ?? 0,
       enabledNum,
-      configJson
+      configJson,
+      now,
+      now
     )
     .run();
 
   return c.json({ success: true, id: res.meta?.last_row_id }, 201);
 });
 
-// DELETE /api/admin/alerts/rules/:id
+// DELETE /api/admin/alerts/rules/:id (Cascades deletion to secret_settings if encrypted)
 adminRoutes.delete('/api/admin/alerts/rules/:id', async (c) => {
   const id = c.req.param('id');
+  const existing = await c.env.DB
+    .prepare('SELECT config_json FROM alert_rules WHERE id = ?')
+    .bind(id)
+    .first<{ config_json: string | null }>();
+
+  if (existing?.config_json) {
+    try {
+      const parsed = JSON.parse(existing.config_json);
+      if (parsed.secret_key) {
+        await c.env.DB.prepare('DELETE FROM secret_settings WHERE key = ?').bind(parsed.secret_key).run();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   await c.env.DB.prepare('DELETE FROM alert_rules WHERE id = ?').bind(id).run();
   return c.json({ success: true });
 });

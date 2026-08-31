@@ -130,11 +130,35 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
   }
 
   if (webhookConfigs.length === 0) {
+    // If no webhook targets configured, mark all transitions as delivered to prevent duplicate notification loops
+    for (const t of transitions) {
+      try {
+        await markAlertDelivered(env.DB, t.stateKey, Date.now());
+      } catch {
+        // ignore
+      }
+    }
     return;
   }
 
-  // Dispatch notifications across all transitions and webhook endpoints with bounded concurrency (concurrency = 5)
+  // Flatten all transition × destination pairs into a global bounded concurrency job queue (concurrency = 5)
+  interface DeliveryJob {
+    transition: AlertTransition;
+    config: WebhookConfig;
+  }
+
+  const jobs: DeliveryJob[] = [];
   for (const t of transitions) {
+    for (const cfg of webhookConfigs) {
+      jobs.push({ transition: t, config: cfg });
+    }
+  }
+
+  const successMap = new Map<string, boolean>();
+
+  await mapConcurrent(jobs, 5, async (job) => {
+    const t = job.transition;
+    const cfg = job.config;
     const eventPayload: AlertNotificationEvent = {
       title: t.title,
       message: t.message,
@@ -144,31 +168,30 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
       status: t.status,
     };
 
-    const deliveryResults = await mapConcurrent(webhookConfigs, 5, async (cfg) => {
-      const maskedTarget = maskWebhookUrl(cfg.url);
-      try {
-        const ok = await sendWebhookNotification(cfg, eventPayload);
-        if (!ok) {
-          await recordEvent(env.DB, t.nodeId, 'alert_notification_failed', {
-            target: maskedTarget,
-            status: t.status,
-            type: t.type,
-          });
-        }
-        return ok;
-      } catch (err) {
-        console.error(`[Alerts] Error sending webhook to ${maskedTarget}:`, err);
+    const maskedTarget = maskWebhookUrl(cfg.url);
+    try {
+      const ok = await sendWebhookNotification(cfg, eventPayload);
+      if (ok) {
+        successMap.set(t.stateKey, true);
+      } else {
         await recordEvent(env.DB, t.nodeId, 'alert_notification_failed', {
           target: maskedTarget,
-          error: String(err),
+          status: t.status,
+          type: t.type,
         });
-        return false;
       }
-    });
+    } catch (err) {
+      console.error(`[Alerts] Error sending webhook to ${maskedTarget}:`, err);
+      await recordEvent(env.DB, t.nodeId, 'alert_notification_failed', {
+        target: maskedTarget,
+        error: String(err),
+      });
+    }
+  });
 
-    // Advance delivery state in alert_states if at least one destination received the notification
-    const anyDelivered = deliveryResults.some(Boolean);
-    if (anyDelivered) {
+  // For every transition that succeeded delivery on at least one destination, advance state
+  for (const t of transitions) {
+    if (successMap.get(t.stateKey)) {
       try {
         await markAlertDelivered(env.DB, t.stateKey, Date.now());
       } catch (err) {

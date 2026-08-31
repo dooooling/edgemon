@@ -75,9 +75,9 @@ export async function evaluateAlerts(
 
   const nodes = nodesResult.results || [];
 
-  // Load custom rules if any
+  // Load custom metric threshold rules (excluding notification webhook rules)
   const customRulesResult = await db
-    .prepare('SELECT * FROM alert_rules WHERE enabled = 1')
+    .prepare("SELECT * FROM alert_rules WHERE enabled = 1 AND type != 'webhook'")
     .all<AlertRuleRow>();
 
   const customRules = customRulesResult.results || [];

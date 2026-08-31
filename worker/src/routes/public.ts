@@ -116,12 +116,6 @@ publicRoutes.get('/api/public/nodes', async (c) => {
         period_total_bytes: periodRx + periodTx,
       },
       expires_at_ms: row.expires_at_ms || null,
-      finance: {
-        price: row.plan_price !== null && row.plan_price !== undefined ? Number(row.plan_price) : null,
-        currency: row.plan_currency || 'USD',
-        billing_cycle: row.billing_cycle || 'monthly',
-        auto_renewal: Boolean(row.auto_renewal ?? 1),
-      },
       state: row.last_seen_at_ms ? {
         last_seen_at_ms: row.last_seen_at_ms,
         cpu_usage_pct: row.cpu_usage_pct,

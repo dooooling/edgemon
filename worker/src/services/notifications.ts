@@ -132,35 +132,48 @@ export async function validateDnsAndSsrf(rawUrl: string, allowHttp = false): Pro
       return true;
     }
 
-    // Resolve domain using Cloudflare DNS over HTTPS
-    const dohUrl = `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=A`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2000);
+    // Resolve domain using Cloudflare DNS over HTTPS for both A (IPv4) and AAAA (IPv6)
+    const recordTypes = ['A', 'AAAA'];
+    for (const recType of recordTypes) {
+      const dohUrl = `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=${recType}`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
 
-    try {
-      const dohRes = await fetch(dohUrl, {
-        headers: { Accept: 'application/dns-json' },
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
+      try {
+        const dohRes = await fetch(dohUrl, {
+          headers: { Accept: 'application/dns-json' },
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
 
-      if (dohRes.ok) {
-        const dohData = (await dohRes.json()) as { Answer?: { data: string; type: number }[] };
-        if (dohData.Answer && Array.isArray(dohData.Answer)) {
-          for (const ans of dohData.Answer) {
-            if (ans.type === 1) {
-              const resolvedIp = ans.data;
-              if (!isAllowedWebhookUrl(`https://${resolvedIp}/`, false)) {
-                console.warn(`[SSRF] DNS rebinding blocked: ${host} resolved to forbidden IP ${resolvedIp}`);
-                return false;
+        if (dohRes.ok) {
+          const dohData = (await dohRes.json()) as { Answer?: { data: string; type: number }[] };
+          if (dohData.Answer && Array.isArray(dohData.Answer)) {
+            for (const ans of dohData.Answer) {
+              const resolvedIp = ans.data?.trim();
+              if (resolvedIp) {
+                // Validate IPv4 (type 1) or IPv6 (type 28)
+                const checkUrl = ans.type === 28 ? `https://[${resolvedIp}]/` : `https://${resolvedIp}/`;
+                if (!isAllowedWebhookUrl(checkUrl, false)) {
+                  console.warn(`[SSRF] DNS rebinding blocked: ${host} (${recType}) resolved to forbidden IP ${resolvedIp}`);
+                  return false;
+                }
               }
             }
           }
+        } else if (!allowHttp) {
+          // Fail-closed in production if DNS verification request fails
+          console.warn(`[SSRF] DoH lookup failed with status ${dohRes.status} for host ${host}`);
+          return false;
+        }
+      } catch (err) {
+        clearTimeout(timer);
+        if (!allowHttp) {
+          // Fail-closed in production on DNS timeout / error
+          console.warn(`[SSRF] DoH lookup timeout/error for host ${host}:`, err);
+          return false;
         }
       }
-    } catch {
-      clearTimeout(timer);
-      // Fallback: Proceed if DoH times out in restricted environments
     }
 
     return true;

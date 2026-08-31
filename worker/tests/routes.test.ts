@@ -431,6 +431,43 @@ describe('RealtimeHub & Route Revocation State Machine (P0-2, P1-4)', () => {
     expect(resCpu.status).toBe(201);
     expect(executedSql).toContain('created_at_ms, updated_at_ms');
     expect(boundValues.length).toBe(8); // 8 parameters including timestamps
+
+    // 3. Webhook rule with DATA_ENCRYPTION_KEY -> atomically creates 2 batch statements (secret_settings + alert_rules)
+    batchStatements = [];
+    const encryptionKey = 'test-data-encryption-key-for-worker-secret-32b';
+    const resWithKey = await adminRoutes.request('http://localhost/api/admin/alerts/rules', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `edgemon_session=${sessionToken}`,
+      },
+      body: JSON.stringify({
+        type: 'webhook',
+        config: {
+          channel: 'discord',
+          webhook_url: 'https://discord.com/api/webhooks/123/xyz',
+          headers: { 'X-Custom-Auth': 'Bearer topsecret' },
+        },
+      }),
+    }, {
+      DB: mockDb as any,
+      SESSION_SECRET: sessionSecret,
+      DATA_ENCRYPTION_KEY: encryptionKey,
+      REALTIME: {} as any,
+    });
+
+    expect(resWithKey.status).toBe(201);
+    expect(batchStatements.length).toBe(2);
+    expect(batchStatements[0].sql).toContain('INSERT INTO secret_settings');
+    expect(batchStatements[1].sql).toContain('INSERT INTO alert_rules');
+
+    // Regression check: alert_rules config_json must have secret_key and 0 plaintext secrets
+    const alertRuleConfigArg = batchStatements[1].args[5];
+    const parsedConfig = JSON.parse(alertRuleConfigArg);
+    expect(parsedConfig.is_encrypted).toBe(true);
+    expect(parsedConfig.secret_key).toMatch(/^alert_webhook:/);
+    expect(alertRuleConfigArg).not.toContain('https://discord.com');
+    expect(alertRuleConfigArg).not.toContain('topsecret');
   });
 
   it('DELETE /api/admin/alerts/rules/:id: atomically batches deletion of alert rule and secret_settings', async () => {

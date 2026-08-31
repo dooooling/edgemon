@@ -4,9 +4,10 @@ import { usePublicNodesQuery } from '../queries/nodes';
 import { useRealtimeStore } from '../realtime/store';
 import { HistoryChart } from '../components/HistoryChart';
 import { useTranslation } from '../i18n/I18nContext';
-import { formatBeijingDate } from '../utils/time';
+import { formatBeijingDate, formatUptime } from '../utils/time';
 import { OsIcon } from '../components/OsIcon';
 import { CountryFlag } from '../components/CountryFlag';
+import { ProbeSparklineBar, getLatencyColor } from '../components/ProbeHeatmap';
 
 export const NodeDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -68,46 +69,12 @@ export const NodeDetailPage: React.FC = () => {
   const isOnline = lastSeen ? Date.now() - lastSeen < 90 * 1000 : false;
   const probes = overlay?.probes ?? node.state?.probes ?? [];
 
-  const cpuUsagePct = overlay?.cpu_usage_pct ?? node.state?.cpu_usage_pct;
-  const memoryUsedBytes = overlay?.memory_used_bytes ?? node.state?.memory_used_bytes;
-  const rootfsUsedBytes = overlay?.rootfs_used_bytes ?? node.state?.rootfs_used_bytes;
   const rxBps = overlay?.rx_bps ?? node.state?.rx_bps;
   const txBps = overlay?.tx_bps ?? node.state?.tx_bps;
   const edgeRttMs = overlay?.edge_rtt_ms ?? node.state?.edge_rtt_ms;
-
-  const cpuText = !isOnline || cpuUsagePct == null ? 'N/A' : `${cpuUsagePct}%`;
-  const cpuBarWidth = !isOnline || cpuUsagePct == null ? 0 : Math.min(100, Math.max(0, cpuUsagePct));
-
-  const limitBytes = node.resources?.memory_limit_bytes;
-  const memoryPct = !memoryUsedBytes || !limitBytes || limitBytes === 0
-    ? null
-    : Number(((memoryUsedBytes / limitBytes) * 100).toFixed(1));
-
-  const memoryText = !memoryUsedBytes
-    ? (limitBytes ? formatBytes(limitBytes) : 'N/A')
-    : memoryPct !== null && limitBytes && limitBytes > 0
-    ? `${memoryPct}% (${formatBytes(memoryUsedBytes)} / ${formatBytes(limitBytes)})`
-    : `${formatBytes(memoryUsedBytes)}`;
-
-  const memoryBarWidth = isOnline && memoryPct !== null
-    ? Math.min(100, Math.max(0, memoryPct))
-    : 0;
-
-  const rootfsLimitBytes = node.resources?.rootfs_limit_bytes;
-  const diskText = !isOnline
-    ? 'N/A'
-    : !rootfsLimitBytes || rootfsLimitBytes === 0
-    ? t('container_na')
-    : rootfsUsedBytes
-    ? `${(rootfsUsedBytes / (1024 * 1024 * 1024)).toFixed(1)} / ${(rootfsLimitBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
-    : `${(rootfsLimitBytes / (1024 * 1024 * 1024)).toFixed(1)} GB TOTAL`;
-
   const traffic = node.traffic;
   const trafficUsed = traffic?.period_total_bytes || 0;
   const trafficQuota = traffic?.quota_bytes;
-  const trafficBarWidth = trafficQuota && trafficQuota > 0
-    ? Math.min(100, Math.round((trafficUsed / trafficQuota) * 100))
-    : 0;
 
   const cpuTemp = overlay?.cpu_temp_celsius ?? node.state?.cpu_temp_celsius;
   const hasTemp = cpuTemp != null || hasRealtimeTemp;
@@ -117,14 +84,17 @@ export const NodeDetailPage: React.FC = () => {
   const procRunning = overlay?.process_running_count ?? node.state?.process_running_count;
   const procTotal = overlay?.process_total_count ?? node.state?.process_total_count;
   const oomKills = overlay?.oom_kill_count ?? node.state?.oom_kill_count;
-  const mounts = overlay?.mounts ?? node.state?.mounts ?? [];
   const readIops = overlay?.read_iops ?? node.state?.read_iops;
   const writeIops = overlay?.write_iops ?? node.state?.write_iops;
   const ioUtilPct = overlay?.io_util_pct ?? node.state?.io_util_pct;
   const tcpEstab = overlay?.tcp_established_count ?? node.state?.tcp_established_count;
   const tcpTw = overlay?.tcp_tw_count ?? node.state?.tcp_tw_count;
-  const tcpTotal = overlay?.tcp_total_count ?? node.state?.tcp_total_count;
   const udpInUse = overlay?.udp_in_use ?? node.state?.udp_in_use;
+  const uptimeSec = overlay?.uptime_sec ?? node.state?.uptime_sec;
+
+  const mounts = overlay?.mounts ?? node.state?.mounts ?? [];
+  const rootfsUsedBytes = overlay?.rootfs_used_bytes ?? node.state?.rootfs_used_bytes;
+  const rootfsLimitBytes = node.resources?.rootfs_limit_bytes;
 
   return (
     <div className="page-container">
@@ -181,126 +151,43 @@ export const NodeDetailPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Live Telemetry Stack on Detail Page */}
-          <div className="telemetry-stack" style={{ marginTop: '24px', padding: '20px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid var(--colors-hairline-on-dark)' }}>
-            {/* CPU & Load */}
-            <div className="telemetry-row">
-              <div className="telemetry-header-row">
-                <span style={{ color: 'var(--colors-on-primary-mute)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>{t('cpu_usage')}</span>
-                  {load1 != null && (
-                    <span style={{ fontSize: '11px', color: 'var(--colors-muted)' }}>
-                      [LOAD: {load1} / {load5 ?? '-'} / {load15 ?? '-'}]
-                    </span>
-                  )}
-                  {procTotal != null && (
-                    <span style={{ fontSize: '11px', color: 'var(--colors-muted)' }}>
-                      [{procRunning ?? 1}/{procTotal} PROC]
-                    </span>
-                  )}
+          {/* Realtime Telemetry Status Bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '24px', padding: '14px 20px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid var(--colors-hairline-on-dark)', flexWrap: 'wrap', gap: '12px' }}>
+            <div className="traffic-rates-block" style={{ marginTop: 0 }}>
+              <span>↓ {formatBps(rxBps)}</span>
+              <span>↑ {formatBps(txBps)}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {load1 != null && (
+                <span className="spacex-chip">
+                  LOAD: {load1} / {load5 ?? '-'} / {load15 ?? '-'}
                 </span>
-                <span style={{ fontWeight: 600 }}>{cpuText}</span>
-              </div>
-              <div className="telemetry-bar-track">
-                <div className="telemetry-bar-fill" style={{ width: `${cpuBarWidth}%` }}></div>
-              </div>
-            </div>
-
-            {/* Memory */}
-            <div className="telemetry-row">
-              <div className="telemetry-header-row">
-                <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('memory_allocation')}</span>
-                <span style={{ fontWeight: 600 }}>{memoryText}</span>
-              </div>
-              <div className="telemetry-bar-track">
-                <div className="telemetry-bar-fill" style={{ width: `${memoryBarWidth}%` }}></div>
-              </div>
-            </div>
-
-            {/* Storage */}
-            <div className="telemetry-row">
-              <div className="telemetry-header-row">
-                <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('root_storage')}</span>
-                <span style={{ fontWeight: 600 }}>{diskText}</span>
-              </div>
-            </div>
-
-            {/* Multi Mounts Breakdown if available */}
-            {mounts.length > 1 && (
-              <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--colors-hairline-on-dark)' }}>
-                <span className="eyebrow-cap" style={{ fontSize: '10px', marginBottom: '8px', display: 'block' }}>
-                  {t('mounts_title')}
+              )}
+              {procTotal != null && (
+                <span className="spacex-chip">
+                  {procRunning ?? 1}/{procTotal} PROC
                 </span>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
-                  {mounts.map((m) => {
-                    const mTotal = m.total_bytes || 1;
-                    const mUsed = m.used_bytes || 0;
-                    const mPct = Math.min(100, Math.round((mUsed / mTotal) * 100));
-                    return (
-                      <div key={m.mount_point} style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '8px', borderRadius: '4px', border: '1px solid var(--colors-hairline-on-dark)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600 }}>
-                          <span>{m.mount_point} ({m.fs_type || 'EXT4'})</span>
-                          <span>{mPct}%</span>
-                        </div>
-                        <div className="telemetry-bar-track" style={{ height: '3px', marginTop: '4px' }}>
-                          <div className="telemetry-bar-fill" style={{ width: `${mPct}%` }}></div>
-                        </div>
-                        <div style={{ fontSize: '10px', color: 'var(--colors-muted)', marginTop: '2px' }}>
-                          {formatBytes(mUsed)} / {formatBytes(mTotal)}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Traffic Billing Cycle */}
-            {traffic && (
-              <div className="telemetry-row">
-                <div className="telemetry-header-row">
-                  <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('cycle_traffic')} (DAY {traffic.reset_day})</span>
-                  <span style={{ fontWeight: 600 }}>
-                    {formatBytes(trafficUsed)}
-                    {trafficQuota ? ` / ${formatBytes(trafficQuota)}` : ''}
-                  </span>
-                </div>
-                {trafficQuota ? (
-                  <div className="telemetry-bar-track">
-                    <div className="telemetry-bar-fill" style={{ width: `${trafficBarWidth}%` }}></div>
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            {/* Rates & Chips */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', flexWrap: 'wrap', gap: '12px' }}>
-              <div className="traffic-rates-block" style={{ marginTop: 0 }}>
-                <span>↓ {formatBps(rxBps)}</span>
-                <span>↑ {formatBps(txBps)}</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                {(readIops != null || writeIops != null) && (
-                  <span className="spacex-chip">
-                    IOPS: ↓{readIops || 0} ↑{writeIops || 0} {ioUtilPct != null ? `(${ioUtilPct}% UTIL)` : ''}
-                  </span>
-                )}
-                {tcpEstab != null && (
-                  <span className="spacex-chip" style={{ color: '#38bdf8', borderColor: '#38bdf8' }}>
-                    {tcpEstab} TCP ESTAB {tcpTw != null ? `· ${tcpTw} TW` : ''}
-                  </span>
-                )}
-                {udpInUse != null && (
-                  <span className="spacex-chip">
-                    {udpInUse} UDP
-                  </span>
-                )}
-                {edgeRttMs && (
-                  <span className="spacex-chip" style={{ color: '#ffffff', borderColor: '#ffffff' }}>
-                    CF EDGE · {edgeRttMs} MS
-                  </span>
-                )}
-              </div>
+              )}
+              {(readIops != null || writeIops != null) && (
+                <span className="spacex-chip">
+                  IOPS: ↓{readIops || 0} ↑{writeIops || 0} {ioUtilPct != null ? `· ${ioUtilPct}% IO-BUS` : ''}
+                </span>
+              )}
+              {tcpEstab != null && (
+                <span className="spacex-chip" style={{ color: '#38bdf8', borderColor: '#38bdf8' }}>
+                  {tcpEstab} TCP ESTAB {tcpTw != null ? `· ${tcpTw} TW` : ''}
+                </span>
+              )}
+              {udpInUse != null && (
+                <span className="spacex-chip">
+                  {udpInUse} UDP
+                </span>
+              )}
+              {edgeRttMs && (
+                <span className="spacex-chip" style={{ color: '#ffffff', borderColor: '#ffffff' }}>
+                  CF EDGE · {edgeRttMs} MS
+                </span>
+              )}
             </div>
           </div>
 
@@ -308,13 +195,7 @@ export const NodeDetailPage: React.FC = () => {
           <div className="specs-data-grid" style={{ marginTop: '24px' }}>
             <div className="spec-entry">
               <span className="spec-entry-label">{t('env_type')}</span>
-              <span className="spec-entry-val">
-                {(node.environment?.type || 'MACHINE').toUpperCase()} // {(node.environment?.runtime || 'NATIVE').toUpperCase()}
-              </span>
-            </div>
-            <div className="spec-entry">
-              <span className="spec-entry-label">{t('resource_boundary')}</span>
-              <span className="spec-entry-val">{(node.environment?.resource_scope || 'MACHINE').toUpperCase()}</span>
+              <span className="spec-entry-val">{formatEnvironment(node.environment)}</span>
             </div>
             <div className="spec-entry">
               <span className="spec-entry-label">{t('cpu_capacity')}</span>
@@ -325,12 +206,8 @@ export const NodeDetailPage: React.FC = () => {
             </div>
             <div className="spec-entry">
               <span className="spec-entry-label">{t('memory_limit')}</span>
-              <span className="spec-entry-val">{memoryText}</span>
-            </div>
-            <div className="spec-entry">
-              <span className="spec-entry-label">{t('disk_limit')}</span>
               <span className="spec-entry-val">
-                {node.resources?.rootfs_limit_bytes ? formatBytes(node.resources.rootfs_limit_bytes) : t('container_na')}
+                {node.resources?.memory_limit_bytes ? formatBytes(node.resources.memory_limit_bytes) : t('container_na')}
               </span>
             </div>
             <div className="spec-entry">
@@ -350,6 +227,10 @@ export const NodeDetailPage: React.FC = () => {
               </span>
             </div>
             <div className="spec-entry">
+              <span className="spec-entry-label">{t('uptime')}</span>
+              <span className="spec-entry-val">{isOnline && uptimeSec ? formatUptime(uptimeSec) : 'N/A'}</span>
+            </div>
+            <div className="spec-entry">
               <span className="spec-entry-label">{t('location_colo')}</span>
               <span className="spec-entry-val" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                 <CountryFlag countryCode={node.geo?.country} />
@@ -362,6 +243,15 @@ export const NodeDetailPage: React.FC = () => {
                 {node.geo?.asn ? `AS${node.geo.asn} ${node.geo.as_org || ''}` : 'UNKNOWN'}
               </span>
             </div>
+            {traffic && (
+              <div className="spec-entry">
+                <span className="spec-entry-label">{t('cycle_traffic')} (DAY {traffic.reset_day})</span>
+                <span className="spec-entry-val">
+                  {formatBytes(trafficUsed)}
+                  {trafficQuota ? ` / ${formatBytes(trafficQuota)}` : ''}
+                </span>
+              </div>
+            )}
             {node.expires_at_ms && (
               <div className="spec-entry">
                 <span className="spec-entry-label">{t('th_expire')}</span>
@@ -382,6 +272,17 @@ export const NodeDetailPage: React.FC = () => {
                 </span>
               </div>
             )}
+            {node.finance && node.finance.price != null && node.finance.price > 0 && (
+              <div className="spec-entry">
+                <span className="spec-entry-label">COST / 财务费用</span>
+                <span className="spec-entry-val" style={{ color: '#00e676', fontWeight: 700 }}>
+                  {node.finance.currency || 'USD'} {node.finance.price.toFixed(2)}
+                  <span style={{ fontSize: '11px', color: 'var(--colors-muted)', marginLeft: '4px', fontWeight: 500 }}>
+                    / {node.finance.billing_cycle === 'monthly' ? '月付' : node.finance.billing_cycle === 'annually' ? '年付' : node.finance.billing_cycle === 'quarterly' ? '季付' : node.finance.billing_cycle}
+                  </span>
+                </span>
+              </div>
+            )}
             {node.note && (
               <div className="spec-entry">
                 <span className="spec-entry-label">NOTE / 备注</span>
@@ -389,32 +290,108 @@ export const NodeDetailPage: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Disk Mounts Section */}
+          <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--colors-hairline-on-dark)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <span className="spec-entry-label" style={{ fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--colors-muted)' }}>
+                {t('mounts_title')}
+              </span>
+              {mounts.length > 0 && (
+                <span className="spacex-chip" style={{ fontSize: '10px' }}>
+                  {mounts.length} {mounts.length > 1 ? 'MOUNTS' : 'MOUNT'}
+                </span>
+              )}
+            </div>
+
+            {mounts.length > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '10px' }}>
+                {mounts.map((m) => {
+                  const mTotal = m.total_bytes || 1;
+                  const mUsed = m.used_bytes || 0;
+                  const mPct = Math.min(100, Math.round((mUsed / mTotal) * 100));
+                  const isFull = mPct >= 90;
+                  const isWarn = mPct >= 80;
+                  return (
+                    <div
+                      key={m.mount_point}
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.02)',
+                        padding: '10px 14px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--colors-hairline-on-dark)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <span style={{ fontWeight: 700, fontSize: '12px', color: '#ffffff' }}>
+                          {m.mount_point}
+                          <span style={{ fontSize: '10px', color: 'var(--colors-muted)', marginLeft: '6px', fontWeight: 500 }}>
+                            {m.fs_type || 'FS'}
+                          </span>
+                        </span>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: isFull ? '#e22718' : isWarn ? '#f59e0b' : '#ffffff' }}>
+                          {mPct}%
+                        </span>
+                      </div>
+                      <div className="telemetry-bar-track" style={{ height: '4px', margin: '6px 0' }}>
+                        <div
+                          className="telemetry-bar-fill"
+                          style={{
+                            width: `${mPct}%`,
+                            backgroundColor: isFull ? '#e22718' : isWarn ? '#f59e0b' : '#ffffff',
+                          }}
+                        ></div>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--colors-muted)' }}>
+                        <span>{formatBytes(mUsed)} / {formatBytes(mTotal)}</span>
+                        <span>{mTotal > mUsed ? `${formatBytes(mTotal - mUsed)} 可用` : '0 B'}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '10px 14px', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+                <span style={{ fontWeight: 700, color: '#ffffff' }}>/ (ROOTFS)</span>
+                <span style={{ color: 'var(--colors-muted)' }}>
+                  {rootfsUsedBytes != null ? formatBytes(rootfsUsedBytes) : 'N/A'}
+                  {rootfsLimitBytes ? ` / ${formatBytes(rootfsLimitBytes)}` : ` / ${t('container_na')}`}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Probes Results Table */}
+      {/* Probes Results Table with Embedded Heatmap Sparklines */}
       {probes.length > 0 && (
         <div className="detail-chassis-band" style={{ marginBottom: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h3 className="section-title" style={{ fontSize: '16px', fontWeight: 700 }}>
               {t('probes_title')}
             </h3>
             <span className="spacex-chip" style={{ fontSize: '11px', fontFamily: 'monospace' }}>
-              {probes.length} TARGETS
+              {probes.length} TARGETS · LIVE 60S
             </span>
           </div>
-          <table className="spacex-table" style={{ marginTop: '16px' }}>
+
+          <table className="spacex-table">
             <thead>
               <tr>
                 <th>{t('probe_target')}</th>
                 <th>{t('probe_status')}</th>
                 <th>{t('probe_rtt')}</th>
                 <th>{t('probe_loss')}</th>
+                <th style={{ minWidth: '160px' }}>时序延迟热力条 (60S BUCKETS)</th>
               </tr>
             </thead>
             <tbody>
               {probes.map((p) => {
                 const info = getProbeLabel(p.id);
+                const rtt = p.latency_ms;
+                const loss = Math.round((p.loss_ratio || 0) * 100);
+                const isDown = loss >= 100 || rtt === null || rtt === undefined;
+
                 return (
                   <tr key={p.id}>
                     <td>
@@ -441,10 +418,21 @@ export const NodeDetailPage: React.FC = () => {
                         <span>{p.status.toUpperCase()}</span>
                       </span>
                     </td>
-                    <td style={{ fontWeight: 600, color: p.latency_ms ? '#00e676' : 'var(--colors-muted)' }}>
-                      {p.latency_ms != null ? `${p.latency_ms} MS` : 'N/A'}
+                    <td style={{ fontWeight: 700, fontFamily: 'monospace', color: getLatencyColor(rtt, loss) }}>
+                      {isDown ? (loss >= 100 ? '100% 丢包' : 'TIMEOUT') : `${rtt != null ? rtt.toFixed(1) : '0.0'} MS`}
                     </td>
-                    <td>{Math.round(p.loss_ratio * 100)}%</td>
+                    <td style={{ fontFamily: 'monospace', color: loss > 0 ? '#f85149' : 'var(--colors-body)' }}>
+                      {loss}%
+                    </td>
+                    <td>
+                      <ProbeSparklineBar
+                        nodeId={node.id}
+                        probeId={p.id}
+                        rtt={rtt}
+                        lossRatio={p.loss_ratio}
+                        bucketCount={18}
+                      />
+                    </td>
                   </tr>
                 );
               })}
@@ -496,7 +484,16 @@ export const NodeDetailPage: React.FC = () => {
           limitBytes={node.resources?.memory_limit_bytes}
           strokeColor="#ffffff"
         />
-        <HistoryChart nodeId={node.id} range={range} title={t('chart_rx_title')} metricKey="rx_bps" unit="B/S" strokeColor="#00e676" />
+        <HistoryChart
+          nodeId={node.id}
+          range={range}
+          title={t('chart_net_title')}
+          unit="B/S"
+          series={[
+            { metricKey: 'rx_bps', label: t('chart_rx_label'), strokeColor: '#00e676', fillColor: 'rgba(0, 230, 118, 0.06)' },
+            { metricKey: 'tx_bps', label: t('chart_tx_label'), strokeColor: '#38bdf8', fillColor: 'rgba(56, 189, 248, 0.06)' },
+          ]}
+        />
         <HistoryChart nodeId={node.id} range={range} title={t('chart_rtt_title')} metricKey="edge_rtt_ms" unit="MS" strokeColor="#ffffff" />
       </div>
     </div>
@@ -542,4 +539,29 @@ export function getProbeLabel(id: string): { label: string; tag?: string; color?
     return { label: 'Apple Global CDN', tag: 'APPLE', color: '#a2aaad' };
   }
   return { label: id.toUpperCase() };
+}
+
+function formatEnvironment(env?: { type?: string | null; runtime?: string | null; resource_scope?: string | null } | null): string {
+  if (!env) return 'UNKNOWN';
+  const type = (env.type || '').toLowerCase();
+  const runtime = (env.runtime || '').toLowerCase();
+
+  if (runtime && runtime !== 'native' && runtime !== 'unknown') {
+    const runtimeUpper = runtime.toUpperCase();
+    if (type === 'container') {
+      return `${runtimeUpper} (CONTAINER)`;
+    }
+    if (type === 'vm') {
+      return `${runtimeUpper} (VM)`;
+    }
+    if (type === 'physical') {
+      return `BARE METAL (${runtimeUpper})`;
+    }
+    return runtimeUpper;
+  }
+
+  if (type === 'container') return 'CONTAINER';
+  if (type === 'vm') return 'VIRTUAL MACHINE (VM)';
+  if (type === 'physical') return 'BARE METAL (PHYSICAL)';
+  return (env.resource_scope || 'MACHINE').toUpperCase();
 }

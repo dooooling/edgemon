@@ -189,12 +189,42 @@ struct SocketStats {
     udp_in_use: Option<u32>,
 }
 
+#[cfg(unix)]
+fn count_established_tcp_connections() -> Option<u32> {
+    let mut count = 0u32;
+    let mut found = false;
+
+    for path in &["/proc/net/tcp", "/proc/net/tcp6"] {
+        if let Ok(content) = fs::read_to_string(path) {
+            found = true;
+            for line in content.lines().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                // Column 3 is the connection state 'st' (01 = TCP_ESTABLISHED)
+                if parts.len() >= 4 && parts[3] == "01" {
+                    count = count.saturating_add(1);
+                }
+            }
+        }
+    }
+
+    if found {
+        Some(count)
+    } else {
+        None
+    }
+}
+
 fn read_sockstat() -> Option<SocketStats> {
     #[cfg(unix)]
     {
-        if let Ok(content) = fs::read_to_string("/proc/net/sockstat") {
-            let mut stats = SocketStats::default();
+        let mut stats = SocketStats {
+            tcp_established_count: count_established_tcp_connections(),
+            tcp_tw_count: None,
+            tcp_total_count: None,
+            udp_in_use: None,
+        };
 
+        if let Ok(content) = fs::read_to_string("/proc/net/sockstat") {
             for line in content.lines() {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.is_empty() {
@@ -203,11 +233,9 @@ fn read_sockstat() -> Option<SocketStats> {
                 if parts[0] == "TCP:" {
                     for i in 1..parts.len() {
                         if parts[i] == "inuse" && i + 1 < parts.len() {
-                            stats.tcp_established_count = parts[i + 1].parse::<u32>().ok();
+                            stats.tcp_total_count = parts[i + 1].parse::<u32>().ok();
                         } else if parts[i] == "tw" && i + 1 < parts.len() {
                             stats.tcp_tw_count = parts[i + 1].parse::<u32>().ok();
-                        } else if parts[i] == "alloc" && i + 1 < parts.len() {
-                            stats.tcp_total_count = parts[i + 1].parse::<u32>().ok();
                         }
                     }
                 } else if parts[0] == "UDP:" {
@@ -219,6 +247,10 @@ fn read_sockstat() -> Option<SocketStats> {
                 }
             }
 
+            return Some(stats);
+        }
+
+        if stats.tcp_established_count.is_some() {
             return Some(stats);
         }
     }

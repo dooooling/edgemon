@@ -3,6 +3,7 @@ import {
   adminLogin,
   adminLogout,
   createAdminNode,
+  updateAdminNode,
   deleteAdminNode,
   rotateAdminNodeToken,
   fetchNodeConfig,
@@ -32,6 +33,25 @@ export const AdminPage: React.FC = () => {
   const [newNodeQuotaGb, setNewNodeQuotaGb] = useState('');
   const [newNodeExpiresAt, setNewNodeExpiresAt] = useState('');
   const [newNodeNote, setNewNodeNote] = useState('');
+  const [newNodePrice, setNewNodePrice] = useState('');
+  const [newNodeCurrency, setNewNodeCurrency] = useState('USD');
+  const [newNodeCycle, setNewNodeCycle] = useState('monthly');
+  const [newNodeAutoRenewal, setNewNodeAutoRenewal] = useState(true);
+
+  const [editingNode, setEditingNode] = useState<{
+    id: string;
+    name: string;
+    traffic_reset_day: number;
+    traffic_quota_gb: string;
+    expires_at: string;
+    note: string;
+    hidden: boolean;
+    plan_price: string;
+    plan_currency: string;
+    billing_cycle: string;
+    auto_renewal: boolean;
+  } | null>(null);
+  const [updatingNode, setUpdatingNode] = useState(false);
 
   const [oneTimeTokenModal, setOneTimeTokenModal] = useState<{ nodeId: string; rawToken: string; warning?: string } | null>(null);
   const [adminBannerWarning, setAdminBannerWarning] = useState<string | null>(null);
@@ -150,6 +170,7 @@ export const AdminPage: React.FC = () => {
     try {
       const quotaBytes = newNodeQuotaGb ? parseFloat(newNodeQuotaGb) * 1024 * 1024 * 1024 : null;
       const expiresAtMs = newNodeExpiresAt ? new Date(newNodeExpiresAt).getTime() : null;
+      const priceNum = newNodePrice !== '' ? parseFloat(newNodePrice) : null;
 
       const res = await createAdminNode({
         name: newNodeName,
@@ -157,12 +178,20 @@ export const AdminPage: React.FC = () => {
         traffic_quota_bytes: quotaBytes,
         expires_at_ms: expiresAtMs,
         note: newNodeNote || null,
+        plan_price: priceNum,
+        plan_currency: newNodeCurrency,
+        billing_cycle: newNodeCycle,
+        auto_renewal: newNodeAutoRenewal,
       });
       setShowAddModal(false);
       setNewNodeName('');
       setNewNodeQuotaGb('');
       setNewNodeExpiresAt('');
       setNewNodeNote('');
+      setNewNodePrice('');
+      setNewNodeCurrency('USD');
+      setNewNodeCycle('monthly');
+      setNewNodeAutoRenewal(true);
       setOneTimeTokenModal({
         nodeId: res.node.id,
         rawToken: res.rawToken,
@@ -170,6 +199,65 @@ export const AdminPage: React.FC = () => {
       refetchNodes();
     } catch (err: any) {
       alert(err.message);
+    }
+  }
+
+  function openEditModal(n: any) {
+    let quotaGbStr = '';
+    if (n.traffic_quota_bytes && n.traffic_quota_bytes > 0) {
+      quotaGbStr = String(Math.round(n.traffic_quota_bytes / (1024 * 1024 * 1024)));
+    }
+    let expiresAtStr = '';
+    if (n.expires_at_ms) {
+      const d = new Date(n.expires_at_ms);
+      expiresAtStr = d.toISOString().split('T')[0];
+    }
+    setEditingNode({
+      id: n.id,
+      name: n.name,
+      traffic_reset_day: n.traffic_reset_day || 1,
+      traffic_quota_gb: quotaGbStr,
+      expires_at: expiresAtStr,
+      note: n.note || '',
+      hidden: Boolean(n.hidden),
+      plan_price: n.plan_price != null ? String(n.plan_price) : '',
+      plan_currency: n.plan_currency || 'USD',
+      billing_cycle: n.billing_cycle || 'monthly',
+      auto_renewal: Boolean(n.auto_renewal ?? 1),
+    });
+  }
+
+  async function handleUpdateNode(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingNode) return;
+    setUpdatingNode(true);
+    try {
+      const quotaBytes = editingNode.traffic_quota_gb
+        ? parseFloat(editingNode.traffic_quota_gb) * 1024 * 1024 * 1024
+        : null;
+      const expiresAtMs = editingNode.expires_at
+        ? new Date(editingNode.expires_at).getTime()
+        : null;
+      const priceNum = editingNode.plan_price !== '' ? parseFloat(editingNode.plan_price) : null;
+
+      await updateAdminNode(editingNode.id, {
+        name: editingNode.name,
+        traffic_reset_day: editingNode.traffic_reset_day,
+        traffic_quota_bytes: quotaBytes,
+        expires_at_ms: expiresAtMs,
+        note: editingNode.note || null,
+        hidden: editingNode.hidden,
+        plan_price: priceNum,
+        plan_currency: editingNode.plan_currency,
+        billing_cycle: editingNode.billing_cycle,
+        auto_renewal: editingNode.auto_renewal,
+      });
+      setEditingNode(null);
+      refetchNodes();
+    } catch (err: any) {
+      alert(`更新失败: ${err.message}`);
+    } finally {
+      setUpdatingNode(false);
     }
   }
 
@@ -268,31 +356,8 @@ export const AdminPage: React.FC = () => {
         </div>
       ) : (
         <div>
-          {/* Admin Hero Header */}
-          <div className="hero-banner-chassis" style={{ marginBottom: '32px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-              <div>
-                <span className="eyebrow-cap">EDGEMON · ADMIN</span>
-                <h1 className="display-xl" style={{ marginTop: '4px' }}>
-                  {t('nav_console')}
-                </h1>
-                <p className="caption" style={{ marginTop: '8px' }}>
-                  {t('hero_sub')}
-                </p>
-              </div>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button className="button-ghost-on-dark button-ghost-sm" onClick={() => setShowAddModal(true)}>
-                  {t('create_node_btn')}
-                </button>
-                <button className="button-ghost-on-dark button-ghost-sm" onClick={handleLogout}>
-                  {t('admin_logout_btn')}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Admin Section Title Bar (CFMS Style) */}
-          <div className="section-title-bar">
+          {/* Admin Section Title Bar */}
+          <div className="section-title-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <h2 className="display-lg" style={{ fontSize: '20px' }}>
                 {t('admin_nodes_title')}
@@ -300,6 +365,14 @@ export const AdminPage: React.FC = () => {
               <span className="spacex-chip" style={{ fontSize: '11px', fontFamily: 'monospace' }}>
                 {adminNodes.length}
               </span>
+            </div>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button className="button-ghost-on-dark button-ghost-sm" onClick={() => setShowAddModal(true)}>
+                {t('create_node_btn')}
+              </button>
+              <button className="button-ghost-on-dark button-ghost-sm" onClick={handleLogout}>
+                {t('admin_logout_btn')}
+              </button>
             </div>
           </div>
 
@@ -343,7 +416,19 @@ export const AdminPage: React.FC = () => {
                 {adminNodes.map((n) => (
                   <tr key={n.id}>
                     <td>
-                      <strong>{n.name.toUpperCase()}</strong>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <strong>{n.name.toUpperCase()}</strong>
+                        {n.plan_price != null && n.plan_price > 0 && (
+                          <span className="spacex-chip" style={{ color: '#00e676', borderColor: 'rgba(0, 230, 118, 0.4)', fontSize: '10px' }}>
+                            {n.plan_currency || 'USD'} {n.plan_price}/{n.billing_cycle || 'mo'}
+                          </span>
+                        )}
+                        {n.billing_cycle === 'free' && (
+                          <span className="spacex-chip" style={{ color: 'var(--colors-muted)', fontSize: '10px' }}>
+                            FREE
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--colors-on-primary-mute)' }}>
@@ -354,6 +439,12 @@ export const AdminPage: React.FC = () => {
                     <td>{formatBeijingDate(n.created_at_ms)}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          className="button-ghost-on-dark button-ghost-sm"
+                          onClick={() => openEditModal(n)}
+                        >
+                          {t('btn_edit')}
+                        </button>
                         <button
                           className="button-ghost-on-dark button-ghost-sm"
                           onClick={() => openProbeModal({ id: n.id, name: n.name })}
@@ -431,6 +522,72 @@ export const AdminPage: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Finance / Price & Currency */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                    <div>
+                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>服务器价格 / Price (Optional)</span>
+                      <input
+                        value={newNodePrice}
+                        onChange={(e) => setNewNodePrice(e.target.value)}
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        placeholder="如 15.00 (免费留空)"
+                        className="spacex-input"
+                      />
+                    </div>
+                    <div>
+                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>结算币种 / Currency</span>
+                      <select
+                        value={newNodeCurrency}
+                        onChange={(e) => setNewNodeCurrency(e.target.value)}
+                        className="spacex-input"
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <option value="USD">USD ($)</option>
+                        <option value="CNY">CNY (¥)</option>
+                        <option value="EUR">EUR (€)</option>
+                        <option value="HKD">HKD (HK$)</option>
+                        <option value="GBP">GBP (£)</option>
+                        <option value="JPY">JPY (¥)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Finance / Cycle & Auto Renewal */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                    <div>
+                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>计费周期 / Billing Cycle</span>
+                      <select
+                        value={newNodeCycle}
+                        onChange={(e) => setNewNodeCycle(e.target.value)}
+                        className="spacex-input"
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <option value="monthly">月付 (Monthly)</option>
+                        <option value="quarterly">季付 (Quarterly)</option>
+                        <option value="semi_annually">半年付 (Semi-Annually)</option>
+                        <option value="annually">年付 (Annually)</option>
+                        <option value="biennially">两年付 (Biennially)</option>
+                        <option value="triennially">三年付 (Triennially)</option>
+                        <option value="one_time">一次性/买断 (One-Time)</option>
+                        <option value="free">免费 (Free)</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginTop: '24px', gap: '10px' }}>
+                      <input
+                        type="checkbox"
+                        id="add_auto_renewal_checkbox"
+                        checked={newNodeAutoRenewal}
+                        onChange={(e) => setNewNodeAutoRenewal(e.target.checked)}
+                        style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                      />
+                      <label htmlFor="add_auto_renewal_checkbox" style={{ fontSize: '12px', color: '#ffffff', cursor: 'pointer' }}>
+                        自动续费 (Auto Renewal)
+                      </label>
+                    </div>
+                  </div>
+
                   <div style={{ marginBottom: '16px' }}>
                     <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('th_expire')} (Optional)</span>
                     <input
@@ -457,6 +614,177 @@ export const AdminPage: React.FC = () => {
                     </button>
                     <button type="submit" className="button-ghost-on-dark button-ghost-sm" style={{ backgroundColor: '#ffffff', color: '#000000' }}>
                       {t('save_node_btn')}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Edit Node Modal */}
+          {editingNode && (
+            <div className="modal-backdrop-dark">
+              <div className="modal-box-dark">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <div>
+                    <span className="eyebrow-cap">{t('edit_node_title')}</span>
+                    <h3 style={{ fontSize: '18px', fontWeight: 700, marginTop: '4px' }}>{editingNode.name}</h3>
+                  </div>
+                  <button
+                    style={{ background: 'none', border: 'none', color: '#ffffff', fontSize: '18px', cursor: 'pointer' }}
+                    onClick={() => setEditingNode(null)}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <form onSubmit={handleUpdateNode}>
+                  <div style={{ marginBottom: '16px' }}>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('node_name_label')}</span>
+                    <input
+                      value={editingNode.name}
+                      onChange={(e) => setEditingNode({ ...editingNode, name: e.target.value })}
+                      className="spacex-input"
+                      placeholder="e.g. TOKYO-01"
+                      required
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                    <div>
+                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('reset_day_label')}</span>
+                      <input
+                        value={editingNode.traffic_reset_day}
+                        onChange={(e) => setEditingNode({ ...editingNode, traffic_reset_day: parseInt(e.target.value) || 1 })}
+                        type="number"
+                        min={1}
+                        max={31}
+                        className="spacex-input"
+                      />
+                    </div>
+                    <div>
+                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('quota_gb_label')}</span>
+                      <input
+                        value={editingNode.traffic_quota_gb}
+                        onChange={(e) => setEditingNode({ ...editingNode, traffic_quota_gb: e.target.value })}
+                        type="number"
+                        min={0}
+                        placeholder="如 1000 (留空为无配额)"
+                        className="spacex-input"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Finance / Price & Currency */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                    <div>
+                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>服务器价格 / Price (Optional)</span>
+                      <input
+                        value={editingNode.plan_price}
+                        onChange={(e) => setEditingNode({ ...editingNode, plan_price: e.target.value })}
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        placeholder="如 15.00 (免费留空)"
+                        className="spacex-input"
+                      />
+                    </div>
+                    <div>
+                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>结算币种 / Currency</span>
+                      <select
+                        value={editingNode.plan_currency}
+                        onChange={(e) => setEditingNode({ ...editingNode, plan_currency: e.target.value })}
+                        className="spacex-input"
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <option value="USD">USD ($)</option>
+                        <option value="CNY">CNY (¥)</option>
+                        <option value="EUR">EUR (€)</option>
+                        <option value="HKD">HKD (HK$)</option>
+                        <option value="GBP">GBP (£)</option>
+                        <option value="JPY">JPY (¥)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Finance / Cycle & Auto Renewal */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                    <div>
+                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>计费周期 / Billing Cycle</span>
+                      <select
+                        value={editingNode.billing_cycle}
+                        onChange={(e) => setEditingNode({ ...editingNode, billing_cycle: e.target.value })}
+                        className="spacex-input"
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <option value="monthly">月付 (Monthly)</option>
+                        <option value="quarterly">季付 (Quarterly)</option>
+                        <option value="semi_annually">半年付 (Semi-Annually)</option>
+                        <option value="annually">年付 (Annually)</option>
+                        <option value="biennially">两年付 (Biennially)</option>
+                        <option value="triennially">三年付 (Triennially)</option>
+                        <option value="one_time">一次性/买断 (One-Time)</option>
+                        <option value="free">免费 (Free)</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginTop: '24px', gap: '10px' }}>
+                      <input
+                        type="checkbox"
+                        id="edit_auto_renewal_checkbox"
+                        checked={editingNode.auto_renewal}
+                        onChange={(e) => setEditingNode({ ...editingNode, auto_renewal: e.target.checked })}
+                        style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                      />
+                      <label htmlFor="edit_auto_renewal_checkbox" style={{ fontSize: '12px', color: '#ffffff', cursor: 'pointer' }}>
+                        自动续费 (Auto Renewal)
+                      </label>
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: '16px' }}>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('th_expire')} (Optional)</span>
+                    <input
+                      value={editingNode.expires_at}
+                      onChange={(e) => setEditingNode({ ...editingNode, expires_at: e.target.value })}
+                      type="date"
+                      className="spacex-input"
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: '16px' }}>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>Note / 备注 (Optional)</span>
+                    <input
+                      value={editingNode.note}
+                      onChange={(e) => setEditingNode({ ...editingNode, note: e.target.value })}
+                      placeholder="e.g. 搬瓦工 CN2-GIA 2C2G"
+                      className="spacex-input"
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <input
+                      type="checkbox"
+                      id="edit_hidden_checkbox"
+                      checked={editingNode.hidden}
+                      onChange={(e) => setEditingNode({ ...editingNode, hidden: e.target.checked })}
+                      style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                    />
+                    <label htmlFor="edit_hidden_checkbox" style={{ fontSize: '12px', color: '#ffffff', cursor: 'pointer' }}>
+                      在公开首页隐藏此节点（仅管理员登录后可见）
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                    <button type="button" className="button-ghost-on-dark button-ghost-sm" onClick={() => setEditingNode(null)}>
+                      {t('cancel_btn')}
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={updatingNode}
+                      className="button-ghost-on-dark button-ghost-sm"
+                      style={{ backgroundColor: '#ffffff', color: '#000000', fontWeight: 700 }}
+                    >
+                      {updatingNode ? '正在保存...' : t('save_node_btn')}
                     </button>
                   </div>
                 </form>

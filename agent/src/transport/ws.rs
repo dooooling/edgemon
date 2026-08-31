@@ -191,7 +191,7 @@ impl WsTransport {
                     let (code, reason) = frame
                         .map(|f| (u16::from(f.code), f.reason.to_string()))
                         .unwrap_or((1000, String::new()));
-                    if code == 4002 || code == 4003 || code == 4004 {
+                    if code == 4002 || code == 4003 || code == 4004 || code == 4006 {
                         error!(
                             "[WSS] Fatal close from server during hello ({}: {}). Terminating.",
                             code, reason
@@ -351,7 +351,7 @@ impl WsTransport {
                 if let Some(f) = frame {
                     let code: u16 = f.code.into();
                     let reason = f.reason.to_string();
-                    if code == 4002 || code == 4003 || code == 4004 {
+                    if code == 4002 || code == 4003 || code == 4004 || code == 4006 {
                         error!(
                             "[WSS] Fatal auth/policy close from server ({}: {}). Terminating.",
                             code, reason

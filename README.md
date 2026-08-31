@@ -1,95 +1,143 @@
 # EdgeMon
 
-一个轻量、低开销、基于 Cloudflare 的分布式服务器实时监控系统。
+一个轻量、低开销、低攻击面、**Cloudflare 原生** 的分布式服务器实时监控系统。
 
-主控端完全运行在 Cloudflare（Worker + D1 + Durable Objects），无需自行搭建和维护中心主控服务器；被控端为高性能单文件 Rust Agent，支持 Linux（VPS/容器）和 Windows 系统。
+主控端完全托管在 Cloudflare（Worker + D1 + Durable Objects），无需自行搭建和维护中心主控服务器；被控端为高性能、零命令依赖的单文件 Rust Agent，支持 Linux（裸机/VPS/受限容器）和 Windows 系统。
 
 ---
 
 ## 🌟 核心特性
 
-- **WSS 2秒实时流**：Agent 默认通过 WSS 长连（`/api/agent/v1/stream`）每 2 秒上报完整快照；前端 0~2 秒极速响应，无需手动唤醒。
-- **D1 60秒限频保护**：Durable Objects 在内存中秒级广播实时遥测，同时严格按 60 秒 Checkpoint 批量持久化到 D1，彻底保护数据库写入配额。
-- **故障降级（HTTP Fallback）**：WSS 断开时自动启用指数退避重连（1/2/4/8/16/30/60s + Jitter）并触发 30 秒 HTTP 兜底上报；长连恢复后立即平滑切换。
-- **零中心主控服务器**：前端 SPA、API 路由、持久化存储（D1）、WebSocket 实时分发全部托管在 Cloudflare，零运维负担。
-- **轻量与容器边界感知**：Rust 编写，静态编译（x86_64 / aarch64 musl / Windows），自动识别 Docker / LXC / cgroup 资源边界，绝不将宿主机配置误报为容器套餐。
-- **低攻击面**：仅采集指标与网络连通性探测（ICMP/TCP），坚决不做 WebSSH、远程 Shell、任意命令执行等后门通道。
+- **云原生零服务器运维**：前端 SPA、管理后台、API 路由、D1 时序数据库与 WebSocket 实时广播全部运行在 Cloudflare 边缘网络。
+- **高频实时推流与 D1 配额保护**：Agent 默认按 30 秒周期平稳采样上报；Durable Objects 秒级分发实时数据，D1 **严格按 60 秒 Bucket** 批量 UPSERT 落盘，彻底保护数据库写入配额。
+- **故障降级与数据完整性**：长连中断时自动启用指数退避重连（1/2/4/8/16/30/60s + Jitter）并启动 HTTP 兜底上报；内置 sequence 边界校验与 D1 Checkpoint 重放机制，断网恢复后不丢数据、不重复计流量。
+- **容器配额边界感知**：Rust 原生读取 `/proc`、`/sys` 与 cgroup v1/v2 祖先层级配额，自动识别 Docker / LXC 资源边界，绝不将宿主机配置误报为容器套餐。
+- **低攻击面与 SSRF 深度防护**：坚决不做 WebSSH、远程 Shell、任意脚本执行等后门通道；网络探测与 Webhook 调用具备严格的私网与元数据 IP 拦截。
+- **告警与多渠道通知**：内置离线（90s）、CPU、内存、磁盘与套餐到期状态机；支持 Telegram、Discord、Slack 及自定义 Webhook 告警与 4 小时静默复报。
 
 ---
 
-## 📁 项目结构
+## 📁 模块结构
 
-- `agent/`：Rust 客户端（双线程架构：Thread 1 指标采样与探测，Thread 2 WSS 主长连与 HTTP 故障降级）。
-- `worker/`：Cloudflare Worker API 与 RealtimeHub Durable Object（Hibernation WebSocket 管理与 60s Checkpoint 事务落盘）。
-- `web/`：React 19 + TypeScript + Vite 前端控制中心（SpaceX 航天机能全暗黑工业风设计）。
-- `migrations/`：D1 数据库 SQL 迁移文件。
-- `protocol/`：Protocol V1.1 协议契约与测试用例。
+```text
+edgemon/
+├── agent/                         # Rust Linux/Windows 被控端 Agent
+├── worker/                        # Cloudflare Worker API & RealtimeHub DO
+├── web/                           # React 19 + TypeScript + Vite 前端仪表盘
+├── protocol/                      # Protocol V1 跨语言协议契约与 Fixtures
+├── migrations/                    # D1 数据库 SQL 迁移文件 (0001~0004)
+├── docs/                          # 生产部署、安全架构与开发指南
+│   ├── deployment.md              # 零到一生产部署操作指南
+│   └── security.md                # 安全模型与密钥生命周期
+├── wrangler.jsonc                 # Cloudflare Worker 配置
+└── Cargo.toml                     # Rust 工作区配置
+```
 
 ---
 
-## 🛠️ 本地开发与运行
+## 🚀 快速生产部署
 
-### 1. 启动 Worker 后端（端口 8787）
+详细步骤请参阅 **[生产部署完整指南](docs/deployment.md)**。简明流程如下：
 
+### 1. 初始化 D1 与配置密钥
 ```bash
+# 安装依赖
 pnpm install
-pnpm dev:worker
-```
 
-### 2. 启动前端仪表盘（端口 3000）
-
-```bash
-pnpm dev:web
-```
-浏览器访问 `http://localhost:3000` 即可打开控制中心。
-
-### 3. 创建节点并运行 Agent
-
-1. 浏览器打开 `http://localhost:3000/admin`（默认本地 Admin Key：`test-admin-key`）；
-2. 点击 **+ PROVISION NODE** 创建节点，获取生成的 `Node ID` 与 `Token`；
-3. 本地启动 Agent 守护进程：
-
-```bash
-cargo run -p edgemon-agent -- \
-  --server http://127.0.0.1:8787 \
-  --id <你的_NODE_ID> \
-  --token <你的_NODE_TOKEN> \
-  --allow-http
-```
-
----
-
-## 🚀 生产部署
-
-### 部署 Cloudflare Worker & 前端
-
-```bash
-# 1. 登录 Cloudflare
+# 登录 Cloudflare 账号
 npx wrangler login
 
-# 2. 执行数据库迁移
+# 创建 D1 数据库并将其 ID 写入 wrangler.jsonc
+npx wrangler d1 create edgemon
+
+# 配置生产环境变量 Secrets
+npx wrangler secret put ADMIN_KEY              # 管理员登录主密钥
+npx wrangler secret put SESSION_SECRET          # 会话签名密钥 (openssl rand -base64 32)
+npx wrangler secret put DATA_ENCRYPTION_KEY     # 数据加密密钥 (openssl rand -hex 32)
+npx wrangler secret put WEBHOOK_URL             # 可选：全局告警 Webhook
+```
+
+### 2. 执行数据库迁移并部署
+```bash
+# 应用 D1 迁移
 pnpm db:migrate:remote
 
-# 3. 部署 Worker 与前端静态资产
+# 构建前端并部署 Worker
 pnpm --filter edgemon-web build
 npx wrangler deploy
 ```
 
-### 编译 Agent 静态二进制
+---
+
+## 📦 被控端 Agent 安装与运行
+
+### 1. Linux 客户端（Systemd 服务化安装）
+
+1. 编译或下载对应架构的静态二进制文件：
+   ```bash
+   # x86_64 Linux musl 静态二进制
+   cargo build --release --target x86_64-unknown-linux-musl -p edgemon-agent
+
+   # aarch64 Linux musl 静态二进制 (ARM VPS / 树莓派)
+   cargo build --release --target aarch64-unknown-linux-musl -p edgemon-agent
+   ```
+2. 放置到目标服务器 `/usr/local/bin/edgemon-agent` 并赋权：
+   ```bash
+   chmod +x /usr/local/bin/edgemon-agent
+   ```
+3. 创建 Systemd 服务文件 `/etc/systemd/system/edgemon.service`：
+   ```ini
+   [Unit]
+   Description=EdgeMon Telemetry Agent
+   After=network.target network-online.target
+   Wants=network-online.target
+
+   [Service]
+   Type=simple
+   ExecStart=/usr/local/bin/edgemon-agent \
+     --server https://<你的_WORKER_DOMAIN> \
+     --id <NODE_ID> \
+     --token <NODE_TOKEN>
+   Restart=always
+   RestartSec=5s
+   LimitNOFILE=65535
+   MemoryMax=64M
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+4. 启动服务并加入开机自启：
+   ```bash
+   systemctl daemon-reload
+   systemctl enable --now edgemon
+   ```
+
+---
+
+## 🛠️ 本地开发环境
 
 ```bash
-# Linux x86_64 musl 静态二进制
-cargo build --release --target x86_64-unknown-linux-musl -p edgemon-agent
+# 启动本地 Worker 开发服务器 (端口 8787)
+pnpm dev:worker
 
-# Linux ARM64 musl 静态二进制
-cargo build --release --target aarch64-unknown-linux-musl -p edgemon-agent
+# 启动本地前端开发服务器 (端口 3000，带反向代理)
+pnpm dev:web
 
-# Windows
-cargo build --release -p edgemon-agent
+# 运行全量测试套件
+pnpm test:all
 ```
 
 ---
 
-## 开源协议
+## 📄 文档索引
 
-MIT OR Apache-2.0
+- **[生产环境部署指南](docs/deployment.md)**
+- **[安全模型与密钥生命周期](docs/security.md)**
+- **[协议规范文档 (Protocol V1.1)](protocol/PROTOCOL_V1.md)**
+- **[UI 与视觉设计规范](DESIGN.md)**
+
+---
+
+## 📜 开源协议
+
+本项目采用双重许可：[MIT License](LICENSE-MIT) 或 [Apache License 2.0](LICENSE-APACHE)。

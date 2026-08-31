@@ -73,6 +73,11 @@ CREATE TABLE IF NOT EXISTS nodes (
     geo_updated_at_ms        INTEGER,
     expires_at_ms            INTEGER,
 
+    plan_price               REAL,
+    plan_currency            TEXT DEFAULT 'USD',
+    billing_cycle            TEXT DEFAULT 'monthly',
+    auto_renewal             INTEGER DEFAULT 1,
+
     created_at_ms            INTEGER NOT NULL,
     updated_at_ms            INTEGER NOT NULL
 );

@@ -5,10 +5,23 @@ import { useRealtimeStore } from '../realtime/store';
 import { useTranslation } from '../i18n/I18nContext';
 import { OsIcon } from './OsIcon';
 import { CountryFlag } from './CountryFlag';
+import { formatUptime } from '../utils/time';
+import { ProbeHeatmap } from './ProbeHeatmap';
 
 interface NodeCardProps {
   node: NodeItem;
 }
+
+const CYCLE_SHORT: Record<string, string> = {
+  monthly: 'MO',
+  quarterly: 'QTR',
+  semi_annually: '6MO',
+  annually: 'YR',
+  biennially: '2YR',
+  triennially: '3YR',
+  one_time: 'LIFETIME',
+  free: 'FREE',
+};
 
 export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
   const overlay = useRealtimeStore((s) => s.overlays[node.id]);
@@ -24,6 +37,8 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
   const txBps = overlay?.tx_bps ?? node.state?.tx_bps;
   const edgeRttMs = overlay?.edge_rtt_ms ?? node.state?.edge_rtt_ms;
   const probes = overlay?.probes ?? node.state?.probes ?? [];
+  const uptimeSec = overlay?.uptime_sec ?? node.state?.uptime_sec;
+  const fin = node.finance;
 
   const cpuText = !isOnline || cpuUsagePct == null ? 'N/A' : `${cpuUsagePct}%`;
   const cpuBarWidth = !isOnline || cpuUsagePct == null ? 0 : Math.min(100, Math.max(0, cpuUsagePct));
@@ -43,14 +58,34 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
     ? Math.min(100, Math.max(0, memoryPct))
     : 0;
 
-  const rootfsLimitBytes = node.resources?.rootfs_limit_bytes;
-  const diskText = !isOnline
+  const mounts = overlay?.mounts ?? node.state?.mounts ?? [];
+  let totalDiskLimit = node.resources?.rootfs_limit_bytes;
+  let totalDiskUsed = rootfsUsedBytes;
+
+  if (mounts.length > 1) {
+    const sumLimit = mounts.reduce((acc, m) => acc + (m.total_bytes || 0), 0);
+    const sumUsed = mounts.reduce((acc, m) => acc + (m.used_bytes || 0), 0);
+    if (sumLimit > 0) {
+      totalDiskLimit = sumLimit;
+      totalDiskUsed = sumUsed;
+    }
+  }
+
+  const diskLimit = totalDiskLimit;
+  const diskUsed = totalDiskUsed;
+  const diskPct = !isOnline || !diskUsed || !diskLimit || diskLimit === 0
+    ? null
+    : Number(((diskUsed / diskLimit) * 100).toFixed(1));
+
+  const diskText = !isOnline || !diskUsed
     ? 'N/A'
-    : !rootfsLimitBytes || rootfsLimitBytes === 0
-    ? t('container_na')
-    : rootfsUsedBytes
-    ? `${(rootfsUsedBytes / (1024 * 1024 * 1024)).toFixed(1)} / ${(rootfsLimitBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
-    : `${(rootfsLimitBytes / (1024 * 1024 * 1024)).toFixed(1)} GB TOTAL`;
+    : diskPct !== null && diskLimit && diskLimit > 0
+    ? `${diskPct}% (${formatBytes(diskUsed)} / ${formatBytes(diskLimit)})`
+    : `${formatBytes(diskUsed)}`;
+
+  const diskBarWidth = diskPct !== null
+    ? Math.min(100, Math.max(0, diskPct))
+    : 0;
 
   const traffic = node.traffic;
   const trafficUsed = traffic?.period_total_bytes || 0;
@@ -64,14 +99,24 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
   const tcpEstab = overlay?.tcp_established_count ?? node.state?.tcp_established_count;
 
   return (
-    <div className="node-card-tile">
+    <div className="node-card">
       <div>
-        {/* Single Header (CFMS Style) */}
+        {/* Single Header */}
         <div className="node-card-header">
           <div className="node-title-group">
-            <h3 className="node-name-text" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h3 className="node-name-text" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <CountryFlag countryCode={node.geo?.country} />
               <span>{node.name}</span>
+              {fin && fin.price != null && fin.price > 0 && (
+                <span className="spacex-chip" style={{ color: '#00e676', borderColor: 'rgba(0, 230, 118, 0.4)' }}>
+                  {fin.currency || 'USD'} {fin.price}/{CYCLE_SHORT[fin.billing_cycle || 'monthly'] || fin.billing_cycle}
+                </span>
+              )}
+              {fin && fin.billing_cycle === 'free' && (
+                <span className="spacex-chip" style={{ color: 'var(--colors-muted)' }}>
+                  FREE
+                </span>
+              )}
               {node.expires_at_ms && (() => {
                 const daysLeft = Math.ceil((node.expires_at_ms - Date.now()) / (1000 * 60 * 60 * 24));
                 if (daysLeft < 0) {
@@ -136,6 +181,9 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
               <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('root_storage')}</span>
               <span>{diskText}</span>
             </div>
+            <div className="telemetry-bar-track">
+              <div className="telemetry-bar-fill" style={{ width: `${diskBarWidth}%` }}></div>
+            </div>
           </div>
 
           {/* Traffic Billing Cycle */}
@@ -164,6 +212,11 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
 
           {/* Edge RTT & Probes & Sockets */}
           <div className="tag-chips-row">
+            {isOnline && uptimeSec != null && (
+              <span className="spacex-chip">
+                UP: {formatUptime(uptimeSec)}
+              </span>
+            )}
             {edgeRttMs && (
               <span className="spacex-chip" style={{ color: '#ffffff', borderColor: '#ffffff' }}>
                 CF EDGE · {edgeRttMs} MS
@@ -179,38 +232,14 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
                 L: {load1}
               </span>
             )}
-            {(() => {
-              const ct = probes.find((p) => p.id.toLowerCase().includes('ct') || p.id.toLowerCase().includes('telecom') || p.id.toLowerCase().includes('电信'));
-              const cu = probes.find((p) => p.id.toLowerCase().includes('cu') || p.id.toLowerCase().includes('unicom') || p.id.toLowerCase().includes('联通'));
-              const cm = probes.find((p) => p.id.toLowerCase().includes('cm') || p.id.toLowerCase().includes('mobile') || p.id.toLowerCase().includes('移动'));
-              if (ct || cu || cm) {
-                return (
-                  <>
-                    {ct?.latency_ms != null && (
-                      <span className="spacex-chip" style={{ color: '#38bdf8', borderColor: '#38bdf8' }}>
-                        电信 {ct.latency_ms}MS
-                      </span>
-                    )}
-                    {cu?.latency_ms != null && (
-                      <span className="spacex-chip" style={{ color: '#f87171', borderColor: '#f87171' }}>
-                        联通 {cu.latency_ms}MS
-                      </span>
-                    )}
-                    {cm?.latency_ms != null && (
-                      <span className="spacex-chip" style={{ color: '#4ade80', borderColor: '#4ade80' }}>
-                        移动 {cm.latency_ms}MS
-                      </span>
-                    )}
-                  </>
-                );
-              }
-              return probes.slice(0, 2).map((p) => (
-                <span key={p.id} className="spacex-chip">
-                  {p.id}: {p.latency_ms != null ? `${p.latency_ms}MS` : 'ERR'}
-                </span>
-              ));
-            })()}
           </div>
+
+          {/* Three-Net Ping Sparkline Heatmap */}
+          {probes && probes.length > 0 && (
+            <div style={{ marginTop: '12px' }}>
+              <ProbeHeatmap nodeId={node.id} currentProbes={probes} compact={true} />
+            </div>
+          )}
         </div>
       </div>
 

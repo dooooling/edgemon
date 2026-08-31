@@ -46,6 +46,10 @@ export interface NodeRow {
   manual_lat: number | null;
   manual_lon: number | null;
   expires_at_ms: number | null;
+  plan_price: number | null;
+  plan_currency: string | null;
+  billing_cycle: string | null;
+  auto_renewal: number | null;
   active_instance_id: string | null;
   active_instance_started_at_ms: number | null;
   last_stream_connected_at_ms: number | null;
@@ -60,10 +64,16 @@ export async function getNodeById(db: D1Database, id: string): Promise<NodeRow |
 
 export async function verifyNodeAuth(db: D1Database, nodeId: string, rawToken: string): Promise<NodeRow | null> {
   const tokenHash = await sha256(rawToken);
-  return await db
+  const node = await db
     .prepare('SELECT * FROM nodes WHERE id = ? AND token_hash = ?')
     .bind(nodeId, tokenHash)
     .first<NodeRow>();
+
+  if (!node) return null;
+  if (node.expires_at_ms && Date.now() > node.expires_at_ms) {
+    return null;
+  }
+  return node;
 }
 
 export async function createNode(
@@ -72,7 +82,11 @@ export async function createNode(
   trafficResetDay = 1,
   trafficQuotaBytes: number | null = null,
   expiresAtMs: number | null = null,
-  note: string | null = null
+  note: string | null = null,
+  planPrice: number | null = null,
+  planCurrency = 'USD',
+  billingCycle = 'monthly',
+  autoRenewal = 1
 ): Promise<{ node: NodeRow; rawToken: string }> {
   const id = crypto.randomUUID();
   const rawToken = generateRandomToken(32);
@@ -83,10 +97,25 @@ export async function createNode(
     .prepare(
       `INSERT INTO nodes (
         id, name, token_hash, traffic_reset_day, traffic_quota_bytes,
-        expires_at_ms, note, created_at_ms, updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        expires_at_ms, note, plan_price, plan_currency, billing_cycle, auto_renewal,
+        created_at_ms, updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .bind(id, name, tokenHash, trafficResetDay, trafficQuotaBytes, expiresAtMs, note, now, now)
+    .bind(
+      id,
+      name,
+      tokenHash,
+      trafficResetDay,
+      trafficQuotaBytes,
+      expiresAtMs,
+      note,
+      planPrice,
+      planCurrency,
+      billingCycle,
+      autoRenewal,
+      now,
+      now
+    )
     .run();
 
   // Create initial default agent config with 3-Net and Core Infrastructure probes

@@ -196,6 +196,7 @@ export const CloseCodes = {
   TOKEN_REVOKED: 4003,
   NODE_DISABLED: 4004,
   CONFIG_FATAL: 4005,
+  NODE_EXPIRED: 4006,
 } as const;
 
 export function validateFiniteMetric(val: number | null | undefined, min?: number, max?: number): boolean {

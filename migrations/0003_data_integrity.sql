@@ -1,4 +1,4 @@
--- Migration: 0002_data_integrity.sql
+-- Migration: 0003_data_integrity.sql
 -- EdgeMon Data Integrity Protocol v1 Schema Extensions
 
 ALTER TABLE node_state ADD COLUMN persisted_instance_id TEXT;

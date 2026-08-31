@@ -47,6 +47,13 @@ export interface RealtimeMetricsOverlay {
   }>;
 }
 
+export interface ProbeBucketSample {
+  ts_ms: number;
+  rtt_ms: number | null;
+  loss_pct: number;
+  status: string;
+}
+
 export interface RealtimePoint {
   ts_ms: number;
   cpu_usage_pct: number | null;
@@ -60,6 +67,7 @@ export interface RealtimePoint {
 interface RealtimeState {
   overlays: Record<string, RealtimeMetricsOverlay>;
   realtimeSeries: Record<string, RealtimePoint[]>;
+  probeHistory: Record<string, Record<string, ProbeBucketSample[]>>;
   wsConnected: boolean;
   activeScope: string;
   activeNodeId: string | null;
@@ -69,15 +77,21 @@ interface RealtimeState {
 }
 
 let activeSocket: WebSocket | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   overlays: {},
   realtimeSeries: {},
+  probeHistory: {},
   wsConnected: false,
   activeScope: 'overview',
   activeNodeId: null,
 
   connectRealtime: (scope = 'overview', nodeId) => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
     const targetNodeId = nodeId || null;
     const currentState = get();
 
@@ -184,6 +198,24 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
                 .sort((a, b) => a.ts_ms - b.ts_ms)
                 .slice(-300);
 
+              // Update probe history for sparkline heatbars (max 20 samples per probe target)
+              const existingNodeProbes = state.probeHistory[data.node_id] || {};
+              const nextNodeProbes: Record<string, ProbeBucketSample[]> = { ...existingNodeProbes };
+
+              if (Array.isArray(overlay.probes) && overlay.probes.length > 0) {
+                for (const pr of overlay.probes) {
+                  const prKey = pr.id;
+                  const currentList = existingNodeProbes[prKey] || [];
+                  const sample: ProbeBucketSample = {
+                    ts_ms: receivedAt,
+                    rtt_ms: pr.latency_ms ?? null,
+                    loss_pct: (pr.loss_ratio || 0) > 1 ? pr.loss_ratio : (pr.loss_ratio || 0) * 100,
+                    status: pr.status || 'ok',
+                  };
+                  nextNodeProbes[prKey] = [...currentList, sample].slice(-20);
+                }
+              }
+
               return {
                 overlays: {
                   ...state.overlays,
@@ -192,6 +224,10 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
                 realtimeSeries: {
                   ...state.realtimeSeries,
                   [data.node_id]: nextSeries,
+                },
+                probeHistory: {
+                  ...state.probeHistory,
+                  [data.node_id]: nextNodeProbes,
                 },
               };
             });
@@ -203,6 +239,13 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
 
       ws.onclose = () => {
         set({ wsConnected: false });
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+          const s = get();
+          if (s.activeScope !== 'none') {
+            get().connectRealtime(s.activeScope, s.activeNodeId || undefined);
+          }
+        }, 2000);
       };
 
       activeSocket = ws;
@@ -212,6 +255,10 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   },
 
   disconnectRealtime: () => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
     if (activeSocket) {
       activeSocket.close();
       activeSocket = null;

@@ -322,4 +322,36 @@ describe('RealtimeHub & Route Revocation State Machine (P0-2, P1-4)', () => {
     expect(boundValues[2]).toBeNull(); // traffic_quota_bytes
     expect(boundValues[3]).toBeNull(); // manual_city
   });
+
+  it('Anti-Brute-Force: rate limits after 5 failed attempts and locks out IP for 5 minutes', async () => {
+    const { checkLoginRateLimit, recordLoginFailure, recordLoginSuccess } = await import(
+      '../src/routes/auth'
+    );
+
+    const testIp = '203.0.113.42';
+
+    // 1. Initial check: allowed
+    expect(checkLoginRateLimit(testIp).allowed).toBe(true);
+
+    // 2. Fail 4 times: still allowed
+    for (let i = 1; i <= 4; i++) {
+      const res = recordLoginFailure(testIp);
+      expect(res.locked).toBe(false);
+      expect(res.failures).toBe(i);
+    }
+    expect(checkLoginRateLimit(testIp).allowed).toBe(true);
+
+    // 3. 5th failure triggers 5-minute lockout
+    const res5 = recordLoginFailure(testIp);
+    expect(res5.locked).toBe(true);
+    expect(res5.remainingSec).toBeGreaterThan(0);
+
+    const lockedCheck = checkLoginRateLimit(testIp);
+    expect(lockedCheck.allowed).toBe(false);
+    expect(lockedCheck.remainingSec).toBeGreaterThan(0);
+
+    // 4. Successful login clears lockout
+    recordLoginSuccess(testIp);
+    expect(checkLoginRateLimit(testIp).allowed).toBe(true);
+  });
 });

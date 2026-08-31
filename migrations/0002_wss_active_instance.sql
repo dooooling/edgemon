@@ -1,4 +1,4 @@
--- Migration: 0003_wss_active_instance.sql
+-- Migration: 0002_wss_active_instance.sql
 -- EdgeMon WSS Architecture v1.0: Active Instance Tracking
 
 ALTER TABLE nodes ADD COLUMN active_instance_id TEXT;

@@ -42,11 +42,22 @@ adminRoutes.post('/api/admin/nodes', async (c) => {
     traffic_quota_bytes?: number;
     expires_at_ms?: number;
     note?: string;
+    plan_price?: number;
+    plan_currency?: string;
+    billing_cycle?: string;
+    auto_renewal?: number | boolean;
   }>();
 
   if (!body.name) {
     return c.json({ error: 'Node name is required' }, 400);
   }
+
+  const autoRenewalNum =
+    body.auto_renewal !== undefined
+      ? typeof body.auto_renewal === 'boolean'
+        ? body.auto_renewal ? 1 : 0
+        : Number(body.auto_renewal)
+      : 1;
 
   const { node, rawToken } = await createNode(
     c.env.DB,
@@ -54,7 +65,11 @@ adminRoutes.post('/api/admin/nodes', async (c) => {
     body.traffic_reset_day || 1,
     body.traffic_quota_bytes || null,
     body.expires_at_ms || null,
-    body.note || null
+    body.note || null,
+    body.plan_price !== undefined ? body.plan_price : null,
+    body.plan_currency || 'USD',
+    body.billing_cycle || 'monthly',
+    autoRenewalNum
   );
 
   return c.json({ node, rawToken }, 201);
@@ -112,13 +127,17 @@ adminRoutes.patch('/api/admin/nodes/:id', async (c) => {
       manual_lat: 'manual_lat',
       manual_lon: 'manual_lon',
       expires_at_ms: 'expires_at_ms',
+      plan_price: 'plan_price',
+      plan_currency: 'plan_currency',
+      billing_cycle: 'billing_cycle',
+      auto_renewal: 'auto_renewal',
     };
 
     for (const [bodyKey, colName] of Object.entries(allowedFields)) {
       if (Object.prototype.hasOwnProperty.call(body, bodyKey)) {
         setClauses.push(`${colName} = ?`);
         let val = body[bodyKey];
-        if (bodyKey === 'hidden' && val !== null && val !== undefined) {
+        if ((bodyKey === 'hidden' || bodyKey === 'auto_renewal') && val !== null && val !== undefined) {
           val = val ? 1 : 0;
         }
         setValues.push(val);

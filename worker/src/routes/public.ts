@@ -30,7 +30,7 @@ publicRoutes.get('/api/public/nodes', async (c) => {
       n.geo_lat, n.geo_lon, n.asn, n.as_org, n.cf_colo,
       n.location_mode, n.manual_country, n.manual_city, n.manual_lat, n.manual_lon,
       n.traffic_reset_day, n.traffic_quota_bytes,
-      n.expires_at_ms,
+      n.expires_at_ms, n.plan_price, n.plan_currency, n.billing_cycle, n.auto_renewal,
       s.last_seen_at_ms, s.cpu_usage_pct, s.cpu_throttled_pct,
       s.memory_used_bytes, s.memory_working_set_bytes, s.swap_used_bytes,
       s.rootfs_used_bytes, s.disk_read_bps, s.disk_write_bps,
@@ -116,6 +116,12 @@ publicRoutes.get('/api/public/nodes', async (c) => {
         period_total_bytes: periodRx + periodTx,
       },
       expires_at_ms: row.expires_at_ms || null,
+      finance: {
+        price: row.plan_price !== null && row.plan_price !== undefined ? Number(row.plan_price) : null,
+        currency: row.plan_currency || 'USD',
+        billing_cycle: row.billing_cycle || 'monthly',
+        auto_renewal: Boolean(row.auto_renewal ?? 1),
+      },
       state: row.last_seen_at_ms ? {
         last_seen_at_ms: row.last_seen_at_ms,
         cpu_usage_pct: row.cpu_usage_pct,

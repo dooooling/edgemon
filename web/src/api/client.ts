@@ -51,6 +51,12 @@ export interface NodeItem {
     period_total_bytes: number;
   } | null;
   expires_at_ms?: number | null;
+  finance?: {
+    price?: number | null;
+    currency?: string;
+    billing_cycle?: 'monthly' | 'quarterly' | 'semi_annually' | 'annually' | 'biennially' | 'triennially' | 'one_time' | 'free' | string;
+    auto_renewal?: boolean;
+  } | null;
   state?: {
     last_seen_at_ms: number;
     cpu_usage_pct?: number | null;
@@ -147,6 +153,10 @@ export async function createAdminNode(payload: {
   traffic_quota_bytes?: number | null;
   expires_at_ms?: number | null;
   note?: string | null;
+  plan_price?: number | null;
+  plan_currency?: string;
+  billing_cycle?: string;
+  auto_renewal?: boolean | number;
 }) {
   const res = await fetch('/api/admin/nodes', {
     method: 'POST',
@@ -154,6 +164,27 @@ export async function createAdminNode(payload: {
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error('Failed to create node');
+  return await res.json();
+}
+
+export async function updateAdminNode(id: string, payload: {
+  name?: string;
+  traffic_reset_day?: number;
+  traffic_quota_bytes?: number | null;
+  expires_at_ms?: number | null;
+  note?: string | null;
+  hidden?: boolean;
+  plan_price?: number | null;
+  plan_currency?: string;
+  billing_cycle?: string;
+  auto_renewal?: boolean | number;
+}) {
+  const res = await fetch(`/api/admin/nodes/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('Failed to update node');
   return await res.json();
 }
 

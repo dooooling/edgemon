@@ -150,4 +150,66 @@ describe('Alert Engine & State Machine', () => {
     expect(memTrans.length).toBe(1);
     expect(memTrans[0].status).toBe('resolved');
   });
+
+  it('SSRF Defense: correctly blocks loopback, private IPv4/IPv6, and metadata addresses', async () => {
+    const { isAllowedWebhookUrl } = await import('../src/services/notifications');
+
+    // Blocked malicious/private targets
+    expect(isAllowedWebhookUrl('http://127.0.0.1/webhook')).toBe(false);
+    expect(isAllowedWebhookUrl('https://localhost:8080/hook')).toBe(false);
+    expect(isAllowedWebhookUrl('https://10.0.1.5:8443/webhook')).toBe(false);
+    expect(isAllowedWebhookUrl('https://172.20.0.1/webhook')).toBe(false);
+    expect(isAllowedWebhookUrl('https://192.168.1.100/webhook')).toBe(false);
+    expect(isAllowedWebhookUrl('https://169.254.169.254/latest/meta-data')).toBe(false); // Cloud metadata
+    expect(isAllowedWebhookUrl('https://100.64.0.1/webhook')).toBe(false); // Carrier grade NAT
+    expect(isAllowedWebhookUrl('ftp://example.com/webhook')).toBe(false);
+
+    // Allowed public HTTPS webhook targets
+    expect(isAllowedWebhookUrl('https://discord.com/api/webhooks/123/abc')).toBe(true);
+    expect(isAllowedWebhookUrl('https://api.telegram.org/bot123:abc/sendMessage')).toBe(true);
+    expect(isAllowedWebhookUrl('https://hooks.slack.com/services/T00/B00/X00')).toBe(true);
+    expect(isAllowedWebhookUrl('https://notify.example.com/alerts')).toBe(true);
+  });
+
+  it('formats notification payloads properly for Discord, Telegram, and Generic channels', async () => {
+    const { formatWebhookPayload } = await import('../src/services/notifications');
+
+    const event = {
+      title: 'Node Tokyo-01 is Offline',
+      message: 'No heartbeat received in last 90 seconds',
+      nodeId: 'node-1',
+      nodeName: 'Tokyo-01',
+      type: 'offline',
+      status: 'firing' as const,
+    };
+
+    // Discord formatting
+    const discord = formatWebhookPayload(
+      { url: 'https://discord.com/api/webhooks/123/abc' },
+      event
+    );
+    const discordBody = JSON.parse(discord.body);
+    expect(discordBody.embeds).toBeDefined();
+    expect(discordBody.embeds[0].title).toBe('Node Tokyo-01 is Offline');
+    expect(discordBody.embeds[0].color).toBe(0xe74c3c); // Red for firing
+
+    // Telegram formatting
+    const telegram = formatWebhookPayload(
+      { url: 'https://api.telegram.org/bot123/sendMessage' },
+      event
+    );
+    const telegramBody = JSON.parse(telegram.body);
+    expect(telegramBody.parse_mode).toBe('Markdown');
+    expect(telegramBody.text).toContain('🚨 *[EdgeMon Alert]*');
+
+    // Generic formatting
+    const generic = formatWebhookPayload(
+      { url: 'https://custom-webhook.com/alert' },
+      event
+    );
+    const genericBody = JSON.parse(generic.body);
+    expect(genericBody.event).toBe('alert_firing');
+    expect(genericBody.node_id).toBe('node-1');
+  });
 });
+

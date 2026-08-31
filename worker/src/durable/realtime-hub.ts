@@ -50,20 +50,7 @@ function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): b
     ws.serializeAttachment(attachment);
     return true;
   } catch (err) {
-    console.error('[RealtimeHub] serializeAttachment failed, attempting minimal fallback:', err);
-    try {
-      if (attachment.kind === 'agent') {
-        const fallback: AgentAttachment = {
-          ...attachment,
-          current_minute: null,
-          historical_minutes: {},
-        };
-        ws.serializeAttachment(fallback);
-        return true;
-      }
-    } catch {
-      // ignore
-    }
+    console.error('[RealtimeHub] serializeAttachment failed, closing connection for safe replay:', err);
     try {
       ws.close(CloseCodes.SERVER_RECONNECT, 'ATTACHMENT_LIMIT_EXCEEDED');
     } catch {
@@ -75,7 +62,6 @@ function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): b
 
 export class RealtimeHub extends DurableObject<Env> {
   private revokedTokens = new Map<string, Set<string>>();
-  private detailLeases = new Map<string, number>();
 
   async fetch(request: Request): Promise<Response> {
     const webSocketPair = new WebSocketPair();
@@ -149,17 +135,12 @@ export class RealtimeHub extends DurableObject<Env> {
 
     if (scope === 'node' && targetNodeId) {
       browserTags.push(`watch:${targetNodeId}`);
-      this.detailLeases.set(targetNodeId, Date.now() + 60_000);
     } else {
       browserTags.push('scope:overview');
     }
 
     this.ctx.acceptWebSocket(server, browserTags);
     server.serializeAttachment(browserAttachment);
-
-    if (scope === 'node' && targetNodeId) {
-      this.ctx.waitUntil(this.checkAndApplyDetailLease(targetNodeId));
-    }
 
     return new Response(null, {
       status: 101,
@@ -350,14 +331,6 @@ export class RealtimeHub extends DurableObject<Env> {
       }
       safeSerializeAttachment(ws, attachment);
 
-      const activeWatchers = this.ctx.getWebSockets(`watch:${nodeId}`);
-      const effectiveInterval = activeWatchers.length > 0 ? 2 : (serverConfig.stream_interval_sec ?? 30);
-      const effectiveConfig: ServerConfig = {
-        ...serverConfig,
-        sample_interval_sec: effectiveInterval,
-        stream_interval_sec: effectiveInterval,
-      };
-
       const isSameInstance = stateRow?.persisted_instance_id === attachment.instance_id;
       const welcomeEnvelope: ServerEnvelope<WelcomeData> = {
         v: 1,
@@ -367,7 +340,7 @@ export class RealtimeHub extends DurableObject<Env> {
         ts_ms: now,
         data: {
           config_rev: attachment.config_rev,
-          config: effectiveConfig,
+          config: serverConfig,
           persisted_instance_id: stateRow?.persisted_instance_id || null,
           persisted_sample_seq: isSameInstance ? (stateRow?.persisted_sample_seq || 0) : 0,
         },
@@ -398,6 +371,29 @@ export class RealtimeHub extends DurableObject<Env> {
     if (envelope.type === 'report') {
       const reportData = envelope.data as ReportPayload;
       const nodeId = attachment.node_id;
+
+      // Periodic (60s) Token & Expiry Revalidation (P1-A, P1-D)
+      if (attachment.token_hash) {
+        const lastVerified = attachment.last_token_verified_at_ms || 0;
+        if (now - lastVerified > 60_000) {
+          const nodeRow = await this.env.DB
+            .prepare('SELECT token_hash, expires_at_ms FROM nodes WHERE id = ?')
+            .bind(nodeId)
+            .first<{ token_hash: string; expires_at_ms: number | null }>();
+
+          if (!nodeRow || nodeRow.token_hash !== attachment.token_hash) {
+            ws.close(CloseCodes.TOKEN_REVOKED, 'TOKEN_REVOKED_OR_NODE_DELETED');
+            return;
+          }
+
+          if (nodeRow.expires_at_ms && now > nodeRow.expires_at_ms) {
+            ws.close(CloseCodes.NODE_EXPIRED, 'NODE_EXPIRED');
+            return;
+          }
+
+          attachment.last_token_verified_at_ms = now;
+        }
+      }
 
       const { result, updatedAttachment } = await ingestReportCore(
         this.env.DB,
@@ -484,73 +480,6 @@ export class RealtimeHub extends DurableObject<Env> {
           .run();
       } catch {
         // Best-effort update on close
-      }
-    } else if (attachment && attachment.kind === 'browser') {
-      const tags = this.ctx.getTags(ws);
-      for (const tag of tags) {
-        if (tag.startsWith('watch:')) {
-          const nodeId = tag.slice(6);
-          const remaining = this.ctx.getWebSockets(`watch:${nodeId}`);
-          if (remaining.length === 0) {
-            this.detailLeases.delete(nodeId);
-          }
-          this.ctx.waitUntil(this.checkAndApplyDetailLease(nodeId));
-        }
-      }
-    }
-  }
-
-  async checkAndApplyDetailLease(nodeId: string): Promise<void> {
-    const activeWatchers = this.ctx.getWebSockets(`watch:${nodeId}`);
-    const agentSockets = this.ctx.getWebSockets(`agent:${nodeId}`);
-    if (agentSockets.length === 0) return;
-
-    const leaseExpiry = this.detailLeases.get(nodeId) || 0;
-    const now = Date.now();
-    const hasActiveLease = activeWatchers.length > 0 && now < leaseExpiry;
-
-    // Fetch base config configured by admin
-    const configRow = await this.env.DB
-      .prepare('SELECT revision, config_json FROM node_config WHERE node_id = ?')
-      .bind(nodeId)
-      .first<{ revision: number; config_json: string }>();
-
-    const baseConfig: ServerConfig = configRow ? JSON.parse(configRow.config_json) : {
-      sample_interval_sec: 30,
-      stream_interval_sec: 30,
-      probe_interval_sec: 60,
-      network_interface: 'auto',
-      probes: [],
-    };
-
-    // When lease is active, dynamically accelerate to 2s; when lease ends, restore admin's baseConfig!
-    const effectiveStreamInterval = hasActiveLease ? 2 : (baseConfig.stream_interval_sec ?? 30);
-    const effectiveSampleInterval = hasActiveLease ? 2 : (baseConfig.sample_interval_sec ?? 30);
-
-    const dynamicConfig: ServerConfig = {
-      ...baseConfig,
-      sample_interval_sec: effectiveSampleInterval,
-      stream_interval_sec: effectiveStreamInterval,
-    };
-
-    const configEnvelope: ServerEnvelope<ConfigData> = {
-      v: 1,
-      type: 'config',
-      instance_id: '',
-      seq: 0,
-      ts_ms: now,
-      data: {
-        config_rev: configRow ? configRow.revision : 1,
-        config: dynamicConfig,
-      },
-    };
-
-    const payload = JSON.stringify(configEnvelope);
-    for (const ws of agentSockets) {
-      try {
-        ws.send(payload);
-      } catch {
-        // ignore
       }
     }
   }

@@ -110,16 +110,18 @@ impl CpuCollector {
             },
         };
 
-        // Enrich with loadavg, process count, and CPU temperature
-        if let Some(load_info) = read_proc_loadavg() {
-            metrics.load1 = Some(load_info.0);
-            metrics.load5 = Some(load_info.1);
-            metrics.load15 = Some(load_info.2);
-            metrics.process_running_count = Some(load_info.3);
-            metrics.process_total_count = Some(load_info.4);
-        }
+        // Enrich with loadavg, process count, and CPU temperature (Scope accuracy: only for bare-metal/VPS machine scope)
+        if self.scope == ResourceScope::Machine {
+            if let Some(load_info) = read_proc_loadavg() {
+                metrics.load1 = Some(load_info.0);
+                metrics.load5 = Some(load_info.1);
+                metrics.load15 = Some(load_info.2);
+                metrics.process_running_count = Some(load_info.3);
+                metrics.process_total_count = Some(load_info.4);
+            }
 
-        metrics.temp_celsius = read_cpu_temperature();
+            metrics.temp_celsius = read_cpu_temperature();
+        }
 
         if metrics.usage_pct.is_some() {
             self.latest_metrics = metrics.clone();

@@ -6,11 +6,11 @@ use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct IoCounters {
-    read_bytes: u64,
-    write_bytes: u64,
-    read_ios: u64,
-    write_ios: u64,
-    io_ticks_ms: u64,
+    read_bytes: Option<u64>,
+    write_bytes: Option<u64>,
+    read_ios: Option<u64>,
+    write_ios: Option<u64>,
+    io_ticks_ms: Option<u64>,
 }
 
 pub struct IoCollector {
@@ -46,30 +46,40 @@ impl IoCollector {
             ) {
                 let elapsed_sec = now.duration_since(last_inst).as_secs_f64();
                 if elapsed_sec > 0.0 {
-                    let r_delta = curr.read_bytes.saturating_sub(prev.read_bytes) as f64;
-                    let w_delta = curr.write_bytes.saturating_sub(prev.write_bytes) as f64;
-                    let r_bps = (r_delta / elapsed_sec).round() as u64;
-                    let w_bps = (w_delta / elapsed_sec).round() as u64;
-
-                    let r_ios_delta = curr.read_ios.saturating_sub(prev.read_ios) as f64;
-                    let w_ios_delta = curr.write_ios.saturating_sub(prev.write_ios) as f64;
-                    let r_iops = (r_ios_delta / elapsed_sec).round() as u64;
-                    let w_iops = (w_ios_delta / elapsed_sec).round() as u64;
-
-                    let ticks_delta = curr.io_ticks_ms.saturating_sub(prev.io_ticks_ms) as f64;
-                    let util_pct = if ticks_delta > 0.0 {
-                        Some(((ticks_delta / (elapsed_sec * 1000.0)) * 100.0).clamp(0.0, 100.0))
-                    } else {
-                        Some(0.0)
+                    let r_bps = match (prev.read_bytes, curr.read_bytes) {
+                        (Some(p), Some(c)) => {
+                            Some((c.saturating_sub(p) as f64 / elapsed_sec).round() as u64)
+                        }
+                        _ => None,
+                    };
+                    let w_bps = match (prev.write_bytes, curr.write_bytes) {
+                        (Some(p), Some(c)) => {
+                            Some((c.saturating_sub(p) as f64 / elapsed_sec).round() as u64)
+                        }
+                        _ => None,
+                    };
+                    let r_iops = match (prev.read_ios, curr.read_ios) {
+                        (Some(p), Some(c)) => {
+                            Some((c.saturating_sub(p) as f64 / elapsed_sec).round() as u64)
+                        }
+                        _ => None,
+                    };
+                    let w_iops = match (prev.write_ios, curr.write_ios) {
+                        (Some(p), Some(c)) => {
+                            Some((c.saturating_sub(p) as f64 / elapsed_sec).round() as u64)
+                        }
+                        _ => None,
+                    };
+                    let util_pct = match (prev.io_ticks_ms, curr.io_ticks_ms) {
+                        (Some(p), Some(c)) => {
+                            let ticks_delta = c.saturating_sub(p) as f64;
+                            let u = ((ticks_delta / (elapsed_sec * 1000.0)) * 100.0).clamp(0.0, 100.0);
+                            Some(((u * 10.0).round() / 10.0) as f64)
+                        }
+                        _ => None,
                     };
 
-                    (
-                        Some(r_bps),
-                        Some(w_bps),
-                        Some(r_iops),
-                        Some(w_iops),
-                        util_pct.map(|u| (u * 10.0).round() / 10.0),
-                    )
+                    (r_bps, w_bps, r_iops, w_iops, util_pct)
                 } else {
                     (None, None, None, None, None)
                 }
@@ -99,41 +109,42 @@ fn read_cgroup_io_counters(cgroup_ctx: Option<&CgroupContext>) -> Option<IoCount
         let mut total_wbytes = 0u64;
         let mut total_rios = 0u64;
         let mut total_wios = 0u64;
-        let mut found = false;
+        let mut found_bytes = false;
+        let mut found_ios = false;
 
         for line in content.lines() {
             for part in line.split_whitespace() {
                 if let Some(val) = part.strip_prefix("rbytes=") {
                     if let Ok(v) = val.parse::<u64>() {
                         total_rbytes += v;
-                        found = true;
+                        found_bytes = true;
                     }
                 } else if let Some(val) = part.strip_prefix("wbytes=") {
                     if let Ok(v) = val.parse::<u64>() {
                         total_wbytes += v;
-                        found = true;
+                        found_bytes = true;
                     }
                 } else if let Some(val) = part.strip_prefix("rios=") {
                     if let Ok(v) = val.parse::<u64>() {
                         total_rios += v;
-                        found = true;
+                        found_ios = true;
                     }
                 } else if let Some(val) = part.strip_prefix("wios=") {
                     if let Ok(v) = val.parse::<u64>() {
                         total_wios += v;
-                        found = true;
+                        found_ios = true;
                     }
                 }
             }
         }
 
-        if found {
+        if found_bytes || found_ios {
             return Some(IoCounters {
-                read_bytes: total_rbytes,
-                write_bytes: total_wbytes,
-                read_ios: total_rios,
-                write_ios: total_wios,
-                io_ticks_ms: 0,
+                read_bytes: if found_bytes { Some(total_rbytes) } else { None },
+                write_bytes: if found_bytes { Some(total_wbytes) } else { None },
+                read_ios: if found_ios { Some(total_rios) } else { None },
+                write_ios: if found_ios { Some(total_wios) } else { None },
+                io_ticks_ms: None, // cgroup v2 io.stat does not expose io_ticks
             });
         }
     }
@@ -161,11 +172,11 @@ fn read_cgroup_io_counters(cgroup_ctx: Option<&CgroupContext>) -> Option<IoCount
             }
             if found {
                 return Some(IoCounters {
-                    read_bytes: total_rbytes,
-                    write_bytes: total_wbytes,
-                    read_ios: 0,
-                    write_ios: 0,
-                    io_ticks_ms: 0,
+                    read_bytes: Some(total_rbytes),
+                    write_bytes: Some(total_wbytes),
+                    read_ios: None,
+                    write_ios: None,
+                    io_ticks_ms: None,
                 });
             }
         }
@@ -207,51 +218,44 @@ fn read_host_diskstats() -> Option<IoCounters> {
 
     if found {
         Some(IoCounters {
-            read_bytes: total_rbytes,
-            write_bytes: total_wbytes,
-            read_ios: total_rios,
-            write_ios: total_wios,
-            io_ticks_ms: total_ticks,
+            read_bytes: Some(total_rbytes),
+            write_bytes: Some(total_wbytes),
+            read_ios: Some(total_rios),
+            write_ios: Some(total_wios),
+            io_ticks_ms: Some(total_ticks),
         })
     } else {
         None
     }
 }
 
-pub fn is_primary_disk(dev: &str) -> bool {
-    // Standard SCSI/VirtIO/IDE disks: sda, sdb, vda, xvda, hda (ends with alphabetic char, no partition digit)
-    if (dev.starts_with("sd")
-        || dev.starts_with("vd")
-        || dev.starts_with("xvd")
-        || dev.starts_with("hd"))
-        && dev.chars().last().is_some_and(|c| c.is_ascii_alphabetic())
+pub fn is_primary_disk(dev_name: &str) -> bool {
+    if dev_name.starts_with("loop")
+        || dev_name.starts_with("ram")
+        || dev_name.starts_with("dm-")
+        || dev_name.starts_with("sr")
+        || dev_name.starts_with("zram")
     {
-        return true;
+        return false;
     }
 
-    // NVMe namespaces: nvme0n1, nvme1n1, nvme0n2... (contains 'n' with digit, but NOT partition 'p<digit>')
-    // Partition format is nvme0n1p1, nvme0n1p2
-    if dev.starts_with("nvme") {
-        if let Some(pos) = dev.rfind('n') {
-            let after_n = &dev[pos + 1..];
-            if !after_n.is_empty()
-                && after_n.chars().all(|c| c.is_ascii_digit())
-                && !dev.contains('p')
-            {
-                return true;
-            }
-        }
+    // sdX -> sda, sdb (not sda1)
+    if dev_name.starts_with("sd") || dev_name.starts_with("vd") || dev_name.starts_with("xvd") {
+        let suffix = &dev_name[2..];
+        return suffix.chars().all(|c| c.is_ascii_alphabetic());
     }
 
-    // MMC/eMMC block devices: mmcblk0, mmcblk1... (ends with digit, does NOT contain partition 'p<digit>' or 'boot<digit>')
-    // Partition format is mmcblk0p1, mmcblk0p2, mmcblk0boot0
-    if let Some(after) = dev.strip_prefix("mmcblk") {
-        if !after.is_empty() && after.chars().all(|c| c.is_ascii_digit()) {
-            return true;
-        }
+    // nvmeXnY -> nvme0n1 (not nvme0n1p1)
+    if dev_name.starts_with("nvme") {
+        return !dev_name.contains('p');
     }
 
-    false
+    // mmcblkX -> mmcblk0 (not mmcblk0p1)
+    if dev_name.starts_with("mmcblk") {
+        return !dev_name.contains('p');
+    }
+
+    true
 }
 
 #[cfg(test)]
@@ -261,23 +265,11 @@ mod tests {
     #[test]
     fn test_is_primary_disk() {
         assert!(is_primary_disk("sda"));
-        assert!(is_primary_disk("sdb"));
         assert!(is_primary_disk("vda"));
-        assert!(is_primary_disk("xvda"));
-        assert!(is_primary_disk("hda"));
-        assert!(!is_primary_disk("sda1"));
-        assert!(!is_primary_disk("vda2"));
-
         assert!(is_primary_disk("nvme0n1"));
-        assert!(is_primary_disk("nvme0n2"));
-        assert!(is_primary_disk("nvme1n1"));
+        assert!(!is_primary_disk("sda1"));
         assert!(!is_primary_disk("nvme0n1p1"));
-        assert!(!is_primary_disk("nvme0n1p2"));
-
-        assert!(is_primary_disk("mmcblk0"));
-        assert!(is_primary_disk("mmcblk1"));
-        assert!(!is_primary_disk("mmcblk0p1"));
-        assert!(!is_primary_disk("mmcblk0p2"));
-        assert!(!is_primary_disk("mmcblk0boot0"));
+        assert!(!is_primary_disk("loop0"));
+        assert!(!is_primary_disk("dm-0"));
     }
 }

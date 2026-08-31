@@ -18,7 +18,7 @@
     {
       "binding": "DB",
       "database_name": "edgemon",
-      "database_id": "local-d1-placeholder"
+      "database_id": "local-d1-placeholder" // Replace with your production D1 database_id from `npx wrangler d1 create edgemon`
     }
   ],
 

@@ -5,6 +5,7 @@ import { useRealtimeStore } from '../realtime/store';
 import { WorldMap } from '../components/WorldMap';
 import { NodeCard } from '../components/NodeCard';
 import { NodeTable } from '../components/NodeTable';
+import { FinanceSummaryModal } from '../components/FinanceSummaryModal';
 import { useTranslation } from '../i18n/I18nContext';
 
 export const OverviewPage: React.FC = () => {
@@ -13,6 +14,7 @@ export const OverviewPage: React.FC = () => {
   const overlays = useRealtimeStore((s) => s.overlays);
   const { t } = useTranslation();
   const [viewMode, setViewMode] = useState<'grid' | 'table' | 'map'>('grid');
+  const [showFinanceModal, setShowFinanceModal] = useState(false);
 
   useEffect(() => {
     connectRealtime('overview');
@@ -73,7 +75,17 @@ export const OverviewPage: React.FC = () => {
             {nodes.length}
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          {/* Finance Summary Button */}
+          <button
+            type="button"
+            className="button-ghost-on-dark button-ghost-sm"
+            style={{ borderColor: 'rgba(0, 230, 118, 0.5)', color: '#00e676', fontWeight: 600 }}
+            onClick={() => setShowFinanceModal(true)}
+          >
+            💰 财务账单 / 续费日历
+          </button>
+
           {/* 3-Tab View Mode Toggle: 卡片矩阵 / 紧凑表格 / 3D 视图 */}
           <div className="range-capsules">
             <button
@@ -157,6 +169,13 @@ export const OverviewPage: React.FC = () => {
           ))}
         </div>
       )}
+
+      {/* Finance & Renewal Summary Modal */}
+      <FinanceSummaryModal
+        nodes={nodes}
+        isOpen={showFinanceModal}
+        onClose={() => setShowFinanceModal(false)}
+      />
     </div>
   );
 };

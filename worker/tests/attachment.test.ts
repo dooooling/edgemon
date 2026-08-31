@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AgentAttachment, MinuteAccumulator, finalizeAccumulator, mergeIntoAccumulator } from '../src/services/ingest';
-import { ReportMetrics } from '../protocol/types';
+import { ReportMetrics } from '../src/protocol/types';
 import { compactAgentAttachment } from '../src/services/attachment';
 
 function createMockMetrics(mountCount = 10, probeCount = 20): ReportMetrics {
@@ -259,5 +259,84 @@ describe('DO WebSocket Attachment 2048-Byte Boundary & Lifecycle Tests', () => {
     const finalizedCurrent = finalizeAccumulator(restored.current_minute!);
     expect(finalizedCurrent.report.cpu.usage_pct).toBeDefined();
     expect(finalizedCurrent.rxDelta).toBeGreaterThan(0);
+  });
+
+  it('P0-A & P1-A: preserves multiple unpersisted historical buckets, sequence boundaries, and token_hash without zeroing', () => {
+    const rawMetrics = createMockMetrics(2, 2);
+    const minute1: MinuteAccumulator = {
+      ...createMockMinute(rawMetrics),
+      bucket_start_ms: 1787639880000,
+      first_sample_seq: 100,
+      last_sample_seq: 129,
+    };
+    const minute2: MinuteAccumulator = {
+      ...createMockMinute(rawMetrics),
+      bucket_start_ms: 1787639940000,
+      first_sample_seq: 130,
+      last_sample_seq: 159,
+    };
+    const minute3: MinuteAccumulator = {
+      ...createMockMinute(rawMetrics),
+      bucket_start_ms: 1787640000000,
+      first_sample_seq: 160,
+      last_sample_seq: 189,
+    };
+
+    const attachment: AgentAttachment = {
+      kind: 'agent',
+      node_id: 'node-multi-hist',
+      node_name: 'test-node',
+      instance_id: 'inst-1',
+      traffic_reset_day: 1,
+      is_hidden: false,
+      token_hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      last_token_verified_at_ms: 1787640000000,
+      geo: { geo_country: 'JP', cf_colo: 'NRT', edge_rtt_ms: 20.0, edge_transport: 'quic', geo_region: null, geo_region_code: null, geo_city: null, geo_lat: null, geo_lon: null, geo_timezone: null, geo_continent: null, asn: null, as_org: null, egress_ip: null },
+      hello_ok: true,
+      connected_at_ms: 1787640000000,
+      last_seq: 189,
+      last_report_received_at_ms: 1787640060000,
+      config_rev: 2,
+      last_persist_bucket_ms: 1787639800000, // Both 1787639880000 and 1787639940000 are unpersisted!
+      persisted_sample_seq: 90,
+      last_counter_id: 'ctr-1',
+      last_rx_total_bytes: 10000,
+      last_tx_total_bytes: 5000,
+      last_ping_ts_ms: 1787640060000,
+      current_minute: minute3,
+      historical_minutes: {
+        '1787639880000': minute1,
+        '1787639940000': minute2,
+      },
+      traffic_state: {
+        period_start_ms: 1787616000000,
+        finalized_rx_bytes: 5000,
+        finalized_tx_bytes: 2000,
+        active_counter_id: 'ctr-1',
+        active_rx_base_bytes: 1000,
+        active_tx_base_bytes: 500,
+        dirty: true,
+      },
+    };
+
+    const compacted = compactAgentAttachment(attachment);
+
+    // 1. Assert ALL unpersisted historical minutes are kept (neither dropped)
+    expect(Object.keys(compacted.historical_minutes)).toHaveLength(2);
+    expect(compacted.historical_minutes['1787639880000']).toBeDefined();
+    expect(compacted.historical_minutes['1787639940000']).toBeDefined();
+
+    // 2. Assert sequence numbers are NOT zeroed out
+    expect(compacted.historical_minutes['1787639880000'].first_sample_seq).toBe(100);
+    expect(compacted.historical_minutes['1787639880000'].last_sample_seq).toBe(129);
+    expect(compacted.historical_minutes['1787639940000'].first_sample_seq).toBe(130);
+    expect(compacted.historical_minutes['1787639940000'].last_sample_seq).toBe(159);
+    expect(compacted.current_minute?.first_sample_seq).toBe(160);
+    expect(compacted.current_minute?.last_sample_seq).toBe(189);
+
+    // 3. Assert auth credentials and transport metadata are preserved
+    expect(compacted.token_hash).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+    expect(compacted.last_token_verified_at_ms).toBe(1787640000000);
+    expect(compacted.geo.edge_transport).toBe('quic');
   });
 });

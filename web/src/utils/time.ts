@@ -94,3 +94,20 @@ export function formatBeijingAxis(tsSec: number, range: string): string {
   }
   return beijingTimeMinFormatter.format(d);
 }
+
+/**
+ * 格式化运行时间 / 开机时间: 例如 "12d 5h 30m" 或 "4h 12m" 或 "45m"
+ */
+export function formatUptime(uptimeSec?: number | null): string {
+  if (!uptimeSec || uptimeSec <= 0) return 'N/A';
+  const days = Math.floor(uptimeSec / 86400);
+  const hours = Math.floor((uptimeSec % 86400) / 3600);
+  const mins = Math.floor((uptimeSec % 3600) / 60);
+  if (days > 0) {
+    return `${days}d ${hours}h ${mins}m`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${mins}m`;
+  }
+  return `${mins}m`;
+}

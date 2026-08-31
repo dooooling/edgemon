@@ -211,5 +211,64 @@ describe('Alert Engine & State Machine', () => {
     expect(genericBody.event).toBe('alert_firing');
     expect(genericBody.node_id).toBe('node-1');
   });
+
+  it('maskWebhookUrl: preserves host and masks sensitive path credentials for Discord, Telegram, and generic webhooks', async () => {
+    const { maskWebhookUrl } = await import('../src/services/notifications');
+
+    expect(maskWebhookUrl('https://discord.com/api/webhooks/123456789/SuperSecretToken')).toBe(
+      'https://discord.com/api/webhooks/123456789/***REDACTED***'
+    );
+    expect(maskWebhookUrl('https://api.telegram.org/bot123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11/sendMessage')).toBe(
+      'https://api.telegram.org/bot***REDACTED***/sendMessage'
+    );
+    expect(maskWebhookUrl('https://hooks.slack.com/services/T000/B000/XXXXX')).toBe(
+      'https://hooks.slack.com/services/***REDACTED***'
+    );
+    // Generic webhooks: strips 100% path and query secrets
+    expect(maskWebhookUrl('https://my-webhook.internal.org/endpoint?token=supersecret123')).toBe(
+      'https://my-webhook.internal.org/***REDACTED***'
+    );
+  });
+
+  it('retries resolved notifications until delivered', async () => {
+    const node = {
+      id: 'node-1',
+      name: 'Tokyo-01',
+      hidden: 0,
+      expires_at_ms: null,
+      memory_limit_bytes: 1000,
+      rootfs_limit_bytes: 1000,
+      last_seen_at_ms: Date.now(),
+      cpu_usage_pct: 10,
+      memory_used_bytes: 100,
+      rootfs_used_bytes: 100,
+    };
+    const mockDb = {
+      prepare(sql: string) {
+        return {
+          bind(...args: any[]) { return this; },
+          async all() {
+            if (sql.includes('FROM nodes')) return { results: [node] };
+            if (sql.includes('FROM alert_rules')) return { results: [] };
+            return { results: [] };
+          },
+          async first() {
+            if (sql.includes('FROM alert_states')) {
+              // Was resolved in past, but last_notified_at_ms is null (delivery failed!)
+              return { state_key: 'builtin:offline:node-1', active: 0, last_notified_at_ms: null, updated_at_ms: Date.now() - 120_000 };
+            }
+            return null;
+          },
+          async run() { return { success: true }; },
+        };
+      },
+    } as any;
+
+    const transitions = await evaluateAlerts(mockDb, 90);
+    const offlineTrans = transitions.filter((t) => t.type === 'offline');
+    expect(offlineTrans.length).toBe(1);
+    expect(offlineTrans[0].status).toBe('resolved');
+  });
 });
+
 

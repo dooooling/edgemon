@@ -304,4 +304,85 @@ adminRoutes.patch('/api/admin/nodes/:id/config', async (c) => {
   return c.json({ revision: newRevision, config: normalizedBody });
 });
 
+// GET /api/admin/alerts/rules
+adminRoutes.get('/api/admin/alerts/rules', async (c) => {
+  const rows = await c.env.DB.prepare('SELECT * FROM alert_rules ORDER BY id DESC').all();
+  return c.json({ rules: rows.results || [] });
+});
+
+// POST /api/admin/alerts/rules
+adminRoutes.post('/api/admin/alerts/rules', async (c) => {
+  const body = await c.req.json<{
+    node_id?: string | null;
+    type: 'offline' | 'cpu' | 'memory' | 'disk' | 'expiry' | 'webhook';
+    threshold?: number | null;
+    duration_sec?: number | null;
+    enabled?: number | boolean;
+    config?: Record<string, any>;
+  }>();
+
+  if (!body.type) {
+    return c.json({ error: 'Alert rule type is required' }, 400);
+  }
+
+  const enabledNum = body.enabled !== undefined ? (body.enabled ? 1 : 0) : 1;
+  const config = body.config || {};
+  const encryptionKey = c.env.DATA_ENCRYPTION_KEY;
+
+  let configJson = JSON.stringify(config);
+
+  // If webhook contains sensitive URL or headers, encrypt into secret_settings
+  const ruleKey = `alert_webhook:${crypto.randomUUID()}`;
+  if (config.webhook_url && encryptionKey) {
+    const { saveSecretSetting } = await import('../services/crypto');
+    await saveSecretSetting(
+      c.env.DB,
+      ruleKey,
+      JSON.stringify({ webhook_url: config.webhook_url, headers: config.headers }),
+      encryptionKey
+    );
+    // In alert_rules table, only store metadata + reference key (zero plaintext secret)
+    configJson = JSON.stringify({
+      channel: config.channel,
+      secret_key: ruleKey,
+      is_encrypted: true,
+    });
+  }
+
+  const res = await c.env.DB
+    .prepare(
+      `INSERT INTO alert_rules (node_id, type, threshold, duration_sec, enabled, config_json)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      body.node_id || null,
+      body.type,
+      body.threshold ?? null,
+      body.duration_sec ?? 0,
+      enabledNum,
+      configJson
+    )
+    .run();
+
+  return c.json({ success: true, id: res.meta?.last_row_id }, 201);
+});
+
+// DELETE /api/admin/alerts/rules/:id
+adminRoutes.delete('/api/admin/alerts/rules/:id', async (c) => {
+  const id = c.req.param('id');
+  await c.env.DB.prepare('DELETE FROM alert_rules WHERE id = ?').bind(id).run();
+  return c.json({ success: true });
+});
+
+// GET /api/admin/events (Observability: view system, auth, cron, and alert delivery events)
+adminRoutes.get('/api/admin/events', async (c) => {
+  const limit = Math.min(100, Number(c.req.query('limit') || 50));
+  const rows = await c.env.DB
+    .prepare('SELECT * FROM events ORDER BY ts_ms DESC LIMIT ?')
+    .bind(limit)
+    .all();
+
+  return c.json({ events: rows.results || [] });
+});
+
 export { adminRoutes };

@@ -18,6 +18,10 @@ export interface AlertNotificationEvent {
 
 /**
  * Mask sensitive credentials / tokens in webhook URLs for safe logging and event auditing.
+ * - Discord: Preserves webhook ID, hides token.
+ * - Telegram: Preserves bot path, hides token.
+ * - Slack: Hides path token completely.
+ * - Generic/Unknown: Strictly preserves ONLY scheme + host, stripping 100% of path and query secrets.
  */
 export function maskWebhookUrl(rawUrl: string): string {
   try {
@@ -35,7 +39,8 @@ export function maskWebhookUrl(rawUrl: string): string {
     if (host.includes('hooks.slack.com')) {
       return `https://${host}/services/***REDACTED***`;
     }
-    return `https://${host}${parsed.pathname.slice(0, 16)}/***REDACTED***`;
+    // Generic / Unknown: Completely strip path and query to ensure zero credential leakage
+    return `${parsed.protocol}//${host}/***REDACTED***`;
   } catch {
     return '***INVALID_URL***';
   }
@@ -100,6 +105,62 @@ export function isAllowedWebhookUrl(rawUrl: string, allowHttp = false): boolean 
       host.startsWith('::ffff:192.168.')
     ) {
       return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Post-DNS resolution validation to protect against DNS rebinding SSRF attacks.
+ */
+export async function validateDnsAndSsrf(rawUrl: string, allowHttp = false): Promise<boolean> {
+  if (!isAllowedWebhookUrl(rawUrl, allowHttp)) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+
+    // If host is an IP literal, isAllowedWebhookUrl has already validated its range
+    const isIpv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
+    const isIpv6 = host.startsWith('[') || host.includes(':');
+    if (isIpv4 || isIpv6) {
+      return true;
+    }
+
+    // Resolve domain using Cloudflare DNS over HTTPS
+    const dohUrl = `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=A`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+
+    try {
+      const dohRes = await fetch(dohUrl, {
+        headers: { Accept: 'application/dns-json' },
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (dohRes.ok) {
+        const dohData = (await dohRes.json()) as { Answer?: { data: string; type: number }[] };
+        if (dohData.Answer && Array.isArray(dohData.Answer)) {
+          for (const ans of dohData.Answer) {
+            if (ans.type === 1) {
+              const resolvedIp = ans.data;
+              if (!isAllowedWebhookUrl(`https://${resolvedIp}/`, false)) {
+                console.warn(`[SSRF] DNS rebinding blocked: ${host} resolved to forbidden IP ${resolvedIp}`);
+                return false;
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      clearTimeout(timer);
+      // Fallback: Proceed if DoH times out in restricted environments
     }
 
     return true;
@@ -213,15 +274,16 @@ function escapeTelegramMarkdown(text: string): string {
 }
 
 /**
- * Send webhook notification with strict HTTPS SSRF protection, manual redirect handling, and credential masking.
+ * Send webhook notification with strict HTTPS SSRF protection, DNS rebinding check, manual redirect handling, and credential masking.
  */
 export async function sendWebhookNotification(
   config: WebhookConfig,
   event: AlertNotificationEvent
 ): Promise<boolean> {
   const allowHttp = config.allowHttp ?? false;
-  if (!isAllowedWebhookUrl(config.url, allowHttp)) {
-    console.error(`[Webhook] Blocked SSRF attempt or insecure HTTP URL: ${maskWebhookUrl(config.url)}`);
+  const isAllowed = await validateDnsAndSsrf(config.url, allowHttp);
+  if (!isAllowed) {
+    console.error(`[Webhook] Blocked SSRF attempt or forbidden IP: ${maskWebhookUrl(config.url)}`);
     return false;
   }
 

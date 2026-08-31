@@ -59,6 +59,46 @@ export async function decryptSecret(nonceB64: string, cipherB64: string, secretK
   return new TextDecoder().decode(decryptedBuffer);
 }
 
+export async function saveSecretSetting(
+  db: D1Database,
+  key: string,
+  plainText: string,
+  encryptionKey: string
+): Promise<void> {
+  const { nonceB64, cipherB64 } = await encryptSecret(plainText, encryptionKey);
+  const now = Date.now();
+  await db
+    .prepare(
+      `INSERT INTO secret_settings (key, nonce_b64, cipher_b64, updated_at_ms)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET
+         nonce_b64 = excluded.nonce_b64,
+         cipher_b64 = excluded.cipher_b64,
+         updated_at_ms = excluded.updated_at_ms`
+    )
+    .bind(key, nonceB64, cipherB64, now)
+    .run();
+}
+
+export async function getSecretSetting(
+  db: D1Database,
+  key: string,
+  encryptionKey: string
+): Promise<string | null> {
+  const row = await db
+    .prepare('SELECT nonce_b64, cipher_b64 FROM secret_settings WHERE key = ?')
+    .bind(key)
+    .first<{ nonce_b64: string; cipher_b64: string }>();
+
+  if (!row) return null;
+  try {
+    return await decryptSecret(row.nonce_b64, row.cipher_b64, encryptionKey);
+  } catch (err) {
+    console.error(`[Crypto] Failed to decrypt secret_settings key ${key}:`, err);
+    return null;
+  }
+}
+
 // HMAC-SHA-256 for Admin Session Cookies
 export async function signSession(payload: string, secret: string): Promise<string> {
   const enc = new TextEncoder();

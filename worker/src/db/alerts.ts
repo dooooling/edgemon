@@ -209,9 +209,9 @@ export async function evaluateAlerts(
       }
 
       if (wasActive) {
-        // Transition: FIRING -> RESOLVED
+        // Transition: FIRING -> RESOLVED (last_notified_at_ms is NULL until webhook delivery succeeds)
         await db
-          .prepare('UPDATE alert_states SET active = 0, pending_since_ms = NULL, updated_at_ms = ? WHERE state_key = ?')
+          .prepare('UPDATE alert_states SET active = 0, pending_since_ms = NULL, last_notified_at_ms = NULL, updated_at_ms = ? WHERE state_key = ?')
           .bind(now, stateKey)
           .run();
 
@@ -226,6 +226,27 @@ export async function evaluateAlerts(
           value,
           threshold,
         });
+      } else if (existingState && existingState.active === 0 && existingState.last_notified_at_ms === null) {
+        // Condition is normal, but previous RESOLVED notification failed delivery! Retry once per minute until delivered.
+        const lastUpdated = existingState.updated_at_ms || 0;
+        if (now - lastUpdated >= 60_000) {
+          await db
+            .prepare('UPDATE alert_states SET updated_at_ms = ? WHERE state_key = ?')
+            .bind(now, stateKey)
+            .run();
+
+          transitions.push({
+            stateKey,
+            nodeId,
+            nodeName,
+            type,
+            status: 'resolved',
+            title: resolvedTitle,
+            message: resolvedMessage,
+            value,
+            threshold,
+          });
+        }
       }
     }
   }

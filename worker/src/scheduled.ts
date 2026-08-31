@@ -1,6 +1,7 @@
 import { Env } from './durable/realtime-hub';
 import { evaluateAlerts, recordEvent, markAlertDelivered, AlertTransition } from './db/alerts';
 import { executeHourlyRollup, executeRetentionCleanup } from './db/metrics';
+import { getSecretSetting } from './services/crypto';
 import {
   sendWebhookNotification,
   maskWebhookUrl,
@@ -48,8 +49,30 @@ export async function runScheduled(
   await dispatchAlertNotifications(env, transitions);
 }
 
+/**
+ * Lightweight helper to run asynchronous tasks with a maximum concurrency limit
+ */
+async function mapConcurrent<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results: R[] = new Array(items.length);
+  let index = 0;
+
+  async function worker() {
+    while (index < items.length) {
+      const i = index++;
+      results[i] = await fn(items[i]);
+    }
+  }
+
+  const poolSize = Math.min(limit, items.length);
+  const workers = Array.from({ length: poolSize }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 async function dispatchAlertNotifications(env: Env, transitions: AlertTransition[]): Promise<void> {
   const allowHttp = (env as any).ALLOW_HTTP_WEBHOOKS === 'true';
+  const encryptionKey = (env as any).DATA_ENCRYPTION_KEY as string | undefined;
 
   // Collect all active webhook destination configs
   const webhookConfigs: WebhookConfig[] = [];
@@ -64,17 +87,31 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
     });
   }
 
-  // B. Database configured notification rules
+  // B. Database configured notification rules (supporting AES-GCM encrypted secret_settings)
   try {
     const customRulesResult = await env.DB
-      .prepare("SELECT config_json FROM alert_rules WHERE enabled = 1 AND (type = 'webhook' OR config_json LIKE '%webhook_url%')")
-      .all<{ config_json: string | null }>();
+      .prepare("SELECT id, config_json FROM alert_rules WHERE enabled = 1 AND (type = 'webhook' OR config_json LIKE '%webhook_url%')")
+      .all<{ id: number; config_json: string | null }>();
 
     const customRules = customRulesResult.results || [];
     for (const r of customRules) {
       if (!r.config_json) continue;
       try {
-        const parsed = JSON.parse(r.config_json);
+        let parsed = JSON.parse(r.config_json);
+
+        // Check if sensitive credentials are encrypted in secret_settings
+        if (parsed.secret_key && encryptionKey) {
+          const decryptedJson = await getSecretSetting(env.DB, parsed.secret_key, encryptionKey);
+          if (decryptedJson) {
+            try {
+              const decryptedConfig = JSON.parse(decryptedJson);
+              parsed = { ...parsed, ...decryptedConfig };
+            } catch {
+              // ignore
+            }
+          }
+        }
+
         if (parsed.webhook_url && typeof parsed.webhook_url === 'string') {
           webhookConfigs.push({
             url: parsed.webhook_url.trim(),
@@ -96,7 +133,7 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
     return;
   }
 
-  // Dispatch notifications concurrently
+  // Dispatch notifications across all transitions and webhook endpoints with bounded concurrency (concurrency = 5)
   for (const t of transitions) {
     const eventPayload: AlertNotificationEvent = {
       title: t.title,
@@ -107,32 +144,30 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
       status: t.status,
     };
 
-    let anyDelivered = false;
-
-    for (const cfg of webhookConfigs) {
+    const deliveryResults = await mapConcurrent(webhookConfigs, 5, async (cfg) => {
       const maskedTarget = maskWebhookUrl(cfg.url);
       try {
         const ok = await sendWebhookNotification(cfg, eventPayload);
-        if (ok) {
-          anyDelivered = true;
-        } else {
-          // Never log raw URL / secrets into events
+        if (!ok) {
           await recordEvent(env.DB, t.nodeId, 'alert_notification_failed', {
             target: maskedTarget,
             status: t.status,
             type: t.type,
           });
         }
+        return ok;
       } catch (err) {
         console.error(`[Alerts] Error sending webhook to ${maskedTarget}:`, err);
         await recordEvent(env.DB, t.nodeId, 'alert_notification_failed', {
           target: maskedTarget,
           error: String(err),
         });
+        return false;
       }
-    }
+    });
 
-    // Only mark delivered when at least one delivery succeeded (P0-3 Delivery State Machine)
+    // Advance delivery state in alert_states if at least one destination received the notification
+    const anyDelivered = deliveryResults.some(Boolean);
     if (anyDelivered) {
       try {
         await markAlertDelivered(env.DB, t.stateKey, Date.now());

@@ -361,6 +361,7 @@ describe('RealtimeHub & Route Revocation State Machine (P0-2, P1-4)', () => {
 
     let executedSql = '';
     let boundValues: any[] = [];
+    let batchStatements: any[] = [];
 
     const mockDb = {
       prepare(sql: string) {
@@ -369,12 +370,18 @@ describe('RealtimeHub & Route Revocation State Machine (P0-2, P1-4)', () => {
           bind(...args: any[]) {
             boundValues = args;
             return {
+              sql,
+              args,
               async run() {
                 return { meta: { last_row_id: 42 } };
               },
             };
           },
         };
+      },
+      async batch(stmts: any[]) {
+        batchStatements = stmts;
+        return stmts.map(() => ({ meta: { last_row_id: 42 } }));
       },
     };
 

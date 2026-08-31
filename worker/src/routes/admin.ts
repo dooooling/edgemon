@@ -331,6 +331,7 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
   const now = Date.now();
 
   let configJson = JSON.stringify(config);
+  const statements = [];
 
   // If webhook contains sensitive URL or headers, require DATA_ENCRYPTION_KEY and encrypt into secret_settings
   if (config.webhook_url) {
@@ -342,13 +343,26 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
     }
 
     const ruleKey = `alert_webhook:${crypto.randomUUID()}`;
-    const { saveSecretSetting } = await import('../services/crypto');
-    await saveSecretSetting(
-      c.env.DB,
-      ruleKey,
+    const { encryptSecret } = await import('../services/crypto');
+    const { nonceB64, cipherB64 } = await encryptSecret(
       JSON.stringify({ webhook_url: config.webhook_url, headers: config.headers }),
       encryptionKey
     );
+
+    // Atomically prepare insertion for secret_settings table
+    statements.push(
+      c.env.DB
+        .prepare(
+          `INSERT INTO secret_settings (key, nonce_b64, cipher_b64, updated_at_ms)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET
+             nonce_b64 = excluded.nonce_b64,
+             cipher_b64 = excluded.cipher_b64,
+             updated_at_ms = excluded.updated_at_ms`
+        )
+        .bind(ruleKey, nonceB64, cipherB64, now)
+    );
+
     // In alert_rules table, only store metadata + reference key (zero plaintext secret)
     configJson = JSON.stringify({
       channel: config.channel,
@@ -357,24 +371,28 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
     });
   }
 
-  const res = await c.env.DB
-    .prepare(
-      `INSERT INTO alert_rules (node_id, type, threshold, duration_sec, enabled, config_json, created_at_ms, updated_at_ms)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .bind(
-      body.node_id || null,
-      body.type,
-      body.threshold ?? null,
-      body.duration_sec ?? 0,
-      enabledNum,
-      configJson,
-      now,
-      now
-    )
-    .run();
+  statements.push(
+    c.env.DB
+      .prepare(
+        `INSERT INTO alert_rules (node_id, type, threshold, duration_sec, enabled, config_json, created_at_ms, updated_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        body.node_id || null,
+        body.type,
+        body.threshold ?? null,
+        body.duration_sec ?? 0,
+        enabledNum,
+        configJson,
+        now,
+        now
+      )
+  );
 
-  return c.json({ success: true, id: res.meta?.last_row_id }, 201);
+  const results = await c.env.DB.batch(statements);
+  const ruleResult = results[results.length - 1];
+
+  return c.json({ success: true, id: ruleResult?.meta?.last_row_id }, 201);
 });
 
 // DELETE /api/admin/alerts/rules/:id (Atomically cascades deletion to secret_settings via D1 batch)

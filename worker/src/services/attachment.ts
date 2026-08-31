@@ -7,24 +7,27 @@ export function compactReportMetrics(metrics: ReportMetrics): ReportMetrics {
     config_rev: metrics.config_rev,
     cpu: {
       usage_pct: metrics.cpu?.usage_pct,
-      throttled_pct: metrics.cpu?.throttled_pct ?? undefined,
-      temp_celsius: metrics.cpu?.temp_celsius ?? undefined,
+      throttled_pct: metrics.cpu?.throttled_pct,
+      temp_celsius: metrics.cpu?.temp_celsius,
     },
     memory: {
       used_bytes: metrics.memory?.used_bytes,
     },
     rootfs: metrics.rootfs?.used_bytes !== undefined ? {
       used_bytes: metrics.rootfs?.used_bytes,
-    } : undefined,
+    } : {},
     io: (metrics.io?.read_bps !== undefined || metrics.io?.write_bps !== undefined) ? {
       read_bps: metrics.io?.read_bps,
       write_bps: metrics.io?.write_bps,
-    } : undefined,
+    } : {},
     network: {
       interface: metrics.network?.interface || 'eth0',
+      counter_id: metrics.network?.counter_id,
       rx_bps: metrics.network?.rx_bps,
       tx_bps: metrics.network?.tx_bps,
-    } as unknown as ReportMetrics['network'],
+      rx_total_bytes: metrics.network?.rx_total_bytes ?? 0,
+      tx_total_bytes: metrics.network?.tx_total_bytes ?? 0,
+    },
     uptime_sec: metrics.uptime_sec,
     probes: [],
   };
@@ -51,7 +54,16 @@ export function compactMinuteAccumulator(acc: MinuteAccumulator, isHistorical = 
       rx_bps_count: acc.rx_bps_count || 0,
       tx_bps_sum: Math.round(acc.tx_bps_sum || 0),
       tx_bps_count: acc.tx_bps_count || 0,
-      last_metrics: null as unknown as ReportMetrics,
+      last_metrics: {
+        config_rev: acc.last_metrics?.config_rev ?? 0,
+        network: {
+          interface: acc.last_metrics?.network?.interface || 'eth0',
+          counter_id: acc.last_metrics?.network?.counter_id ?? null,
+          rx_total_bytes: acc.last_metrics?.network?.rx_total_bytes ?? 0,
+          tx_total_bytes: acc.last_metrics?.network?.tx_total_bytes ?? 0,
+        },
+        probes: [],
+      } as unknown as ReportMetrics,
     };
   }
   return {
@@ -78,7 +90,10 @@ export function compactMinuteAccumulator(acc: MinuteAccumulator, isHistorical = 
 }
 
 export function compactAgentAttachment(attachment: AgentAttachment): AgentAttachment {
-  const latestHistEntry = Object.entries(attachment.historical_minutes || {}).slice(-1);
+  const unpersistedHistEntries = Object.entries(attachment.historical_minutes || {})
+    .filter(([bucketStr]) => Number(bucketStr) > (attachment.last_persist_bucket_ms || 0))
+    .slice(-1);
+
   return {
     kind: 'agent',
     node_id: attachment.node_id,
@@ -106,7 +121,7 @@ export function compactAgentAttachment(attachment: AgentAttachment): AgentAttach
       ? compactMinuteAccumulator(attachment.current_minute, false)
       : null,
     historical_minutes: Object.fromEntries(
-      latestHistEntry.map(([k, v]) => [
+      unpersistedHistEntries.map(([k, v]) => [
         k,
         compactMinuteAccumulator(v, true),
       ])

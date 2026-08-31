@@ -15,10 +15,10 @@ pub struct ServerConfig {
 }
 
 fn default_sample_interval() -> u64 {
-    2
+    30
 }
 fn default_stream_interval() -> u64 {
-    2
+    30
 }
 fn default_probe_interval() -> u64 {
     60
@@ -30,8 +30,8 @@ fn default_network_interface() -> String {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            sample_interval_sec: 2,
-            stream_interval_sec: 2,
+            sample_interval_sec: 30,
+            stream_interval_sec: 30,
             probe_interval_sec: 60,
             network_interface: "auto".to_string(),
             probes: Vec::new(),

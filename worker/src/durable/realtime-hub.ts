@@ -75,6 +75,7 @@ function safeSerializeAttachment(ws: WebSocket, attachment: SocketAttachment): b
 
 export class RealtimeHub extends DurableObject<Env> {
   private revokedTokens = new Map<string, Set<string>>();
+  private detailLeases = new Map<string, number>();
 
   async fetch(request: Request): Promise<Response> {
     const webSocketPair = new WebSocketPair();
@@ -148,6 +149,7 @@ export class RealtimeHub extends DurableObject<Env> {
 
     if (scope === 'node' && targetNodeId) {
       browserTags.push(`watch:${targetNodeId}`);
+      this.detailLeases.set(targetNodeId, Date.now() + 60_000);
     } else {
       browserTags.push('scope:overview');
     }
@@ -156,7 +158,7 @@ export class RealtimeHub extends DurableObject<Env> {
     server.serializeAttachment(browserAttachment);
 
     if (scope === 'node' && targetNodeId) {
-      this.checkAndApplyDetailLease(targetNodeId);
+      this.ctx.waitUntil(this.checkAndApplyDetailLease(targetNodeId));
     }
 
     return new Response(null, {
@@ -488,7 +490,11 @@ export class RealtimeHub extends DurableObject<Env> {
       for (const tag of tags) {
         if (tag.startsWith('watch:')) {
           const nodeId = tag.slice(6);
-          this.checkAndApplyDetailLease(nodeId);
+          const remaining = this.ctx.getWebSockets(`watch:${nodeId}`);
+          if (remaining.length === 0) {
+            this.detailLeases.delete(nodeId);
+          }
+          this.ctx.waitUntil(this.checkAndApplyDetailLease(nodeId));
         }
       }
     }
@@ -499,9 +505,11 @@ export class RealtimeHub extends DurableObject<Env> {
     const agentSockets = this.ctx.getWebSockets(`agent:${nodeId}`);
     if (agentSockets.length === 0) return;
 
-    const targetInterval = activeWatchers.length > 0 ? 2 : 30;
+    const leaseExpiry = this.detailLeases.get(nodeId) || 0;
+    const now = Date.now();
+    const hasActiveLease = activeWatchers.length > 0 && now < leaseExpiry;
 
-    // Fetch base config
+    // Fetch base config configured by admin
     const configRow = await this.env.DB
       .prepare('SELECT revision, config_json FROM node_config WHERE node_id = ?')
       .bind(nodeId)
@@ -515,10 +523,14 @@ export class RealtimeHub extends DurableObject<Env> {
       probes: [],
     };
 
+    // When lease is active, dynamically accelerate to 2s; when lease ends, restore admin's baseConfig!
+    const effectiveStreamInterval = hasActiveLease ? 2 : (baseConfig.stream_interval_sec ?? 30);
+    const effectiveSampleInterval = hasActiveLease ? 2 : (baseConfig.sample_interval_sec ?? 30);
+
     const dynamicConfig: ServerConfig = {
       ...baseConfig,
-      sample_interval_sec: targetInterval,
-      stream_interval_sec: targetInterval,
+      sample_interval_sec: effectiveSampleInterval,
+      stream_interval_sec: effectiveStreamInterval,
     };
 
     const configEnvelope: ServerEnvelope<ConfigData> = {
@@ -526,7 +538,7 @@ export class RealtimeHub extends DurableObject<Env> {
       type: 'config',
       instance_id: '',
       seq: 0,
-      ts_ms: Date.now(),
+      ts_ms: now,
       data: {
         config_rev: configRow ? configRow.revision : 1,
         config: dynamicConfig,

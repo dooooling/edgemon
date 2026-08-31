@@ -136,14 +136,14 @@ export async function persist60sCheckpoint(
         latestReport.network?.tx_bps ?? null,
         latestReport.network?.rx_total_bytes ?? 0,
         latestReport.network?.tx_total_bytes ?? 0,
-        geo.edge_rtt_ms,
-        geo.edge_transport,
+        geo?.edge_rtt_ms ?? null,
+        geo?.edge_transport ?? null,
         latestReport.uptime_sec ?? null,
         probesJson,
         serverTimeMs,
         instanceId,
         persistedSampleSeq,
-        droppedSamples
+        droppedSamples ?? 0
       )
   );
 
@@ -191,9 +191,9 @@ export async function persist60sCheckpoint(
           b.report.io?.write_bps ?? null,
           b.report.network?.rx_bps ?? null,
           b.report.network?.tx_bps ?? null,
-          b.rxDelta,
-          b.txDelta,
-          geo.edge_rtt_ms,
+          b.rxDelta ?? 0,
+          b.txDelta ?? 0,
+          geo?.edge_rtt_ms ?? null,
           bucketProbesJson
         )
     );

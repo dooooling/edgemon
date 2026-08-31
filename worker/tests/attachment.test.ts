@@ -212,7 +212,7 @@ describe('DO WebSocket Attachment 2048-Byte Boundary & Lifecycle Tests', () => {
       last_seq: 100,
       last_report_received_at_ms: 1787640060000,
       config_rev: 2,
-      last_persist_bucket_ms: 1787639940000,
+      last_persist_bucket_ms: 1787639880000,
       persisted_sample_seq: 90,
       last_counter_id: 'ctr-1',
       last_rx_total_bytes: 10000,

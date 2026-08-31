@@ -50,6 +50,8 @@ function getBarHeight(rtt: number | null | undefined, loss: number): number {
   return 5;
 }
 
+const EMPTY_PROBE_HISTORY: Record<string, ProbeBucketSample[]> = {};
+
 export const ProbeSparklineBar: React.FC<{
   nodeId: string;
   probeId: string;
@@ -57,7 +59,7 @@ export const ProbeSparklineBar: React.FC<{
   lossRatio?: number;
   bucketCount?: number;
 }> = ({ nodeId, probeId, rtt = null, lossRatio = 0, bucketCount = 18 }) => {
-  const probeHistory = useRealtimeStore((s) => s.probeHistory[nodeId] || {});
+  const probeHistory = useRealtimeStore((s) => s.probeHistory[nodeId] ?? EMPTY_PROBE_HISTORY);
   const [activeTooltip, setActiveTooltip] = useState<{
     sample: ProbeBucketSample;
     x: number;

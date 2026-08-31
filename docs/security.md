@@ -55,7 +55,7 @@ EdgeMon 遵循 **零远程执行（No Remote Execution）** 与 **最小特权�
 - **审计日志**：所有登录成功与失败事件记录在 D1 `events` 审计表中。
 
 ### 4.2 生产双层防护（Cloudflare Access + Admin Key）
-对于生产环境，强烈推荐在 Cloudflare 仪表盘为 `/admin` 和 `/api/auth/*` 路径开启 **Cloudflare Access (Zero Trust)**：
-1. 访问 `/admin` 时首先通过企业 SSO / GitHub OAuth / 邮箱验证码进行第一层身份核验。
-2. 进入页面后输入 EdgeMon `ADMIN_KEY` 完成第二层核心鉴权。
-3. 即使 `ADMIN_KEY` 泄露，未通过 Cloudflare Access 的外部请求在边缘即被 403 阻断。
+对于生产环境，强烈推荐在 Cloudflare Zero Trust 仪表盘为 `/admin*`、`/api/auth/*` 与 `/api/admin/*` 路径开启 **Cloudflare Access (Zero Trust)** 保护策略：
+1. 访问后台或调用管理 API 时首先通过企业 SSO / GitHub OAuth / 邮箱验证码完成边缘第一层身份核验。
+2. 进入页面后输入 EdgeMon `ADMIN_KEY` 并获取加密 HttpOnly Session Cookie 完成第二层鉴权。
+3. 即使 `ADMIN_KEY` 意外泄漏，未通过 Cloudflare Access 边缘认证的外部请求在 Cloudflare Edge 网络层即被 403 阻断，彻底杜绝公网爆破风险。

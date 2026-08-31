@@ -30,7 +30,7 @@ publicRoutes.get('/api/public/nodes', async (c) => {
       n.geo_lat, n.geo_lon, n.asn, n.as_org, n.cf_colo,
       n.location_mode, n.manual_country, n.manual_city, n.manual_lat, n.manual_lon,
       n.traffic_reset_day, n.traffic_quota_bytes,
-      n.expires_at_ms, n.plan_price, n.plan_currency, n.billing_cycle, n.auto_renewal,
+      n.expires_at_ms,
       s.last_seen_at_ms, s.cpu_usage_pct, s.cpu_throttled_pct,
       s.memory_used_bytes, s.memory_working_set_bytes, s.swap_used_bytes,
       s.rootfs_used_bytes, s.disk_read_bps, s.disk_write_bps,

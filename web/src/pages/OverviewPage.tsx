@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { usePublicNodesQuery } from '../queries/nodes';
+import { usePublicNodesQuery, useAdminSessionQuery, useAdminNodesQuery } from '../queries/nodes';
 import { useRealtimeStore } from '../realtime/store';
 import { WorldMap } from '../components/WorldMap';
 import { NodeCard } from '../components/NodeCard';
@@ -10,6 +10,9 @@ import { useTranslation } from '../i18n/I18nContext';
 
 export const OverviewPage: React.FC = () => {
   const { data, isLoading, isFetching, refetch } = usePublicNodesQuery();
+  const { data: sessionData } = useAdminSessionQuery();
+  const isAdmin = Boolean(sessionData?.authenticated);
+  const { data: adminData } = useAdminNodesQuery(isAdmin);
   const connectRealtime = useRealtimeStore((s) => s.connectRealtime);
   const overlays = useRealtimeStore((s) => s.overlays);
   const { t } = useTranslation();
@@ -76,15 +79,17 @@ export const OverviewPage: React.FC = () => {
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          {/* Finance Summary Button */}
-          <button
-            type="button"
-            className="button-ghost-on-dark button-ghost-sm"
-            style={{ borderColor: 'rgba(0, 230, 118, 0.5)', color: '#00e676', fontWeight: 600 }}
-            onClick={() => setShowFinanceModal(true)}
-          >
-            💰 财务账单 / 续费日历
-          </button>
+          {/* Finance Summary Button (Admin only) */}
+          {isAdmin && (
+            <button
+              type="button"
+              className="button-ghost-on-dark button-ghost-sm"
+              style={{ borderColor: 'rgba(0, 230, 118, 0.5)', color: '#00e676', fontWeight: 600 }}
+              onClick={() => setShowFinanceModal(true)}
+            >
+              💰 财务账单 / 续费日历
+            </button>
+          )}
 
           {/* 3-Tab View Mode Toggle: 卡片矩阵 / 紧凑表格 / 3D 视图 */}
           <div className="range-capsules">
@@ -170,12 +175,14 @@ export const OverviewPage: React.FC = () => {
         </div>
       )}
 
-      {/* Finance & Renewal Summary Modal */}
-      <FinanceSummaryModal
-        nodes={nodes}
-        isOpen={showFinanceModal}
-        onClose={() => setShowFinanceModal(false)}
-      />
+      {/* Finance & Renewal Summary Modal (Admin authenticated) */}
+      {isAdmin && (
+        <FinanceSummaryModal
+          nodes={adminData?.nodes || []}
+          isOpen={showFinanceModal}
+          onClose={() => setShowFinanceModal(false)}
+        />
+      )}
     </div>
   );
 };

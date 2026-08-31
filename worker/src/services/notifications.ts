@@ -4,6 +4,7 @@ export interface WebhookConfig {
   headers?: Record<string, string>;
   timeoutMs?: number;
   channel?: 'generic' | 'discord' | 'telegram' | 'slack';
+  allowHttp?: boolean;
 }
 
 export interface AlertNotificationEvent {
@@ -16,8 +17,33 @@ export interface AlertNotificationEvent {
 }
 
 /**
+ * Mask sensitive credentials / tokens in webhook URLs for safe logging and event auditing.
+ */
+export function maskWebhookUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname;
+    if (host.includes('discord.com') || host.includes('discordapp.com')) {
+      const parts = parsed.pathname.split('/');
+      if (parts.length >= 4) {
+        return `https://${host}/api/webhooks/${parts[3]}/***REDACTED***`;
+      }
+    }
+    if (host.includes('api.telegram.org')) {
+      return `https://${host}/bot***REDACTED***/sendMessage`;
+    }
+    if (host.includes('hooks.slack.com')) {
+      return `https://${host}/services/***REDACTED***`;
+    }
+    return `https://${host}${parsed.pathname.slice(0, 16)}/***REDACTED***`;
+  } catch {
+    return '***INVALID_URL***';
+  }
+}
+
+/**
  * SSRF Defensive Validation for Webhook URLs:
- * - Requires http: or https: protocol (https enforced unless dev/test)
+ * - Requires HTTPS protocol strictly by default (allowHttp = false)
  * - Prohibits localhost, loopback, private RFC1918, link-local, carrier-grade NAT, and cloud metadata IPs.
  */
 export function isAllowedWebhookUrl(rawUrl: string, allowHttp = false): boolean {
@@ -28,6 +54,7 @@ export function isAllowedWebhookUrl(rawUrl: string, allowHttp = false): boolean 
       return false;
     }
 
+    // Strictly HTTPS in production unless explicitly permitted (e.g. dev/test environment)
     if (parsed.protocol === 'http:' && !allowHttp) {
       return false;
     }
@@ -186,20 +213,22 @@ function escapeTelegramMarkdown(text: string): string {
 }
 
 /**
- * Send webhook notification with SSRF protection, timeout, and single retry.
+ * Send webhook notification with strict HTTPS SSRF protection, manual redirect handling, and credential masking.
  */
 export async function sendWebhookNotification(
   config: WebhookConfig,
   event: AlertNotificationEvent
 ): Promise<boolean> {
-  if (!isAllowedWebhookUrl(config.url, true)) {
-    console.error(`[Webhook] Blocked SSRF attempt or invalid URL: ${config.url}`);
+  const allowHttp = config.allowHttp ?? false;
+  if (!isAllowedWebhookUrl(config.url, allowHttp)) {
+    console.error(`[Webhook] Blocked SSRF attempt or insecure HTTP URL: ${maskWebhookUrl(config.url)}`);
     return false;
   }
 
   const method = config.method || 'POST';
   const { body, headers } = formatWebhookPayload(config, event);
   const timeoutMs = config.timeoutMs || 5000;
+  const maskedTarget = maskWebhookUrl(config.url);
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     const controller = new AbortController();
@@ -214,6 +243,7 @@ export async function sendWebhookNotification(
         },
         body,
         signal: controller.signal,
+        redirect: 'manual', // Prevent SSRF open redirect bypass
       });
 
       clearTimeout(timeoutId);
@@ -222,10 +252,10 @@ export async function sendWebhookNotification(
         return true;
       }
 
-      console.warn(`[Webhook] Attempt ${attempt} failed with status ${res.status}: ${res.statusText}`);
+      console.warn(`[Webhook] Delivery to ${maskedTarget} failed with status ${res.status}`);
     } catch (err) {
       clearTimeout(timeoutId);
-      console.warn(`[Webhook] Attempt ${attempt} network error:`, err);
+      console.warn(`[Webhook] Delivery to ${maskedTarget} network error:`, err);
     }
 
     if (attempt < 2) {

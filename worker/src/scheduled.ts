@@ -1,8 +1,9 @@
 import { Env } from './durable/realtime-hub';
-import { evaluateAlerts, recordEvent, AlertTransition } from './db/alerts';
+import { evaluateAlerts, recordEvent, markAlertDelivered, AlertTransition } from './db/alerts';
 import { executeHourlyRollup, executeRetentionCleanup } from './db/metrics';
 import {
   sendWebhookNotification,
+  maskWebhookUrl,
   WebhookConfig,
   AlertNotificationEvent,
 } from './services/notifications';
@@ -48,6 +49,8 @@ export async function runScheduled(
 }
 
 async function dispatchAlertNotifications(env: Env, transitions: AlertTransition[]): Promise<void> {
+  const allowHttp = (env as any).ALLOW_HTTP_WEBHOOKS === 'true';
+
   // Collect all active webhook destination configs
   const webhookConfigs: WebhookConfig[] = [];
 
@@ -57,6 +60,7 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
     webhookConfigs.push({
       url: envWebhook.trim(),
       method: 'POST',
+      allowHttp,
     });
   }
 
@@ -77,6 +81,7 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
             method: parsed.method || 'POST',
             headers: parsed.headers,
             channel: parsed.channel,
+            allowHttp,
           });
         }
       } catch {
@@ -102,21 +107,37 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
       status: t.status,
     };
 
+    let anyDelivered = false;
+
     for (const cfg of webhookConfigs) {
+      const maskedTarget = maskWebhookUrl(cfg.url);
       try {
         const ok = await sendWebhookNotification(cfg, eventPayload);
-        if (!ok) {
+        if (ok) {
+          anyDelivered = true;
+        } else {
+          // Never log raw URL / secrets into events
           await recordEvent(env.DB, t.nodeId, 'alert_notification_failed', {
-            target_url: cfg.url,
-            transition: t,
+            target: maskedTarget,
+            status: t.status,
+            type: t.type,
           });
         }
       } catch (err) {
-        console.error(`[Alerts] Error sending webhook to ${cfg.url}:`, err);
+        console.error(`[Alerts] Error sending webhook to ${maskedTarget}:`, err);
         await recordEvent(env.DB, t.nodeId, 'alert_notification_failed', {
-          target_url: cfg.url,
+          target: maskedTarget,
           error: String(err),
         });
+      }
+    }
+
+    // Only mark delivered when at least one delivery succeeded (P0-3 Delivery State Machine)
+    if (anyDelivered) {
+      try {
+        await markAlertDelivered(env.DB, t.stateKey, Date.now());
+      } catch (err) {
+        console.error('[Alerts] Failed to mark alert delivered:', err);
       }
     }
   }

@@ -424,7 +424,7 @@ export class RealtimeHub extends DurableObject<Env> {
         return;
       }
 
-      // Realtime 0~2s broadcast (Public nodes to all browsers, hidden nodes to Admin browsers only!)
+      // Realtime stream broadcast (Public nodes to all browsers, hidden nodes to Admin browsers only!)
       if (result.livePayload) {
         this.broadcastToBrowsers(result.livePayload, attachment.is_hidden);
       }

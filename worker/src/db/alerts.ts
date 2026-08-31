@@ -20,6 +20,7 @@ export interface AlertStateRow {
 }
 
 export interface AlertTransition {
+  stateKey: string;
   nodeId: string;
   nodeName: string;
   type: 'offline' | 'cpu' | 'memory' | 'disk' | 'expiry';
@@ -28,6 +29,17 @@ export interface AlertTransition {
   message: string;
   value?: number | null;
   threshold?: number | null;
+}
+
+export async function markAlertDelivered(
+  db: D1Database,
+  stateKey: string,
+  deliveredAtMs = Date.now()
+): Promise<void> {
+  await db
+    .prepare('UPDATE alert_states SET last_notified_at_ms = ?, updated_at_ms = ? WHERE state_key = ?')
+    .bind(deliveredAtMs, deliveredAtMs, stateKey)
+    .run();
 }
 
 export async function evaluateAlerts(
@@ -39,7 +51,7 @@ export async function evaluateAlerts(
   const transitions: AlertTransition[] = [];
 
   // Query all active nodes directly with state & limits (no non-existent node_resources join!)
-  const nodes = await db
+  const nodesResult = await db
     .prepare(
       `SELECT
         n.id, n.name, n.hidden, n.expires_at_ms,
@@ -61,10 +73,14 @@ export async function evaluateAlerts(
       rootfs_used_bytes: number | null;
     }>();
 
+  const nodes = nodesResult.results || [];
+
   // Load custom rules if any
-  const customRules = await db
+  const customRulesResult = await db
     .prepare('SELECT * FROM alert_rules WHERE enabled = 1')
     .all<AlertRuleRow>();
+
+  const customRules = customRulesResult.results || [];
 
   // Helper to transition state and emit events only on state changes (with duration_sec pending support)
   async function checkTransition(
@@ -116,22 +132,23 @@ export async function evaluateAlerts(
           }
         }
 
-        // Transition: PENDING / NORMAL -> FIRING
+        // Transition: PENDING / NORMAL -> FIRING (last_notified_at_ms is NULL until webhook delivery succeeds)
         await db
           .prepare(
             `INSERT INTO alert_states (state_key, rule_id, node_id, active, pending_since_ms, active_since_ms, last_notified_at_ms, updated_at_ms)
-             VALUES (?, ?, ?, 1, NULL, ?, ?, ?)
+             VALUES (?, ?, ?, 1, NULL, ?, NULL, ?)
              ON CONFLICT(state_key) DO UPDATE SET
                active = 1,
                pending_since_ms = NULL,
                active_since_ms = excluded.active_since_ms,
-               last_notified_at_ms = excluded.last_notified_at_ms,
+               last_notified_at_ms = NULL,
                updated_at_ms = excluded.updated_at_ms`
           )
-          .bind(stateKey, ruleId, nodeId, now, now, now)
+          .bind(stateKey, ruleId, nodeId, now, now)
           .run();
 
         transitions.push({
+          stateKey,
           nodeId,
           nodeName,
           type,
@@ -142,16 +159,35 @@ export async function evaluateAlerts(
           threshold,
         });
       } else {
-        // Already active: Check 4-hour renotification interval to avoid spamming
-        const lastNotified = existingState?.last_notified_at_ms || 0;
+        // Already active: Check if previous notification failed (last_notified_at_ms === null) or 4h renotification
+        const lastNotified = existingState?.last_notified_at_ms;
+        const lastUpdated = existingState?.updated_at_ms || 0;
         const renotifyIntervalMs = 4 * 3600 * 1000;
-        if (now - lastNotified >= renotifyIntervalMs) {
-          await db
-            .prepare('UPDATE alert_states SET last_notified_at_ms = ?, updated_at_ms = ? WHERE state_key = ?')
-            .bind(now, now, stateKey)
-            .run();
 
+        if (lastNotified === null || lastNotified === undefined) {
+          // Delivery previously failed: retry once per minute
+          if (now - lastUpdated >= 60_000) {
+            await db
+              .prepare('UPDATE alert_states SET updated_at_ms = ? WHERE state_key = ?')
+              .bind(now, stateKey)
+              .run();
+
+            transitions.push({
+              stateKey,
+              nodeId,
+              nodeName,
+              type,
+              status: 'firing',
+              title: firingTitle,
+              message: firingMessage,
+              value,
+              threshold,
+            });
+          }
+        } else if (now - lastNotified >= renotifyIntervalMs) {
+          // 4-hour periodic reminder
           transitions.push({
+            stateKey,
             nodeId,
             nodeName,
             type,
@@ -180,6 +216,7 @@ export async function evaluateAlerts(
           .run();
 
         transitions.push({
+          stateKey,
           nodeId,
           nodeName,
           type,
@@ -193,124 +230,123 @@ export async function evaluateAlerts(
     }
   }
 
-  for (const node of nodes.results || []) {
-    // 1. Built-in Offline Check (Threshold: 90s)
+  // 1. Built-in: Offline Detection (last_seen_at_ms > 90s)
+  for (const node of nodes) {
     const isOffline = !node.last_seen_at_ms || node.last_seen_at_ms < offlineCutoff;
-    const elapsedSec = node.last_seen_at_ms ? Math.round((now - node.last_seen_at_ms) / 1000) : 9999;
+    const stateKey = `builtin:offline:${node.id}`;
+
     await checkTransition(
-      `builtin:offline:${node.id}`,
+      stateKey,
       null,
       node.id,
       node.name,
       'offline',
       isOffline,
-      `Node Offline: ${node.name}`,
-      `Node ${node.name} has stopped sending heartbeats for ${elapsedSec}s.`,
-      `Node Back Online: ${node.name}`,
-      `Node ${node.name} has reconnected and resumed streaming telemetry.`
+      `Node ${node.name} is Offline`,
+      `Node has not reported telemetry for more than ${offlineThresholdSec} seconds.`,
+      `Node ${node.name} is Online`,
+      `Node has resumed normal telemetry reporting.`,
+      node.last_seen_at_ms ? Math.round((now - node.last_seen_at_ms) / 1000) : null,
+      offlineThresholdSec,
+      0
     );
+  }
 
-    // 2. Built-in Expiry Warning (Threshold: 3 days)
-    if (node.expires_at_ms) {
-      const isExpiring = node.expires_at_ms <= now + 3 * 86400 * 1000;
-      const daysLeft = Math.max(0, Math.round((node.expires_at_ms - now) / 86400000));
+  // 2. Built-in: Expiry Detection (expires_at_ms <= now + 3 days)
+  const threeDaysMs = 3 * 86400 * 1000;
+  for (const node of nodes) {
+    if (!node.expires_at_ms) continue;
+    const isExpiringSoon = node.expires_at_ms - now <= threeDaysMs;
+    const stateKey = `builtin:expiry:${node.id}`;
+
+    await checkTransition(
+      stateKey,
+      null,
+      node.id,
+      node.name,
+      'expiry',
+      isExpiringSoon,
+      `Node ${node.name} Plan Expiring Soon`,
+      `Node plan will expire at ${new Date(node.expires_at_ms).toISOString()}.`,
+      `Node ${node.name} Plan Renewed`,
+      `Node plan expiration date updated or resolved.`,
+      node.expires_at_ms,
+      threeDaysMs,
+      0
+    );
+  }
+
+  // 3. Custom Alert Rules (CPU, Memory, Disk)
+  for (const rule of customRules) {
+    const targetNodes = rule.node_id
+      ? nodes.filter((n) => n.id === rule.node_id)
+      : nodes;
+
+    for (const node of targetNodes) {
+      const stateKey = `rule:${rule.id}:${node.id}`;
+      let conditionMet = false;
+      let curVal: number | null = null;
+      let firingMsg = '';
+      let resolvedMsg = '';
+      const threshold = rule.threshold ?? 80;
+
+      if (rule.type === 'cpu') {
+        curVal = node.cpu_usage_pct;
+        conditionMet = curVal != null && curVal >= threshold;
+        firingMsg = `CPU usage is at ${curVal?.toFixed(1)}% (threshold: ${threshold}%).`;
+        resolvedMsg = `CPU usage normalized to ${curVal?.toFixed(1)}%.`;
+      } else if (rule.type === 'memory') {
+        const used = node.memory_used_bytes;
+        const limit = node.memory_limit_bytes;
+        if (used != null && limit != null && limit > 0) {
+          curVal = (used / limit) * 100;
+          conditionMet = curVal >= threshold;
+          firingMsg = `Memory usage is at ${curVal.toFixed(1)}% (threshold: ${threshold}%).`;
+          resolvedMsg = `Memory usage normalized to ${curVal.toFixed(1)}%.`;
+        }
+      } else if (rule.type === 'disk') {
+        const used = node.rootfs_used_bytes;
+        const limit = node.rootfs_limit_bytes;
+        if (used != null && limit != null && limit > 0) {
+          curVal = (used / limit) * 100;
+          conditionMet = curVal >= threshold;
+          firingMsg = `Disk usage is at ${curVal.toFixed(1)}% (threshold: ${threshold}%).`;
+          resolvedMsg = `Disk usage normalized to ${curVal.toFixed(1)}%.`;
+        }
+      }
+
       await checkTransition(
-        `builtin:expiry:${node.id}`,
-        null,
+        stateKey,
+        rule.id,
         node.id,
         node.name,
-        'expiry',
-        isExpiring,
-        `Node Expiring Soon: ${node.name}`,
-        `Node ${node.name} subscription will expire in ${daysLeft} days (${new Date(node.expires_at_ms).toISOString().slice(0, 10)}).`,
-        `Node Expiry Extended: ${node.name}`,
-        `Node ${node.name} expiration date has been renewed.`
+        rule.type,
+        conditionMet,
+        `Node ${node.name} ${rule.type.toUpperCase()} Alert`,
+        firingMsg,
+        `Node ${node.name} ${rule.type.toUpperCase()} Recovered`,
+        resolvedMsg,
+        curVal,
+        threshold,
+        rule.duration_sec ?? 0
       );
-    }
-
-    // 3. Custom Alert Rules (CPU / RAM / Disk) - isolated per (rule, node) pair!
-    const nodeRules = (customRules.results || []).filter((r) => !r.node_id || r.node_id === node.id);
-    for (const rule of nodeRules) {
-      let isMet = false;
-      let val: number | null = null;
-      const stateKey = `rule:${rule.id}:${node.id}`;
-
-      if (rule.type === 'cpu' && rule.threshold !== null && node.cpu_usage_pct !== null) {
-        val = node.cpu_usage_pct;
-        isMet = val >= rule.threshold;
-        await checkTransition(
-          stateKey,
-          rule.id,
-          node.id,
-          node.name,
-          'cpu',
-          isMet,
-          `High CPU Alert: ${node.name} (${val.toFixed(1)}%)`,
-          `CPU usage on ${node.name} reached ${val.toFixed(1)}% (Threshold: >= ${rule.threshold}%).`,
-          `CPU Usage Normal: ${node.name}`,
-          `CPU usage on ${node.name} has returned below threshold.`,
-          val,
-          rule.threshold,
-          rule.duration_sec || 0
-        );
-      } else if (
-        rule.type === 'memory' &&
-        rule.threshold !== null &&
-        typeof node.memory_used_bytes === 'number' &&
-        typeof node.memory_limit_bytes === 'number' &&
-        node.memory_limit_bytes > 0
-      ) {
-        val = (node.memory_used_bytes / node.memory_limit_bytes) * 100;
-        isMet = val >= rule.threshold;
-        await checkTransition(
-          stateKey,
-          rule.id,
-          node.id,
-          node.name,
-          'memory',
-          isMet,
-          `High Memory Alert: ${node.name} (${val.toFixed(1)}%)`,
-          `Memory usage on ${node.name} reached ${val.toFixed(1)}% (Threshold: >= ${rule.threshold}%).`,
-          `Memory Usage Normal: ${node.name}`,
-          `Memory usage on ${node.name} has returned below threshold.`,
-          val,
-          rule.threshold,
-          rule.duration_sec || 0
-        );
-      } else if (
-        rule.type === 'disk' &&
-        rule.threshold !== null &&
-        typeof node.rootfs_used_bytes === 'number' &&
-        typeof node.rootfs_limit_bytes === 'number' &&
-        node.rootfs_limit_bytes > 0
-      ) {
-        val = (node.rootfs_used_bytes / node.rootfs_limit_bytes) * 100;
-        isMet = val >= rule.threshold;
-        await checkTransition(
-          stateKey,
-          rule.id,
-          node.id,
-          node.name,
-          'disk',
-          isMet,
-          `High Disk Alert: ${node.name} (${val.toFixed(1)}%)`,
-          `Disk usage on ${node.name} reached ${val.toFixed(1)}% (Threshold: >= ${rule.threshold}%).`,
-          `Disk Usage Normal: ${node.name}`,
-          `Disk usage on ${node.name} has returned below threshold.`,
-          val,
-          rule.threshold,
-          rule.duration_sec || 0
-        );
-      }
     }
   }
 
   return transitions;
 }
 
-export async function recordEvent(db: D1Database, nodeId: string | null, type: string, data: unknown): Promise<void> {
+export async function recordEvent(
+  db: D1Database,
+  nodeId: string | null,
+  type: string,
+  data: unknown
+): Promise<void> {
   await db
-    .prepare('INSERT INTO events (node_id, ts_ms, type, data_json) VALUES (?, ?, ?, ?)')
+    .prepare(
+      `INSERT INTO events (node_id, ts_ms, type, data_json)
+       VALUES (?, ?, ?, ?)`
+    )
     .bind(nodeId, Date.now(), type, JSON.stringify(data))
     .run();
 }

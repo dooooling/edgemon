@@ -73,8 +73,9 @@ impl IoCollector {
                     let util_pct = match (prev.io_ticks_ms, curr.io_ticks_ms) {
                         (Some(p), Some(c)) => {
                             let ticks_delta = c.saturating_sub(p) as f64;
-                            let u = ((ticks_delta / (elapsed_sec * 1000.0)) * 100.0).clamp(0.0, 100.0);
-                            Some(((u * 10.0).round() / 10.0) as f64)
+                            let u =
+                                ((ticks_delta / (elapsed_sec * 1000.0)) * 100.0).clamp(0.0, 100.0);
+                            Some((u * 10.0).round() / 10.0)
                         }
                         _ => None,
                     };
@@ -140,8 +141,16 @@ fn read_cgroup_io_counters(cgroup_ctx: Option<&CgroupContext>) -> Option<IoCount
 
         if found_bytes || found_ios {
             return Some(IoCounters {
-                read_bytes: if found_bytes { Some(total_rbytes) } else { None },
-                write_bytes: if found_bytes { Some(total_wbytes) } else { None },
+                read_bytes: if found_bytes {
+                    Some(total_rbytes)
+                } else {
+                    None
+                },
+                write_bytes: if found_bytes {
+                    Some(total_wbytes)
+                } else {
+                    None
+                },
                 read_ios: if found_ios { Some(total_rios) } else { None },
                 write_ios: if found_ios { Some(total_wios) } else { None },
                 io_ticks_ms: None, // cgroup v2 io.stat does not expose io_ticks

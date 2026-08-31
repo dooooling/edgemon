@@ -6,24 +6,15 @@ import { verifyAdminSession } from '../services/session';
 
 const adminRoutes = new Hono<{ Bindings: Env }>();
 
-// Admin Auth Middleware
+// Admin Auth Middleware - strictly requires signed HMAC-SHA-256 session cookie
 adminRoutes.use('/api/admin/*', async (c, next) => {
-  const authHeader = c.req.header('Authorization');
-  const expectedAdminKey = c.env.ADMIN_KEY;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const bearerKey = authHeader.slice(7).trim();
-    if (expectedAdminKey && bearerKey === expectedAdminKey) {
-      return next();
-    }
-  }
-
   const cookieHeader = c.req.header('Cookie');
   const isAuthenticated = await verifyAdminSession(cookieHeader, c.env.SESSION_SECRET);
   if (isAuthenticated) {
     return next();
   }
 
-  return c.json({ error: 'Unauthorized' }, 401);
+  return c.json({ error: 'Unauthorized: valid admin session required' }, 401);
 });
 
 // GET /api/admin/nodes
@@ -46,6 +37,7 @@ adminRoutes.post('/api/admin/nodes', async (c) => {
     plan_currency?: string;
     billing_cycle?: string;
     auto_renewal?: number | boolean;
+    probe_preset?: 'cn' | 'global' | 'minimal';
   }>();
 
   if (!body.name) {
@@ -69,7 +61,8 @@ adminRoutes.post('/api/admin/nodes', async (c) => {
     body.plan_price !== undefined ? body.plan_price : null,
     body.plan_currency || 'USD',
     body.billing_cycle || 'monthly',
-    autoRenewalNum
+    autoRenewalNum,
+    body.probe_preset || 'cn'
   );
 
   return c.json({ node, rawToken }, 201);

@@ -197,7 +197,7 @@ export async function loadTrafficRuntimeState(
 
 /**
  * Pure in-memory state transition for traffic accounting across samples.
- * Zero D1 reads or writes on the 2s hot path.
+ * Zero D1 reads or writes on the ingest hot path.
  */
 export function applySampleTrafficTransition(
   currentState: TrafficRuntimeState,

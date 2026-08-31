@@ -86,7 +86,8 @@ export async function createNode(
   planPrice: number | null = null,
   planCurrency = 'USD',
   billingCycle = 'monthly',
-  autoRenewal = 1
+  autoRenewal = 1,
+  probePreset: 'cn' | 'global' | 'minimal' = 'cn'
 ): Promise<{ node: NodeRow; rawToken: string }> {
   const id = crypto.randomUUID();
   const rawToken = generateRandomToken(32);
@@ -118,19 +119,33 @@ export async function createNode(
     )
     .run();
 
-  // Create initial default agent config with 3-Net and Core Infrastructure probes
+  // Create initial agent config with selectable probe presets
+  let probes = [
+    { id: 'ct', target: '219.141.136.10', protocol: 'icmp' },
+    { id: 'cu', target: '219.158.113.149', protocol: 'icmp' },
+    { id: 'cm', target: '211.136.17.107', protocol: 'icmp' },
+    { id: 'ali', target: '223.5.5.5', protocol: 'icmp' },
+    { id: 'cf', target: '1.1.1.1', protocol: 'icmp' },
+  ];
+
+  if (probePreset === 'global') {
+    probes = [
+      { id: 'cf', target: '1.1.1.1', protocol: 'icmp' },
+      { id: 'google', target: '8.8.8.8', protocol: 'icmp' },
+      { id: 'quad9', target: '9.9.9.9', protocol: 'icmp' },
+    ];
+  } else if (probePreset === 'minimal') {
+    probes = [
+      { id: 'cf', target: '1.1.1.1', protocol: 'icmp' },
+    ];
+  }
+
   const initialConfig = JSON.stringify({
     sample_interval_sec: 30,
     stream_interval_sec: 30,
     probe_interval_sec: 60,
     network_interface: 'auto',
-    probes: [
-      { id: 'ct', target: '219.141.136.10', protocol: 'icmp' },
-      { id: 'cu', target: '219.158.113.149', protocol: 'icmp' },
-      { id: 'cm', target: '211.136.17.107', protocol: 'icmp' },
-      { id: 'ali', target: '223.5.5.5', protocol: 'icmp' },
-      { id: 'cf', target: '1.1.1.1', protocol: 'icmp' },
-    ],
+    probes,
   });
 
   await db

@@ -632,14 +632,9 @@ export const AdminPage: React.FC = () => {
                 </button>
               )}
               {activeTab === 'alerts' && (
-                <>
-                  <button className="button-ghost-on-dark button-ghost-sm" onClick={() => setShowAddChannelModal(true)}>
-                    + 添加推送渠道
-                  </button>
-                  <button className="button-ghost-on-dark button-ghost-sm" style={{ backgroundColor: 'rgba(56, 189, 248, 0.1)', borderColor: '#38bdf8', color: '#38bdf8' }} onClick={() => setShowAddRuleModal(true)}>
-                    + 添加告警策略
-                  </button>
-                </>
+                <button className="button-ghost-on-dark button-ghost-sm" onClick={loadAlertRules}>
+                  {loadingAlerts ? '刷新中...' : '刷新策略 ⟳'}
+                </button>
               )}
               {activeTab === 'events' && (
                 <button className="button-ghost-on-dark button-ghost-sm" onClick={loadSystemEvents}>

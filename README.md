@@ -25,7 +25,7 @@ edgemon/
 ├── worker/                        # Cloudflare Worker API & RealtimeHub DO
 ├── web/                           # React 19 + TypeScript + Vite 前端仪表盘
 ├── protocol/                      # Protocol V1 跨语言协议契约与 Fixtures
-├── migrations/                    # D1 数据库 SQL 迁移文件 (0001~0004)
+├── migrations/                    # D1 数据库 SQL 迁移文件 (0001~0005)
 ├── docs/                          # 生产部署、安全架构与开发指南
 │   ├── deployment.md              # 零到一生产部署操作指南
 │   └── security.md                # 安全模型与密钥生命周期

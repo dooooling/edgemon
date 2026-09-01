@@ -63,11 +63,6 @@ app.get('/api/ready', async (c) => {
       status: isReady ? 'ready' : 'degraded',
       db: dbOk && tablesOk,
       realtime: realtimeOk,
-      secrets: {
-        admin_key: secrets.admin_key,
-        session_secret: secrets.session_secret,
-        data_encryption_key: secrets.data_encryption_key,
-      },
       time: Date.now(),
     },
     isReady ? 200 : 503

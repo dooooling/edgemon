@@ -1555,4 +1555,92 @@ describe('Data Integrity v1 Ingest & Replay Protocol', () => {
     expect(resRollover.result.accepted).toBe(false);
     expect(resRollover.result.error).toBe('PERSISTENCE_FAILED');
   });
+
+  it('P2: traffic mutation during async checkpoint preserves dirty flag and writes traffic_periods on subsequent checkpoint', async () => {
+    const mockDb = createMockDb('instance-1', 0);
+    mockDb.setTokenHash('hash-v1');
+    const startWallTime = Date.now();
+    const attachment = createDefaultAttachment('node-1', 'Node 1', 'instance-1', startWallTime, mockGeo, 1, false, 'hash-v1');
+    const t0 = Math.floor((startWallTime - 300000) / 60000) * 60000;
+
+    // 1. Initial sample at minute 0 with counter-A
+    const metricsA: ReportMetrics = {
+      ...baseMetrics,
+      network: { ...baseMetrics.network!, counter_id: 'counter-aaaa-1111', rx_total_bytes: 1000, tx_total_bytes: 1000 },
+    };
+    await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      1,
+      { samples: [{ sample_seq: 1, sampled_at_ms: t0, metrics: metricsA }] },
+      mockGeo,
+      attachment
+    );
+
+    // Intercept db.batch to mutate attachment.traffic_state (e.g. counter reset A -> B) while cut is being persisted
+    const origBatch = mockDb.batch;
+    let mutatedDuringBatch = false;
+    mockDb.batch = async (stmts: any[]) => {
+      // Simulate concurrent report sample arriving during async D1 write that changes counter to B
+      if (!mutatedDuringBatch) {
+        mutatedDuringBatch = true;
+        attachment.traffic_state.active_counter_id = 'counter-bbbb-2222';
+        attachment.traffic_state.active_rx_base_bytes = 50000;
+        attachment.traffic_state.active_tx_base_bytes = 50000;
+        attachment.traffic_state.finalized_rx_bytes += 10000;
+        attachment.traffic_state.dirty = true;
+      }
+      return origBatch(stmts);
+    };
+
+    // 2. Rollover to minute 1 triggers checkpoint of minute 0 (durable cut snapshot A)
+    const resMin1 = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      2,
+      { samples: [{ sample_seq: 2, sampled_at_ms: t0 + 60000, metrics: metricsA }] },
+      mockGeo,
+      attachment
+    );
+    expect(resMin1.result.accepted).toBe(true);
+
+    // 3. Assert dirty flag is NOT cleared because live traffic state had mutated during async batch
+    expect(attachment.traffic_state.dirty).toBe(true);
+    expect(attachment.traffic_state.active_counter_id).toBe('counter-bbbb-2222');
+
+    // 4. Rollover to minute 2: next checkpoint MUST include traffic_periods UPSERT statement
+    let trafficPeriodUpsertFound = false;
+    mockDb.batch = async (stmts: any[]) => {
+      for (const s of stmts) {
+        if (s.sql && s.sql.includes('INSERT INTO traffic_periods')) {
+          trafficPeriodUpsertFound = true;
+        }
+      }
+      return origBatch(stmts);
+    };
+
+    const metricsB: ReportMetrics = {
+      ...baseMetrics,
+      network: { ...baseMetrics.network!, counter_id: 'counter-bbbb-2222', rx_total_bytes: 50500, tx_total_bytes: 50500 },
+    };
+
+    const resMin2 = await ingestReportCore(
+      mockDb,
+      'node-1',
+      'Node 1',
+      'instance-1',
+      3,
+      { samples: [{ sample_seq: 3, sampled_at_ms: t0 + 120000, metrics: metricsB }] },
+      mockGeo,
+      attachment
+    );
+    expect(resMin2.result.accepted).toBe(true);
+    expect(trafficPeriodUpsertFound).toBe(true);
+    // After successful uncontested persistence without intervening counter changes, dirty flag is safely cleared
+    expect(attachment.traffic_state.dirty).toBe(false);
+  });
 });

@@ -9,7 +9,7 @@
 EdgeMon 无需任何中心物理服务器，所有后端服务、实时 WebSocket 分发、时序持久化数据库与前端静态页面全部托管在 Cloudflare 平台。
 
 ### 前置要求
-- [Node.js](https://nodejs.org/) >= 20.0.0
+- [Node.js](https://nodejs.org/) >= 22.0.0（推荐 Node.js 22 LTS / 24 LTS，Wrangler 4.x 要求 Node.js >= 22）
 - [pnpm](https://pnpm.io/) >= 9.0.0
 - [Rust](https://rustup.rs/) >= 1.80.0（用于编译被控端 Agent）
 - 已注册的 [Cloudflare 账号](https://dash.cloudflare.com/)
@@ -101,14 +101,15 @@ npx wrangler secret put WEBHOOK_URL
 
 ### 步骤 4：执行 D1 数据库迁移
 ```bash
-# 将 4 个版本迁移应用到生产 D1 数据库
+# 将 5 个版本迁移应用到生产 D1 数据库
 pnpm db:migrate:remote
 ```
 终端将依次执行：
 - `0001_init.sql`（11 张核心数据表与索引）
-- `0002_wss_active_instance.sql`（Active Instance 追踪）
-- `0003_data_integrity.sql`（数据完整性校验）
+- `0002_data_integrity.sql`（数据完整性校验与持久化状态字段）
+- `0003_wss_active_instance.sql`（Active Instance 追踪）
 - `0004_node_finance.sql`（服务器财务管理）
+- `0005_time_indexes.sql`（时序与留存清理二次时间索引）
 
 ---
 

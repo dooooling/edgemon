@@ -284,10 +284,42 @@ export async function evaluateAlerts(
     }
   }
 
+  // Helper to determine if a node has a custom rule covering offline or expiry
+  function nodeHasSpecificRule(node: (typeof nodes)[0], type: 'offline' | 'expiry'): boolean {
+    const policy = getNodeAlertPolicy(node.node_config_json);
+    if (policy.mode === 'none') return false;
+
+    return customRules.some((rule) => {
+      // Must match node target
+      if (rule.node_id && rule.node_id !== node.id) return false;
+      // If node is in custom mode, must be in selected rule_ids
+      if (policy.mode === 'custom' && (!policy.rule_ids || !policy.rule_ids.includes(rule.id))) {
+        return false;
+      }
+
+      if (rule.type === type) return true;
+
+      // Check compound policy conditions
+      if (rule.config_json) {
+        try {
+          const cfg = JSON.parse(rule.config_json);
+          if (cfg.conditions && cfg.conditions[type] && cfg.conditions[type].enabled) {
+            return true;
+          }
+        } catch {
+          // ignore
+        }
+      }
+      return false;
+    });
+  }
+
   // 1. Built-in: Offline Detection (last_seen_at_ms > 90s)
+  // Runs ONLY for nodes in 'global' mode that do NOT have a custom offline rule/policy configured
   for (const node of nodes) {
     const policy = getNodeAlertPolicy(node.node_config_json);
-    if (policy.mode === 'none') continue; // Muted: skip all alerts for this node
+    if (policy.mode !== 'global' && policy.mode !== undefined) continue; // Custom or none: skip builtin
+    if (nodeHasSpecificRule(node, 'offline')) continue; // Avoid duplicate offline alert transitions
 
     const isOffline = !node.last_seen_at_ms || node.last_seen_at_ms < offlineCutoff;
     const stateKey = `builtin:offline:${node.id}`;
@@ -310,11 +342,13 @@ export async function evaluateAlerts(
   }
 
   // 2. Built-in: Expiry Detection (expires_at_ms <= now + 3 days)
+  // Runs ONLY for nodes in 'global' mode that do NOT have a custom expiry rule/policy configured
   const threeDaysMs = 3 * 86400 * 1000;
   for (const node of nodes) {
     if (!node.expires_at_ms) continue;
     const policy = getNodeAlertPolicy(node.node_config_json);
-    if (policy.mode === 'none') continue; // Muted: skip
+    if (policy.mode !== 'global' && policy.mode !== undefined) continue; // Custom or none: skip builtin
+    if (nodeHasSpecificRule(node, 'expiry')) continue; // Avoid duplicate expiry alert transitions
 
     const isExpiringSoon = node.expires_at_ms - now <= threeDaysMs;
     const stateKey = `builtin:expiry:${node.id}`;

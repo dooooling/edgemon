@@ -175,6 +175,22 @@ export function isAllowedWebhookUrl(rawUrl: string, allowHttp = false): boolean 
   }
 }
 
+async function queryDns(host: string, type: 'A' | 'AAAA', signal: AbortSignal): Promise<any> {
+  const res = await fetch(`https://1.1.1.1/dns-query?name=${encodeURIComponent(host)}&type=${type}`, {
+    headers: { Accept: 'application/dns-json' },
+    signal,
+  });
+  if (!res.ok) {
+    throw new Error(`DoH query failed with HTTP ${res.status}`);
+  }
+  const json: any = await res.json();
+  // Check DNS RCODE: 0 = NOERROR, 3 = NXDOMAIN. Any other status (e.g. 2 = SERVFAIL, 5 = REFUSED) is an error
+  if (typeof json?.Status === 'number' && json.Status !== 0 && json.Status !== 3) {
+    throw new Error(`DoH query returned DNS error status ${json.Status}`);
+  }
+  return json;
+}
+
 export async function validateDnsAndSsrf(rawUrl: string, allowHttp = false): Promise<boolean> {
   try {
     if (!isAllowedWebhookUrl(rawUrl, allowHttp)) return false;
@@ -187,27 +203,17 @@ export async function validateDnsAndSsrf(rawUrl: string, allowHttp = false): Pro
       const dohController = new AbortController();
       const dohTimeout = setTimeout(() => dohController.abort(), 3000);
       try {
+        // Both A and AAAA lookups must execute without network/transport/DNS-error failure
         const [dohResA, dohResAaaa] = await Promise.all([
-          fetch(`https://1.1.1.1/dns-query?name=${encodeURIComponent(host)}&type=A`, {
-            headers: { Accept: 'application/dns-json' },
-            signal: dohController.signal,
-          }).then((r) => (r.ok ? (r.json() as Promise<any>) : null)).catch(() => null),
-          fetch(`https://1.1.1.1/dns-query?name=${encodeURIComponent(host)}&type=AAAA`, {
-            headers: { Accept: 'application/dns-json' },
-            signal: dohController.signal,
-          }).then((r) => (r.ok ? (r.json() as Promise<any>) : null)).catch(() => null),
+          queryDns(host, 'A', dohController.signal),
+          queryDns(host, 'AAAA', dohController.signal),
         ]);
         clearTimeout(dohTimeout);
-
-        // Fail-Closed: If DoH query completely failed or errored out, reject
-        if (!dohResA && !dohResAaaa) {
-          return false;
-        }
 
         const answersA = (dohResA?.Answer || []).filter((ans: any) => ans.type === 1 && ans.data);
         const answersAaaa = (dohResAaaa?.Answer || []).filter((ans: any) => ans.type === 28 && ans.data);
 
-        // Fail-Closed: Must resolve to at least one valid A or AAAA record
+        // Fail-Closed: Hostname must resolve to at least one valid public A or AAAA record
         if (answersA.length === 0 && answersAaaa.length === 0) {
           return false;
         }
@@ -221,6 +227,7 @@ export async function validateDnsAndSsrf(rawUrl: string, allowHttp = false): Pro
         }
       } catch {
         clearTimeout(dohTimeout);
+        // Fail-Closed: Any query exception (network error, timeout, SERVFAIL) rejects the URL
         return false;
       }
     }

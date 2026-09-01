@@ -134,59 +134,64 @@ REPO="dooooling/edgemon"
 INSTALL_BIN="/usr/local/bin/edgemon-agent"
 CONFIG_DIR="/etc/edgemon"
 ENV_FILE="${CONFIG_DIR}/agent.env"
+ASSET="edgemon-agent-${TARGET_ARCH}.tar.gz"
+ASSET_SHA256="${ASSET}.sha256"
 
 log_info "Fetching EdgeMon Agent binary and checksum..."
 
 if [[ "${VERSION}" == "latest" ]]; then
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/edgemon-agent-${TARGET_ARCH}.tar.gz"
-    SHA256_URL="https://github.com/${REPO}/releases/latest/download/edgemon-agent-${TARGET_ARCH}.tar.gz.sha256"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${ASSET}"
+    SHA256_URL="https://github.com/${REPO}/releases/latest/download/${ASSET_SHA256}"
 else
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/edgemon-agent-${TARGET_ARCH}.tar.gz"
-    SHA256_URL="https://github.com/${REPO}/releases/download/${VERSION}/edgemon-agent-${TARGET_ARCH}.tar.gz.sha256"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}"
+    SHA256_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET_SHA256}"
 fi
 
 TMP_DIR=$(mktemp -d)
 
-log_info "Downloading from: ${DOWNLOAD_URL}"
+log_info "Downloading ${ASSET} from: ${DOWNLOAD_URL}"
 if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "${DOWNLOAD_URL}" -o "${TMP_DIR}/edgemon-agent.tar.gz" || {
-        log_error "Failed to download binary from GitHub Releases. Check network or specified version."
+    curl -fsSL "${DOWNLOAD_URL}" -o "${TMP_DIR}/${ASSET}" || {
+        log_error "Failed to download binary archive from GitHub Releases. Check network or specified version."
         exit 1
     }
-    curl -fsSL "${SHA256_URL}" -o "${TMP_DIR}/edgemon-agent.tar.gz.sha256" || {
-        log_warn "Could not fetch SHA256 checksum file; proceeding with caution."
+    curl -fsSL "${SHA256_URL}" -o "${TMP_DIR}/${ASSET_SHA256}" || {
+        log_error "Failed to download SHA256 checksum file from GitHub Releases."
+        exit 1
     }
 elif command -v wget >/dev/null 2>&1; then
-    wget -qO "${TMP_DIR}/edgemon-agent.tar.gz" "${DOWNLOAD_URL}" || {
-        log_error "Failed to download binary from GitHub Releases. Check network or specified version."
+    wget -qO "${TMP_DIR}/${ASSET}" "${DOWNLOAD_URL}" || {
+        log_error "Failed to download binary archive from GitHub Releases. Check network or specified version."
         exit 1
     }
-    wget -qO "${TMP_DIR}/edgemon-agent.tar.gz.sha256" "${SHA256_URL}" || {
-        log_warn "Could not fetch SHA256 checksum file; proceeding with caution."
+    wget -qO "${TMP_DIR}/${ASSET_SHA256}" "${SHA256_URL}" || {
+        log_error "Failed to download SHA256 checksum file from GitHub Releases."
+        exit 1
     }
 else
     log_error "Neither curl nor wget is available. Please install one first."
     exit 1
 fi
 
-# Verify SHA256 Checksum if available
-if [[ -f "${TMP_DIR}/edgemon-agent.tar.gz.sha256" ]]; then
-    if command -v sha256sum >/dev/null 2>&1; then
-        (cd "${TMP_DIR}" && sha256sum -c "edgemon-agent.tar.gz.sha256") || {
-            log_error "SHA256 checksum verification failed! Downloaded artifact may be corrupted or tampered."
-            exit 1
-        }
-        log_success "Verified binary archive SHA256 checksum."
-    elif command -v shasum >/dev/null 2>&1; then
-        (cd "${TMP_DIR}" && shasum -a 256 -c "edgemon-agent.tar.gz.sha256") || {
-            log_error "SHA256 checksum verification failed! Downloaded artifact may be corrupted or tampered."
-            exit 1
-        }
-        log_success "Verified binary archive SHA256 checksum."
-    fi
+# Fail-Closed SHA256 Checksum Verification
+if command -v sha256sum >/dev/null 2>&1; then
+    (cd "${TMP_DIR}" && sha256sum -c "${ASSET_SHA256}") || {
+        log_error "SHA256 checksum verification failed! Downloaded artifact may be corrupted or tampered."
+        exit 1
+    }
+    log_success "Verified binary archive SHA256 checksum integrity."
+elif command -v shasum >/dev/null 2>&1; then
+    (cd "${TMP_DIR}" && shasum -a 256 -c "${ASSET_SHA256}") || {
+        log_error "SHA256 checksum verification failed! Downloaded artifact may be corrupted or tampered."
+        exit 1
+    }
+    log_success "Verified binary archive SHA256 checksum integrity."
+else
+    log_error "Neither sha256sum nor shasum is available on this system to verify integrity. Aborting."
+    exit 1
 fi
 
-tar -xzf "${TMP_DIR}/edgemon-agent.tar.gz" -C "${TMP_DIR}"
+tar -xzf "${TMP_DIR}/${ASSET}" -C "${TMP_DIR}"
 
 if [[ ! -f "${TMP_DIR}/edgemon-agent" ]]; then
     log_error "Archive did not contain edgemon-agent binary."

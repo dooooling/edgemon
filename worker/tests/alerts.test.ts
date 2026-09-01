@@ -193,6 +193,21 @@ describe('Alert Engine & State Machine', () => {
     expect(await validateDnsAndSsrf('https://169.254.169.254/latest/meta-data')).toBe(false);
     expect(await validateDnsAndSsrf('https://[::ffff:127.0.0.1]/hook')).toBe(false);
     expect(await validateDnsAndSsrf('ftp://example.com/hook')).toBe(false);
+
+    // Mocked DoH network error: MUST fail-closed and return false
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async (url: string) => {
+        if (typeof url === 'string' && url.includes('dns-query')) {
+          throw new Error('Network socket disconnected during DNS lookup');
+        }
+        return originalFetch(url);
+      }) as any;
+
+      expect(await validateDnsAndSsrf('https://some-valid-target.com/webhook')).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('formats notification payloads properly for Discord, Telegram, and Generic channels', async () => {
@@ -457,6 +472,54 @@ describe('Alert Engine & State Machine', () => {
     for (const t of ruleTransitions) {
       expect(t.channelIds).toEqual([100, 200]);
     }
+  });
+
+  it('mode: custom completely suppresses builtin offline & expiry, running only selected rules', async () => {
+    const offlineNode = {
+      id: 'node-custom-isolate',
+      name: 'Tokyo-Custom-Isolate',
+      hidden: 0,
+      expires_at_ms: Date.now() + 86400 * 1000, // Expiring tomorrow
+      memory_limit_bytes: 1000,
+      rootfs_limit_bytes: 1000,
+      last_seen_at_ms: Date.now() - 300 * 1000, // Offline > 90s
+      cpu_usage_pct: 10.0,
+      memory_used_bytes: 100,
+      rootfs_used_bytes: 100,
+      node_config_json: JSON.stringify({
+        alert_policy: { mode: 'custom', rule_ids: [501] }, // Only CPU rule 501
+      }),
+    };
+
+    const cpuRule = {
+      id: 501,
+      node_id: null,
+      type: 'cpu',
+      threshold: 80,
+      duration_sec: 0,
+      enabled: 1,
+      config_json: JSON.stringify({ name: 'Custom CPU Only', channel_ids: [1] }),
+    };
+
+    const mockDb = {
+      prepare(sql: string) {
+        return {
+          bind(...args: any[]) { return this; },
+          async all() {
+            if (sql.includes('FROM nodes')) return { results: [offlineNode] };
+            if (sql.includes('FROM alert_rules')) return { results: [cpuRule] };
+            return { results: [] };
+          },
+          async first() { return null; },
+          async run() { return { success: true }; },
+        };
+      },
+    } as any;
+
+    const transitions = await evaluateAlerts(mockDb, 90);
+    // Since CPU is normal (10% < 80%) and node is in custom mode (only rule 501),
+    // builtin offline & expiry MUST NOT fire!
+    expect(transitions.length).toBe(0);
   });
 });
 

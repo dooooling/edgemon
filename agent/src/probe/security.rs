@@ -25,7 +25,8 @@ pub fn is_private_or_loopback(ip: &IpAddr) -> bool {
                 || (ipv6.segments()[0] & 0xfe00) == 0xfc00 // ULA (fc00::/7)
                 || (ipv6.segments()[0] & 0xffc0) == 0xfe80 // Link-local (fe80::/10)
                 || (ipv6.segments()[0] & 0xff00) == 0xff00 // Multicast (ff00::/8)
-                || (ipv6.segments()[0] == 0x2001 && ipv6.segments()[1] == 0x0db8) // Documentation (2001:db8::/32)
+                || (ipv6.segments()[0] == 0x2001 && ipv6.segments()[1] == 0x0db8)
+            // Documentation (2001:db8::/32)
         }
     }
 }

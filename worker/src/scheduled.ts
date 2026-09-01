@@ -156,10 +156,21 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
 
   const jobs: DeliveryJob[] = [];
   for (const t of transitions) {
-    const targetConfigs = t.channelIds && t.channelIds.length > 0
+    const hasExplicitTargets = Array.isArray(t.channelIds) && t.channelIds.length > 0;
+    const configsToUse = hasExplicitTargets
       ? webhookConfigs.filter((cfg) => cfg.id && t.channelIds!.includes(cfg.id))
       : webhookConfigs;
-    const configsToUse = targetConfigs.length > 0 ? targetConfigs : webhookConfigs;
+
+    if (hasExplicitTargets && configsToUse.length === 0) {
+      // Audit: Configured channel targets unavailable or disabled; do NOT fallback to broadcast!
+      await recordEvent(env.DB, t.nodeId, 'alert_notification_skipped', {
+        reason: 'Configured channel IDs unavailable or disabled',
+        configured_channel_ids: t.channelIds,
+        status: t.status,
+        type: t.type,
+      });
+      continue;
+    }
 
     for (const cfg of configsToUse) {
       jobs.push({ transition: t, config: cfg });

@@ -521,6 +521,104 @@ describe('Alert Engine & State Machine', () => {
     // builtin offline & expiry MUST NOT fire!
     expect(transitions.length).toBe(0);
   });
+
+  it('legacy offline rule triggers exactly one firing on offline node without duplicate builtin offline', async () => {
+    const offlineNode = {
+      id: 'node-legacy-off',
+      name: 'Tokyo-Legacy-Offline',
+      hidden: 0,
+      expires_at_ms: null,
+      memory_limit_bytes: 1000,
+      rootfs_limit_bytes: 1000,
+      last_seen_at_ms: Date.now() - 150 * 1000, // Offline > 90s
+      cpu_usage_pct: 10.0,
+      memory_used_bytes: 100,
+      rootfs_used_bytes: 100,
+      node_config_json: null, // Global mode
+    };
+
+    const legacyOfflineRule = {
+      id: 601,
+      node_id: null,
+      type: 'offline',
+      threshold: 60,
+      duration_sec: 0,
+      enabled: 1,
+      config_json: JSON.stringify({ name: 'Legacy Offline 60s', channel_ids: [10] }),
+    };
+
+    const mockDb = {
+      prepare(sql: string) {
+        return {
+          bind(...args: any[]) { return this; },
+          async all() {
+            if (sql.includes('FROM nodes')) return { results: [offlineNode] };
+            if (sql.includes('FROM alert_rules')) return { results: [legacyOfflineRule] };
+            return { results: [] };
+          },
+          async first() { return null; },
+          async run() { return { success: true }; },
+        };
+      },
+    } as any;
+
+    const transitions = await evaluateAlerts(mockDb, 90);
+    // MUST trigger exactly one offline alert (from rule 601), and builtin:offline MUST NOT fire
+    expect(transitions.length).toBe(1);
+    expect(transitions[0].stateKey).toBe('rule:601:node-legacy-off');
+    expect(transitions[0].type).toBe('offline');
+    expect(transitions[0].status).toBe('firing');
+    expect(transitions[0].channelIds).toEqual([10]);
+  });
+
+  it('legacy expiry rule triggers exactly one firing on expiring node without duplicate builtin expiry', async () => {
+    const expiringNode = {
+      id: 'node-legacy-exp',
+      name: 'Tokyo-Legacy-Expiring',
+      hidden: 0,
+      expires_at_ms: Date.now() + 2 * 86400 * 1000, // 2 days left (< 7 days)
+      memory_limit_bytes: 1000,
+      rootfs_limit_bytes: 1000,
+      last_seen_at_ms: Date.now(), // Online
+      cpu_usage_pct: 10.0,
+      memory_used_bytes: 100,
+      rootfs_used_bytes: 100,
+      node_config_json: null, // Global mode
+    };
+
+    const legacyExpiryRule = {
+      id: 701,
+      node_id: null,
+      type: 'expiry',
+      threshold: 7, // 7 days
+      duration_sec: 0,
+      enabled: 1,
+      config_json: JSON.stringify({ name: 'Legacy Expiry 7d', channel_ids: [20] }),
+    };
+
+    const mockDb = {
+      prepare(sql: string) {
+        return {
+          bind(...args: any[]) { return this; },
+          async all() {
+            if (sql.includes('FROM nodes')) return { results: [expiringNode] };
+            if (sql.includes('FROM alert_rules')) return { results: [legacyExpiryRule] };
+            return { results: [] };
+          },
+          async first() { return null; },
+          async run() { return { success: true }; },
+        };
+      },
+    } as any;
+
+    const transitions = await evaluateAlerts(mockDb, 90);
+    // MUST trigger exactly one expiry alert (from rule 701), and builtin:expiry MUST NOT fire
+    expect(transitions.length).toBe(1);
+    expect(transitions[0].stateKey).toBe('rule:701:node-legacy-exp');
+    expect(transitions[0].type).toBe('expiry');
+    expect(transitions[0].status).toBe('firing');
+    expect(transitions[0].channelIds).toEqual([20]);
+  });
 });
 
 

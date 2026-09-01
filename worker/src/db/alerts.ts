@@ -559,6 +559,21 @@ export async function evaluateAlerts(
             firingMsg = `Disk usage is at ${curVal.toFixed(1)}% (threshold: ${threshold}%).`;
             resolvedMsg = `Disk usage normalized to ${curVal.toFixed(1)}%.`;
           }
+        } else if (rule.type === 'offline') {
+          const offlineCutoffSec = (rule.duration_sec && rule.duration_sec > 0)
+            ? rule.duration_sec
+            : (rule.threshold && rule.threshold > 0 ? rule.threshold : offlineThresholdSec);
+          curVal = node.last_seen_at_ms ? Math.round((now - node.last_seen_at_ms) / 1000) : null;
+          conditionMet = !node.last_seen_at_ms || node.last_seen_at_ms < now - offlineCutoffSec * 1000;
+          firingMsg = `Node has not reported telemetry for more than ${offlineCutoffSec} seconds.`;
+          resolvedMsg = `Node has resumed normal telemetry reporting.`;
+        } else if (rule.type === 'expiry') {
+          const days = (rule.threshold && rule.threshold > 0) ? rule.threshold : 7;
+          const daysMs = days * 86400 * 1000;
+          curVal = node.expires_at_ms;
+          conditionMet = node.expires_at_ms != null && (node.expires_at_ms - now <= daysMs);
+          firingMsg = `Node plan will expire at ${node.expires_at_ms ? new Date(node.expires_at_ms).toISOString() : 'N/A'} (<= ${days} days).`;
+          resolvedMsg = `Node plan expiration date updated or resolved.`;
         }
 
         await checkTransition(
@@ -568,9 +583,17 @@ export async function evaluateAlerts(
           node.name,
           rule.type as any,
           conditionMet,
-          `Node ${node.name} ${rule.type.toUpperCase()} Alert`,
+          rule.type === 'offline'
+            ? `Node ${node.name} is Offline`
+            : rule.type === 'expiry'
+            ? `Node ${node.name} Plan Expiring Soon`
+            : `Node ${node.name} ${rule.type.toUpperCase()} Alert`,
           firingMsg,
-          `Node ${node.name} ${rule.type.toUpperCase()} Recovered`,
+          rule.type === 'offline'
+            ? `Node ${node.name} is Online`
+            : rule.type === 'expiry'
+            ? `Node ${node.name} Plan Renewed`
+            : `Node ${node.name} ${rule.type.toUpperCase()} Recovered`,
           resolvedMsg,
           curVal,
           threshold,

@@ -98,37 +98,12 @@ export const AdminPage: React.FC = () => {
   const [cmdTab, setCmdTab] = useState<'binary' | 'docker' | 'systemd' | 'raw'>('binary');
   const [copyFeedback, setCopyFeedback] = useState(false);
 
-  const [probeModalNode, setProbeModalNode] = useState<{ id: string; name: string } | null>(null);
   const [editingConfig, setEditingConfig] = useState<NodeServerConfig | null>(null);
-  const [savingConfig, setSavingConfig] = useState(false);
+  const [nodeEditTab, setNodeEditTab] = useState<'basic' | 'probes' | 'alerts'>('basic');
   const [newProbeId, setNewProbeId] = useState('');
   const [newProbeTarget, setNewProbeTarget] = useState('');
   const [newProbeProtocol, setNewProbeProtocol] = useState<'icmp' | 'tcp'>('icmp');
   const [newProbePort, setNewProbePort] = useState<number>(80);
-
-  async function openProbeModal(node: { id: string; name: string }) {
-    setProbeModalNode(node);
-    try {
-      const res = await fetchNodeConfig(node.id);
-      setEditingConfig({
-        sample_interval_sec: res.config?.sample_interval_sec ?? 30,
-        stream_interval_sec: res.config?.stream_interval_sec ?? 30,
-        probe_interval_sec: res.config?.probe_interval_sec ?? 60,
-        network_interface: res.config?.network_interface ?? 'auto',
-        probes: Array.isArray(res.config?.probes) && res.config.probes.length > 0 ? res.config.probes : PROBE_PRESETS.china_3net,
-        alert_policy: res.config?.alert_policy ?? { mode: 'global' },
-      });
-    } catch {
-      setEditingConfig({
-        sample_interval_sec: 30,
-        stream_interval_sec: 30,
-        probe_interval_sec: 60,
-        network_interface: 'auto',
-        probes: PROBE_PRESETS.china_3net,
-        alert_policy: { mode: 'global' },
-      });
-    }
-  }
 
   function handleApplyPreset(preset: keyof typeof PROBE_PRESETS) {
     if (!editingConfig) return;
@@ -162,29 +137,6 @@ export const AdminPage: React.FC = () => {
       ...editingConfig,
       probes: updated,
     });
-  }
-
-  async function handleSaveProbeConfig() {
-    if (!probeModalNode || !editingConfig) return;
-    setSavingConfig(true);
-    try {
-      const payloadToSave: NodeServerConfig = {
-        sample_interval_sec: editingConfig.sample_interval_sec ?? 30,
-        stream_interval_sec: editingConfig.stream_interval_sec ?? 30,
-        probe_interval_sec: editingConfig.probe_interval_sec ?? 60,
-        network_interface: editingConfig.network_interface ?? 'auto',
-        probes: editingConfig.probes || [],
-        alert_policy: editingConfig.alert_policy || { mode: 'global' },
-      };
-      await updateNodeConfig(probeModalNode.id, payloadToSave);
-      setProbeModalNode(null);
-      setEditingConfig(null);
-      alert('服务器节点配置与告警策略已更新并即时生效！');
-    } catch (err: any) {
-      alert(err.message || '更新节点配置失败');
-    } finally {
-      setSavingConfig(false);
-    }
   }
 
   async function handleLogin(e: React.FormEvent) {
@@ -444,7 +396,7 @@ export const AdminPage: React.FC = () => {
     }
   }
 
-  function openEditModal(n: any) {
+  async function openEditModal(n: any) {
     let quotaGbStr = '';
     if (n.traffic_quota_bytes && n.traffic_quota_bytes > 0) {
       quotaGbStr = String(Math.round(n.traffic_quota_bytes / (1024 * 1024 * 1024)));
@@ -467,6 +419,28 @@ export const AdminPage: React.FC = () => {
       billing_cycle: n.billing_cycle || 'monthly',
       auto_renewal: Boolean(n.auto_renewal ?? 1),
     });
+    setNodeEditTab('basic');
+
+    try {
+      const res = await fetchNodeConfig(n.id);
+      setEditingConfig({
+        sample_interval_sec: res.config?.sample_interval_sec ?? 30,
+        stream_interval_sec: res.config?.stream_interval_sec ?? 30,
+        probe_interval_sec: res.config?.probe_interval_sec ?? 60,
+        network_interface: res.config?.network_interface ?? 'auto',
+        probes: Array.isArray(res.config?.probes) && res.config.probes.length > 0 ? res.config.probes : PROBE_PRESETS.china_3net,
+        alert_policy: res.config?.alert_policy ?? { mode: 'global' },
+      });
+    } catch {
+      setEditingConfig({
+        sample_interval_sec: 30,
+        stream_interval_sec: 30,
+        probe_interval_sec: 60,
+        network_interface: 'auto',
+        probes: PROBE_PRESETS.china_3net,
+        alert_policy: { mode: 'global' },
+      });
+    }
   }
 
   async function handleUpdateNode(e: React.FormEvent) {
@@ -482,6 +456,7 @@ export const AdminPage: React.FC = () => {
         : null;
       const priceNum = editingNode.plan_price !== '' ? parseFloat(editingNode.plan_price) : null;
 
+      // 1. Update node basic & billing attributes
       await updateAdminNode(editingNode.id, {
         name: editingNode.name,
         traffic_reset_day: editingNode.traffic_reset_day,
@@ -494,7 +469,14 @@ export const AdminPage: React.FC = () => {
         billing_cycle: editingNode.billing_cycle,
         auto_renewal: editingNode.auto_renewal,
       });
+
+      // 2. Update probe config & alert policy if available
+      if (editingConfig) {
+        await updateNodeConfig(editingNode.id, editingConfig);
+      }
+
       setEditingNode(null);
+      setEditingConfig(null);
       refetchNodes();
     } catch (err: any) {
       alert(`更新失败: ${err.message}`);
@@ -708,15 +690,10 @@ export const AdminPage: React.FC = () => {
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <button
                             className="button-ghost-on-dark button-ghost-sm"
+                            style={{ borderColor: '#38bdf8', color: '#38bdf8' }}
                             onClick={() => openEditModal(n)}
                           >
-                            {t('btn_edit')}
-                          </button>
-                          <button
-                            className="button-ghost-on-dark button-ghost-sm"
-                            onClick={() => openProbeModal({ id: n.id, name: n.name })}
-                          >
-                            探针 & 告警
+                            ⚙️ {t('btn_edit')}
                           </button>
                           <button
                             className="button-ghost-on-dark button-ghost-sm"
@@ -1177,161 +1154,446 @@ export const AdminPage: React.FC = () => {
             </div>
           )}
 
-          {/* Edit Node Modal */}
+          {/* Unified Node Edit Modal (Basic, Billing, Probes, Alert Policies) */}
           {editingNode && (
             <div className="modal-backdrop-dark">
-              <div className="modal-box-dark">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div className="modal-box-dark" style={{ maxWidth: '640px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <div>
-                    <span className="eyebrow-cap">{t('edit_node_title')}</span>
+                    <span className="eyebrow-cap">⚙️ {t('edit_node_title')} // {editingNode.id.substring(0, 8)}...</span>
                     <h3 style={{ fontSize: '18px', fontWeight: 700, marginTop: '4px' }}>{editingNode.name}</h3>
                   </div>
                   <button
                     style={{ background: 'none', border: 'none', color: '#ffffff', fontSize: '18px', cursor: 'pointer' }}
-                    onClick={() => setEditingNode(null)}
+                    onClick={() => {
+                      setEditingNode(null);
+                      setEditingConfig(null);
+                    }}
                   >
                     ✕
                   </button>
                 </div>
 
+                {/* Sub-Tabs Selector */}
+                <div className="range-capsules" style={{ margin: '0 0 20px 0', width: '100%' }}>
+                  <button
+                    type="button"
+                    className={`range-capsule-btn ${nodeEditTab === 'basic' ? 'active' : ''}`}
+                    style={{ flex: 1 }}
+                    onClick={() => setNodeEditTab('basic')}
+                  >
+                    📋 基础与账单
+                  </button>
+                  <button
+                    type="button"
+                    className={`range-capsule-btn ${nodeEditTab === 'probes' ? 'active' : ''}`}
+                    style={{ flex: 1 }}
+                    onClick={() => setNodeEditTab('probes')}
+                  >
+                    📡 探针 ({(editingConfig?.probes || []).length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`range-capsule-btn ${nodeEditTab === 'alerts' ? 'active' : ''}`}
+                    style={{ flex: 1 }}
+                    onClick={() => setNodeEditTab('alerts')}
+                  >
+                    🚨 告警与通知
+                  </button>
+                </div>
+
                 <form onSubmit={handleUpdateNode}>
-                  <div style={{ marginBottom: '16px' }}>
-                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('node_name_label')}</span>
-                    <input
-                      value={editingNode.name}
-                      onChange={(e) => setEditingNode({ ...editingNode, name: e.target.value })}
-                      className="spacex-input"
-                      placeholder="e.g. TOKYO-01"
-                      required
-                    />
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                  {/* TAB 1: BASIC & BILLING */}
+                  {nodeEditTab === 'basic' && (
                     <div>
-                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('reset_day_label')}</span>
-                      <input
-                        value={editingNode.traffic_reset_day}
-                        onChange={(e) => setEditingNode({ ...editingNode, traffic_reset_day: parseInt(e.target.value) || 1 })}
-                        type="number"
-                        min={1}
-                        max={31}
-                        className="spacex-input"
-                      />
+                      <div style={{ marginBottom: '16px' }}>
+                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('node_name_label')}</span>
+                        <input
+                          value={editingNode.name}
+                          onChange={(e) => setEditingNode({ ...editingNode, name: e.target.value })}
+                          className="spacex-input"
+                          placeholder="e.g. TOKYO-01"
+                          required
+                        />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                        <div>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('reset_day_label')}</span>
+                          <input
+                            value={editingNode.traffic_reset_day}
+                            onChange={(e) => setEditingNode({ ...editingNode, traffic_reset_day: parseInt(e.target.value) || 1 })}
+                            type="number"
+                            min={1}
+                            max={31}
+                            className="spacex-input"
+                          />
+                        </div>
+                        <div>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('quota_gb_label')}</span>
+                          <input
+                            value={editingNode.traffic_quota_gb}
+                            onChange={(e) => setEditingNode({ ...editingNode, traffic_quota_gb: e.target.value })}
+                            type="number"
+                            min={0}
+                            placeholder="如 1000 (留空为无配额)"
+                            className="spacex-input"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Finance / Price & Currency */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                        <div>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>服务器价格 / Price (Optional)</span>
+                          <input
+                            value={editingNode.plan_price}
+                            onChange={(e) => setEditingNode({ ...editingNode, plan_price: e.target.value })}
+                            type="number"
+                            step="0.01"
+                            min={0}
+                            placeholder="如 15.00 (免费留空)"
+                            className="spacex-input"
+                          />
+                        </div>
+                        <div>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>结算币种 / Currency</span>
+                          <select
+                            value={editingNode.plan_currency}
+                            onChange={(e) => setEditingNode({ ...editingNode, plan_currency: e.target.value })}
+                            className="spacex-input"
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <option value="USD">USD ($)</option>
+                            <option value="CNY">CNY (¥)</option>
+                            <option value="EUR">EUR (€)</option>
+                            <option value="HKD">HKD (HK$)</option>
+                            <option value="GBP">GBP (£)</option>
+                            <option value="JPY">JPY (¥)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Finance / Cycle & Auto Renewal */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                        <div>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>计费周期 / Billing Cycle</span>
+                          <select
+                            value={editingNode.billing_cycle}
+                            onChange={(e) => setEditingNode({ ...editingNode, billing_cycle: e.target.value })}
+                            className="spacex-input"
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <option value="monthly">月付 (Monthly)</option>
+                            <option value="quarterly">季付 (Quarterly)</option>
+                            <option value="semi_annually">半年付 (Semi-Annually)</option>
+                            <option value="annually">年付 (Annually)</option>
+                            <option value="biennially">两年付 (Biennially)</option>
+                            <option value="triennially">三年付 (Triennially)</option>
+                            <option value="one_time">一次性/买断 (One-Time)</option>
+                            <option value="free">免费 (Free)</option>
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', marginTop: '24px', gap: '10px' }}>
+                          <input
+                            type="checkbox"
+                            id="edit_auto_renewal_checkbox"
+                            checked={editingNode.auto_renewal}
+                            onChange={(e) => setEditingNode({ ...editingNode, auto_renewal: e.target.checked })}
+                            style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                          />
+                          <label htmlFor="edit_auto_renewal_checkbox" style={{ fontSize: '12px', color: '#ffffff', cursor: 'pointer' }}>
+                            自动续费 (Auto Renewal)
+                          </label>
+                        </div>
+                      </div>
+
+                      <div style={{ marginBottom: '16px' }}>
+                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('th_expire')} (Optional)</span>
+                        <input
+                          value={editingNode.expires_at}
+                          onChange={(e) => setEditingNode({ ...editingNode, expires_at: e.target.value })}
+                          type="date"
+                          className="spacex-input"
+                        />
+                      </div>
+
+                      <div style={{ marginBottom: '16px' }}>
+                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>Note / 备注 (Optional)</span>
+                        <input
+                          value={editingNode.note}
+                          onChange={(e) => setEditingNode({ ...editingNode, note: e.target.value })}
+                          placeholder="e.g. 搬瓦工 CN2-GIA 2C2G"
+                          className="spacex-input"
+                        />
+                      </div>
+
+                      <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <input
+                          type="checkbox"
+                          id="edit_hidden_checkbox"
+                          checked={editingNode.hidden}
+                          onChange={(e) => setEditingNode({ ...editingNode, hidden: e.target.checked })}
+                          style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                        />
+                        <label htmlFor="edit_hidden_checkbox" style={{ fontSize: '12px', color: '#ffffff', cursor: 'pointer' }}>
+                          在公开首页隐藏此节点（仅管理员登录后可见）
+                        </label>
+                      </div>
                     </div>
+                  )}
+
+                  {/* TAB 2: PROBES */}
+                  {nodeEditTab === 'probes' && (
                     <div>
-                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('quota_gb_label')}</span>
-                      <input
-                        value={editingNode.traffic_quota_gb}
-                        onChange={(e) => setEditingNode({ ...editingNode, traffic_quota_gb: e.target.value })}
-                        type="number"
-                        min={0}
-                        placeholder="如 1000 (留空为无配额)"
-                        className="spacex-input"
-                      />
+                      {/* Quick Presets Bar */}
+                      <div style={{ marginBottom: '16px', padding: '12px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+                        <span className="eyebrow-cap" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>
+                          {t('probe_presets')}
+                        </span>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            className="button-ghost-on-dark button-ghost-sm"
+                            style={{ borderColor: '#38bdf8', color: '#38bdf8' }}
+                            onClick={() => handleApplyPreset('china_3net')}
+                          >
+                            🇨🇳 {t('preset_china_3net')}
+                          </button>
+                          <button
+                            type="button"
+                            className="button-ghost-on-dark button-ghost-sm"
+                            onClick={() => handleApplyPreset('global_infra')}
+                          >
+                            🌐 {t('preset_global_infra')}
+                          </button>
+                          <button
+                            type="button"
+                            className="button-ghost-on-dark button-ghost-sm"
+                            onClick={() => handleApplyPreset('minimal_ping')}
+                          >
+                            ⚡ {t('preset_minimal_ping')}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Probes List */}
+                      <div style={{ marginBottom: '16px' }}>
+                        <span className="eyebrow-cap" style={{ fontSize: '11px', display: 'block', marginBottom: '8px' }}>
+                          已配置探测目标 ({(editingConfig?.probes || []).length})
+                        </span>
+                        {(!editingConfig?.probes || editingConfig.probes.length === 0) ? (
+                          <div style={{ padding: '16px', textAlign: 'center', color: 'var(--colors-muted)', fontSize: '12px', border: '1px dashed var(--colors-hairline-on-dark)', borderRadius: '4px' }}>
+                            暂未配置探测目标，请点击上方预设或手动添加。
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                            {editingConfig.probes.map((p, idx) => (
+                              <div
+                                key={p.id + idx}
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  padding: '8px 12px',
+                                  background: 'rgba(255, 255, 255, 0.03)',
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--colors-hairline-on-dark)',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <span className="spacex-chip" style={{ fontSize: '10px' }}>{p.protocol.toUpperCase()}</span>
+                                  <span style={{ fontWeight: 600, fontSize: '12px' }}>{p.id}</span>
+                                  <span style={{ color: 'var(--colors-muted)', fontSize: '11px' }}>
+                                    ➔ {p.target}{p.port ? `:${p.port}` : ''}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="button-ghost-on-dark button-ghost-sm button-ghost-danger"
+                                  style={{ padding: '2px 8px', minHeight: 'auto', fontSize: '11px' }}
+                                  onClick={() => handleRemoveProbe(idx)}
+                                >
+                                  ✕ 删除
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Add Custom Probe Form */}
+                      <div style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)', marginBottom: '20px' }}>
+                        <span className="eyebrow-cap" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>
+                          + 添加自定义探测目标
+                        </span>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 80px 1fr', gap: '8px', alignItems: 'center' }}>
+                          <input
+                            placeholder="标识 (如 ct-hk)"
+                            value={newProbeId}
+                            onChange={(e) => setNewProbeId(e.target.value)}
+                            className="spacex-input"
+                            style={{ fontSize: '12px', padding: '6px 8px' }}
+                          />
+                          <input
+                            placeholder="IP 或域名 (如 1.1.1.1)"
+                            value={newProbeTarget}
+                            onChange={(e) => setNewProbeTarget(e.target.value)}
+                            className="spacex-input"
+                            style={{ fontSize: '12px', padding: '6px 8px' }}
+                          />
+                          <select
+                            value={newProbeProtocol}
+                            onChange={(e) => setNewProbeProtocol(e.target.value as any)}
+                            className="spacex-input"
+                            style={{ fontSize: '12px', padding: '6px 8px', background: '#000000', color: '#ffffff' }}
+                          >
+                            <option value="icmp">ICMP</option>
+                            <option value="tcp">TCP</option>
+                          </select>
+                          {newProbeProtocol === 'tcp' ? (
+                            <input
+                              type="number"
+                              placeholder="端口"
+                              value={newProbePort}
+                              onChange={(e) => setNewProbePort(parseInt(e.target.value) || 80)}
+                              className="spacex-input"
+                              style={{ fontSize: '12px', padding: '6px 8px' }}
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              className="button-ghost-on-dark button-ghost-sm"
+                              onClick={handleAddProbe}
+                              style={{ width: '100%', justifyContent: 'center' }}
+                            >
+                              + 添加
+                            </button>
+                          )}
+                        </div>
+                        {newProbeProtocol === 'tcp' && (
+                          <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
+                            <button
+                              type="button"
+                              className="button-ghost-on-dark button-ghost-sm"
+                              onClick={handleAddProbe}
+                            >
+                              + 确认添加此 TCP 探测
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Finance / Price & Currency */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                    <div>
-                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>服务器价格 / Price (Optional)</span>
-                      <input
-                        value={editingNode.plan_price}
-                        onChange={(e) => setEditingNode({ ...editingNode, plan_price: e.target.value })}
-                        type="number"
-                        step="0.01"
-                        min={0}
-                        placeholder="如 15.00 (免费留空)"
-                        className="spacex-input"
-                      />
+                  {/* TAB 3: ALERTS */}
+                  {nodeEditTab === 'alerts' && editingConfig && (
+                    <div style={{ marginBottom: '20px' }}>
+                      <div style={{ padding: '14px 16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+                        <span className="eyebrow-cap" style={{ fontSize: '10px', display: 'block', marginBottom: '10px' }}>
+                          🚨 节点告警与通知推送策略 / ALERT NOTIFICATION POLICY
+                        </span>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '12px' }}>
+                          <button
+                            type="button"
+                            className={`range-capsule-btn ${(!editingConfig.alert_policy || editingConfig.alert_policy.mode === 'global') ? 'active' : ''}`}
+                            style={{ height: '34px', fontSize: '11px', width: '100%', textTransform: 'none' }}
+                            onClick={() => setEditingConfig({
+                              ...editingConfig,
+                              alert_policy: { mode: 'global', rule_ids: editingConfig.alert_policy?.rule_ids || [] }
+                            })}
+                          >
+                            🌐 继承全局规则
+                          </button>
+                          <button
+                            type="button"
+                            className={`range-capsule-btn ${editingConfig.alert_policy?.mode === 'custom' ? 'active' : ''}`}
+                            style={{ height: '34px', fontSize: '11px', width: '100%', textTransform: 'none' }}
+                            onClick={() => setEditingConfig({
+                              ...editingConfig,
+                              alert_policy: { mode: 'custom', rule_ids: editingConfig.alert_policy?.rule_ids || [] }
+                            })}
+                          >
+                            ⚙️ 自定义关联规则
+                          </button>
+                          <button
+                            type="button"
+                            className={`range-capsule-btn ${editingConfig.alert_policy?.mode === 'none' ? 'active' : ''}`}
+                            style={{
+                              height: '34px',
+                              fontSize: '11px',
+                              width: '100%',
+                              textTransform: 'none',
+                              borderColor: editingConfig.alert_policy?.mode === 'none' ? '#e22718' : undefined,
+                              color: editingConfig.alert_policy?.mode === 'none' ? '#e22718' : undefined
+                            }}
+                            onClick={() => setEditingConfig({
+                              ...editingConfig,
+                              alert_policy: { mode: 'none', rule_ids: [] }
+                            })}
+                          >
+                            🔕 不推送 (完全静音)
+                          </button>
+                        </div>
+
+                        {editingConfig.alert_policy?.mode === 'custom' && (
+                          <div style={{ padding: '12px', background: 'rgba(0, 0, 0, 0.5)', borderRadius: '4px', border: '1px solid var(--colors-hairline-on-dark)', marginTop: '8px' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--colors-muted)', display: 'block', marginBottom: '8px' }}>
+                              勾选需要对此服务器生效的告警策略：
+                            </span>
+                            {alertRules.filter(r => r.type !== 'channel' && r.type !== 'webhook').length === 0 ? (
+                              <div style={{ fontSize: '11px', color: 'var(--colors-muted)' }}>暂无告警策略，请先在「告警策略与推送」页面创建策略。</div>
+                            ) : (
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                {alertRules.filter(r => r.type !== 'channel' && r.type !== 'webhook').map((p) => {
+                                  let pConfig: any = {};
+                                  try { pConfig = p.config_json ? JSON.parse(p.config_json) : {}; } catch { pConfig = {}; }
+                                  const isChecked = (editingConfig.alert_policy?.rule_ids || []).includes(p.id);
+                                  return (
+                                    <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '11px' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          const curIds = editingConfig.alert_policy?.rule_ids || [];
+                                          const nextIds = e.target.checked
+                                            ? [...curIds, p.id]
+                                            : curIds.filter(id => id !== p.id);
+                                          setEditingConfig({
+                                            ...editingConfig,
+                                            alert_policy: { mode: 'custom', rule_ids: nextIds }
+                                          });
+                                        }}
+                                      />
+                                      <span>{pConfig.name || `${p.type.toUpperCase()} 策略`} ({p.type.toUpperCase()})</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {editingConfig.alert_policy?.mode === 'none' && (
+                          <div style={{ fontSize: '11px', color: '#ffaa00', marginTop: '6px' }}>
+                            ⚠️ 该节点已被设置为完全静音，发生离线、CPU/内存/磁盘高负载或到期时均不会发送任何推送。
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>结算币种 / Currency</span>
-                      <select
-                        value={editingNode.plan_currency}
-                        onChange={(e) => setEditingNode({ ...editingNode, plan_currency: e.target.value })}
-                        className="spacex-input"
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <option value="USD">USD ($)</option>
-                        <option value="CNY">CNY (¥)</option>
-                        <option value="EUR">EUR (€)</option>
-                        <option value="HKD">HKD (HK$)</option>
-                        <option value="GBP">GBP (£)</option>
-                        <option value="JPY">JPY (¥)</option>
-                      </select>
-                    </div>
-                  </div>
+                  )}
 
-                  {/* Finance / Cycle & Auto Renewal */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                    <div>
-                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>计费周期 / Billing Cycle</span>
-                      <select
-                        value={editingNode.billing_cycle}
-                        onChange={(e) => setEditingNode({ ...editingNode, billing_cycle: e.target.value })}
-                        className="spacex-input"
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <option value="monthly">月付 (Monthly)</option>
-                        <option value="quarterly">季付 (Quarterly)</option>
-                        <option value="semi_annually">半年付 (Semi-Annually)</option>
-                        <option value="annually">年付 (Annually)</option>
-                        <option value="biennially">两年付 (Biennially)</option>
-                        <option value="triennially">三年付 (Triennially)</option>
-                        <option value="one_time">一次性/买断 (One-Time)</option>
-                        <option value="free">免费 (Free)</option>
-                      </select>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', marginTop: '24px', gap: '10px' }}>
-                      <input
-                        type="checkbox"
-                        id="edit_auto_renewal_checkbox"
-                        checked={editingNode.auto_renewal}
-                        onChange={(e) => setEditingNode({ ...editingNode, auto_renewal: e.target.checked })}
-                        style={{ cursor: 'pointer', width: '16px', height: '16px' }}
-                      />
-                      <label htmlFor="edit_auto_renewal_checkbox" style={{ fontSize: '12px', color: '#ffffff', cursor: 'pointer' }}>
-                        自动续费 (Auto Renewal)
-                      </label>
-                    </div>
-                  </div>
-
-                  <div style={{ marginBottom: '16px' }}>
-                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('th_expire')} (Optional)</span>
-                    <input
-                      value={editingNode.expires_at}
-                      onChange={(e) => setEditingNode({ ...editingNode, expires_at: e.target.value })}
-                      type="date"
-                      className="spacex-input"
-                    />
-                  </div>
-
-                  <div style={{ marginBottom: '16px' }}>
-                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>Note / 备注 (Optional)</span>
-                    <input
-                      value={editingNode.note}
-                      onChange={(e) => setEditingNode({ ...editingNode, note: e.target.value })}
-                      placeholder="e.g. 搬瓦工 CN2-GIA 2C2G"
-                      className="spacex-input"
-                    />
-                  </div>
-
-                  <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <input
-                      type="checkbox"
-                      id="edit_hidden_checkbox"
-                      checked={editingNode.hidden}
-                      onChange={(e) => setEditingNode({ ...editingNode, hidden: e.target.checked })}
-                      style={{ cursor: 'pointer', width: '16px', height: '16px' }}
-                    />
-                    <label htmlFor="edit_hidden_checkbox" style={{ fontSize: '12px', color: '#ffffff', cursor: 'pointer' }}>
-                      在公开首页隐藏此节点（仅管理员登录后可见）
-                    </label>
-                  </div>
-
+                  {/* Form Footer */}
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                    <button type="button" className="button-ghost-on-dark button-ghost-sm" onClick={() => setEditingNode(null)}>
+                    <button
+                      type="button"
+                      className="button-ghost-on-dark button-ghost-sm"
+                      onClick={() => {
+                        setEditingNode(null);
+                        setEditingConfig(null);
+                      }}
+                    >
                       {t('cancel_btn')}
                     </button>
                     <button
@@ -1340,7 +1602,7 @@ export const AdminPage: React.FC = () => {
                       className="button-ghost-on-dark button-ghost-sm"
                       style={{ backgroundColor: '#ffffff', color: '#000000', fontWeight: 700 }}
                     >
-                      {updatingNode ? '正在保存...' : t('save_node_btn')}
+                      {updatingNode ? '正在保存...' : '保存所有配置 ➔'}
                     </button>
                   </div>
                 </form>
@@ -1500,283 +1762,7 @@ WantedBy=multi-user.target`;
             );
           })()}
 
-          {/* Probe Configuration Modal */}
-          {probeModalNode && editingConfig && (
-            <div className="modal-backdrop-dark">
-              <div className="modal-box-dark" style={{ maxWidth: '640px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <div>
-                    <span className="eyebrow-cap">{t('probes_title')} // {probeModalNode.name}</span>
-                    <h3 style={{ fontSize: '18px', fontWeight: 700, marginTop: '4px' }}>网络连通性雷达探针配置</h3>
-                  </div>
-                  <button
-                    style={{ background: 'none', border: 'none', color: '#ffffff', fontSize: '18px', cursor: 'pointer' }}
-                    onClick={() => {
-                      setProbeModalNode(null);
-                      setEditingConfig(null);
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
 
-                {/* Quick Presets Bar */}
-                <div style={{ marginBottom: '20px', padding: '12px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)' }}>
-                  <span className="eyebrow-cap" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>
-                    {t('probe_presets')}
-                  </span>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      className="button-ghost-on-dark button-ghost-sm"
-                      style={{ borderColor: '#38bdf8', color: '#38bdf8' }}
-                      onClick={() => handleApplyPreset('china_3net')}
-                    >
-                      🇨🇳 {t('preset_china_3net')}
-                    </button>
-                    <button
-                      type="button"
-                      className="button-ghost-on-dark button-ghost-sm"
-                      onClick={() => handleApplyPreset('global_infra')}
-                    >
-                      🌐 {t('preset_global_infra')}
-                    </button>
-                    <button
-                      type="button"
-                      className="button-ghost-on-dark button-ghost-sm"
-                      onClick={() => handleApplyPreset('minimal_ping')}
-                    >
-                      ⚡ {t('preset_minimal_ping')}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Probes List */}
-                <div style={{ marginBottom: '20px' }}>
-                  <span className="eyebrow-cap" style={{ fontSize: '11px', display: 'block', marginBottom: '8px' }}>
-                    已配置探测目标 ({(editingConfig.probes || []).length})
-                  </span>
-                  {(!editingConfig.probes || editingConfig.probes.length === 0) ? (
-                    <div style={{ padding: '16px', textAlign: 'center', color: 'var(--colors-muted)', fontSize: '12px', border: '1px dashed var(--colors-hairline-on-dark)', borderRadius: '4px' }}>
-                      暂未配置探测目标，请点击上方预设或手动添加。
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '200px', overflowY: 'auto' }}>
-                      {editingConfig.probes.map((p, idx) => (
-                        <div
-                          key={p.id + idx}
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: '8px 12px',
-                            background: 'rgba(255, 255, 255, 0.03)',
-                            borderRadius: '4px',
-                            border: '1px solid var(--colors-hairline-on-dark)',
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <span className="spacex-chip" style={{ fontSize: '10px' }}>{p.protocol.toUpperCase()}</span>
-                            <span style={{ fontWeight: 600, fontSize: '12px' }}>{p.id}</span>
-                            <span style={{ color: 'var(--colors-muted)', fontSize: '11px' }}>
-                              ➔ {p.target}{p.port ? `:${p.port}` : ''}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            className="button-ghost-on-dark button-ghost-sm button-ghost-danger"
-                            style={{ padding: '2px 8px', minHeight: 'auto', fontSize: '11px' }}
-                            onClick={() => handleRemoveProbe(idx)}
-                          >
-                            ✕ 删除
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Add Custom Probe Form */}
-                <div style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)', marginBottom: '20px' }}>
-                  <span className="eyebrow-cap" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>
-                    + 添加自定义探测目标
-                  </span>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 80px 1fr', gap: '8px', alignItems: 'center' }}>
-                    <input
-                      placeholder="标识 (如 ct-hk)"
-                      value={newProbeId}
-                      onChange={(e) => setNewProbeId(e.target.value)}
-                      className="spacex-input"
-                      style={{ fontSize: '12px', padding: '6px 8px' }}
-                    />
-                    <input
-                      placeholder="IP 或域名 (如 1.1.1.1)"
-                      value={newProbeTarget}
-                      onChange={(e) => setNewProbeTarget(e.target.value)}
-                      className="spacex-input"
-                      style={{ fontSize: '12px', padding: '6px 8px' }}
-                    />
-                    <select
-                      value={newProbeProtocol}
-                      onChange={(e) => setNewProbeProtocol(e.target.value as any)}
-                      className="spacex-input"
-                      style={{ fontSize: '12px', padding: '6px 8px', background: '#000000', color: '#ffffff' }}
-                    >
-                      <option value="icmp">ICMP</option>
-                      <option value="tcp">TCP</option>
-                    </select>
-                    {newProbeProtocol === 'tcp' ? (
-                      <input
-                        type="number"
-                        placeholder="端口"
-                        value={newProbePort}
-                        onChange={(e) => setNewProbePort(parseInt(e.target.value) || 80)}
-                        className="spacex-input"
-                        style={{ fontSize: '12px', padding: '6px 8px' }}
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        className="button-ghost-on-dark button-ghost-sm"
-                        onClick={handleAddProbe}
-                        style={{ width: '100%', justifyContent: 'center' }}
-                      >
-                        + 添加
-                      </button>
-                    )}
-                  </div>
-                  {newProbeProtocol === 'tcp' && (
-                    <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
-                      <button
-                        type="button"
-                        className="button-ghost-on-dark button-ghost-sm"
-                        onClick={handleAddProbe}
-                      >
-                        + 确认添加此 TCP 探测
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Node Alert & Notification Policy Section */}
-                <div style={{ padding: '14px 16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)', marginBottom: '20px' }}>
-                  <span className="eyebrow-cap" style={{ fontSize: '10px', display: 'block', marginBottom: '10px' }}>
-                    🚨 节点告警与通知推送策略 / ALERT NOTIFICATION POLICY
-                  </span>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '12px' }}>
-                    <button
-                      type="button"
-                      className={`range-capsule-btn ${(!editingConfig.alert_policy || editingConfig.alert_policy.mode === 'global') ? 'active' : ''}`}
-                      style={{ height: '34px', fontSize: '11px', width: '100%', textTransform: 'none' }}
-                      onClick={() => setEditingConfig({
-                        ...editingConfig,
-                        alert_policy: { mode: 'global', rule_ids: editingConfig.alert_policy?.rule_ids || [] }
-                      })}
-                    >
-                      🌐 继承全局规则
-                    </button>
-                    <button
-                      type="button"
-                      className={`range-capsule-btn ${editingConfig.alert_policy?.mode === 'custom' ? 'active' : ''}`}
-                      style={{ height: '34px', fontSize: '11px', width: '100%', textTransform: 'none' }}
-                      onClick={() => setEditingConfig({
-                        ...editingConfig,
-                        alert_policy: { mode: 'custom', rule_ids: editingConfig.alert_policy?.rule_ids || [] }
-                      })}
-                    >
-                      ⚙️ 自定义关联规则
-                    </button>
-                    <button
-                      type="button"
-                      className={`range-capsule-btn ${editingConfig.alert_policy?.mode === 'none' ? 'active' : ''}`}
-                      style={{
-                        height: '34px',
-                        fontSize: '11px',
-                        width: '100%',
-                        textTransform: 'none',
-                        borderColor: editingConfig.alert_policy?.mode === 'none' ? '#e22718' : undefined,
-                        color: editingConfig.alert_policy?.mode === 'none' ? '#e22718' : undefined
-                      }}
-                      onClick={() => setEditingConfig({
-                        ...editingConfig,
-                        alert_policy: { mode: 'none', rule_ids: [] }
-                      })}
-                    >
-                      🔕 不推送 (完全静音)
-                    </button>
-                  </div>
-
-                  {editingConfig.alert_policy?.mode === 'custom' && (
-                    <div style={{ padding: '12px', background: 'rgba(0, 0, 0, 0.5)', borderRadius: '4px', border: '1px solid var(--colors-hairline-on-dark)', marginTop: '8px' }}>
-                      <span style={{ fontSize: '11px', color: 'var(--colors-muted)', display: 'block', marginBottom: '8px' }}>
-                        勾选需要对此服务器生效的告警策略：
-                      </span>
-                      {alertRules.filter(r => r.type !== 'channel' && r.type !== 'webhook').length === 0 ? (
-                        <div style={{ fontSize: '11px', color: 'var(--colors-muted)' }}>暂无告警策略，请先在「告警策略与推送」页面创建策略。</div>
-                      ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                          {alertRules.filter(r => r.type !== 'channel' && r.type !== 'webhook').map((p) => {
-                            let pConfig: any = {};
-                            try { pConfig = p.config_json ? JSON.parse(p.config_json) : {}; } catch { pConfig = {}; }
-                            const isChecked = (editingConfig.alert_policy?.rule_ids || []).includes(p.id);
-                            return (
-                              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '11px' }}>
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={(e) => {
-                                    const curIds = editingConfig.alert_policy?.rule_ids || [];
-                                    const nextIds = e.target.checked
-                                      ? [...curIds, p.id]
-                                      : curIds.filter(id => id !== p.id);
-                                    setEditingConfig({
-                                      ...editingConfig,
-                                      alert_policy: { mode: 'custom', rule_ids: nextIds }
-                                    });
-                                  }}
-                                />
-                                <span>{pConfig.name || `${p.type.toUpperCase()} 策略`} ({p.type.toUpperCase()})</span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {editingConfig.alert_policy?.mode === 'none' && (
-                    <div style={{ fontSize: '11px', color: '#ffaa00', marginTop: '6px' }}>
-                      ⚠️ 该节点已被设置为完全静音，发生离线、CPU/内存/磁盘高负载或到期时均不会发送任何推送。
-                    </div>
-                  )}
-                </div>
-
-                {/* Footer Save / Cancel */}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                  <button
-                    type="button"
-                    className="button-ghost-on-dark button-ghost-sm"
-                    onClick={() => {
-                      setProbeModalNode(null);
-                      setEditingConfig(null);
-                    }}
-                  >
-                    {t('cancel_btn')}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={savingConfig}
-                    className="button-ghost-on-dark button-ghost-sm"
-                    style={{ backgroundColor: '#ffffff', color: '#000000', fontWeight: 700 }}
-                    onClick={handleSaveProbeConfig}
-                  >
-                    {savingConfig ? '正在保存并热推送...' : '保存并即时生效 ➔'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Modal 1: Add Notification Channel Modal */}
           {showAddChannelModal && (

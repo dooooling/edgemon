@@ -352,7 +352,9 @@ export const NodeDetailPage: React.FC = () => {
               </div>
             ) : (
               <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '10px 14px', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
-                <span style={{ fontWeight: 700, color: '#ffffff' }}>/ (ROOTFS)</span>
+                <span style={{ fontWeight: 700, color: '#ffffff' }}>
+                  {node.system?.os?.toLowerCase() === 'windows' ? 'C:\\ (SYSTEM)' : '/ (ROOTFS)'}
+                </span>
                 <span style={{ color: 'var(--colors-muted)' }}>
                   {rootfsUsedBytes != null ? formatBytes(rootfsUsedBytes) : 'N/A'}
                   {rootfsLimitBytes ? ` / ${formatBytes(rootfsLimitBytes)}` : ` / ${t('container_na')}`}

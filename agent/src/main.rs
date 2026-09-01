@@ -456,9 +456,12 @@ fn main() -> Result<()> {
                                 swap_used_bytes: Some(67_108_864),
                                 oom_kill_count: Some(0),
                             },
-                            rootfs: RootfsMetrics {
-                                used_bytes: Some(34_359_738_368),
-                                mounts: None,
+                            rootfs: {
+                                let real_disk = disk_collector.sample();
+                                RootfsMetrics {
+                                    used_bytes: real_disk.used_bytes.or(Some(34_359_738_368)),
+                                    mounts: real_disk.mounts,
+                                }
                             },
                             io: DiskIoMetrics {
                                 read_bps: Some(1_048_576),

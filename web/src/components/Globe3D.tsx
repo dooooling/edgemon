@@ -197,12 +197,12 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
       morphRef.current += (targetMorph - morphRef.current) * 0.06;
       const morph = morphRef.current;
 
-      // Strict Dynamic Pan Boundary Clamping
+      // Dynamic Pan Boundary Clamping (allowing full exploration of all map edges)
       if (morph > 0.3) {
         const flatHalfWidth = radius * 2.3;
         const flatHalfHeight = radius * 1.15;
-        const maxPanX = Math.max(0, flatHalfWidth - width / 2 + 24);
-        const maxPanY = Math.max(0, flatHalfHeight - height / 2 + 24);
+        const maxPanX = Math.max(width * 0.4, flatHalfWidth);
+        const maxPanY = Math.max(height * 0.4, flatHalfHeight);
 
         targetPanXRef.current = Math.max(-maxPanX, Math.min(maxPanX, targetPanXRef.current));
         targetPanYRef.current = Math.max(-maxPanY, Math.min(maxPanY, targetPanYRef.current));
@@ -621,20 +621,18 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
         rotYRef.current -= deltaX * 0.008;
         rotXRef.current = Math.max(-1.0, Math.min(1.0, rotXRef.current + deltaY * 0.008));
       } else {
-        const baseRadius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.36;
+        const baseRadius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.42;
         const radius = baseRadius * scaleRef.current;
         const flatHalfWidth = radius * 2.3;
         const flatHalfHeight = radius * 1.15;
 
-        const maxPanX = Math.max(0, flatHalfWidth - canvas.clientWidth / 2 + 24);
-        const maxPanY = Math.max(0, flatHalfHeight - canvas.clientHeight / 2 + 24);
+        const maxPanX = Math.max(canvas.clientWidth * 0.4, flatHalfWidth);
+        const maxPanY = Math.max(canvas.clientHeight * 0.4, flatHalfHeight);
 
-        if (maxPanX > 0 || maxPanY > 0) {
-          const nextPanX = targetPanXRef.current + deltaX;
-          const nextPanY = targetPanYRef.current + deltaY;
-          targetPanXRef.current = Math.max(-maxPanX, Math.min(maxPanX, nextPanX));
-          targetPanYRef.current = Math.max(-maxPanY, Math.min(maxPanY, nextPanY));
-        }
+        const nextPanX = targetPanXRef.current + deltaX;
+        const nextPanY = targetPanYRef.current + deltaY;
+        targetPanXRef.current = Math.max(-maxPanX, Math.min(maxPanX, nextPanX));
+        targetPanYRef.current = Math.max(-maxPanY, Math.min(maxPanY, nextPanY));
       }
       lastMouseRef.current = { x: e.clientX, y: e.clientY };
       return;
@@ -646,7 +644,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
     const mouseY = e.clientY - rect.top;
     const centerX = canvas.clientWidth / 2 + panXRef.current;
     const centerY = canvas.clientHeight / 2 + panYRef.current;
-    const radius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.36 * scaleRef.current;
+    const radius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.42 * scaleRef.current;
 
     // Calculate Geographic Cursor Coordinates
     const flatWidth = radius * 2.3;

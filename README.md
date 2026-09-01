@@ -71,7 +71,17 @@ npx wrangler deploy
 
 ## 📦 被控端 Agent 安装与运行
 
-### 1. Linux 客户端（Systemd 服务化安装）
+### 1. Linux 一键安装（推荐）
+
+直接在目标 VPS 上执行一键安装脚本（自动识别架构、下载静态 musl 二进制并配置 Systemd 开机自启守护进程）：
+```bash
+curl -fsSL https://raw.githubusercontent.com/dooooling/edgemon/main/scripts/install.sh | sudo bash -s -- \
+  --server https://<你的_WORKER_DOMAIN> \
+  --id <NODE_ID> \
+  --token <NODE_TOKEN>
+```
+
+### 2. 手动构建与部署
 
 1. 编译或下载对应架构的静态二进制文件：
    ```bash

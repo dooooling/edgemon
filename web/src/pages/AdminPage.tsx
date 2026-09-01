@@ -1508,6 +1508,12 @@ export const AdminPage: React.FC = () => {
                         </button>
                       </div>
 
+                      {(!editingConfig.alert_policy || editingConfig.alert_policy.mode === 'global') && (
+                        <div style={{ fontSize: '11px', color: '#00e676', marginTop: '6px' }}>
+                          🌐 已设为继承全局规则：该节点将自动应用在后台「🚨 告警策略」中配置的所有通用规则，以及系统默认的离线与到期检测。
+                        </div>
+                      )}
+
                       {editingConfig.alert_policy?.mode === 'custom' && (
                         <div style={{ padding: '12px', background: 'rgba(0, 0, 0, 0.5)', borderRadius: '4px', border: '1px solid var(--colors-hairline-on-dark)', marginTop: '8px' }}>
                           <span style={{ fontSize: '11px', color: 'var(--colors-muted)', display: 'block', marginBottom: '8px' }}>

@@ -85,8 +85,8 @@ function createMockMinute(metrics: ReportMetrics): MinuteAccumulator {
   };
 }
 
-describe('DO WebSocket Attachment 2048-Byte Boundary & Lifecycle Tests', () => {
-  it('compacts heavy attachments (10 mounts, 20 probes) strictly under 2048 bytes limit', () => {
+describe('DO WebSocket Attachment 16KB Boundary & Lossless Identity Tests', () => {
+  it('compacts heavy attachments (10 mounts, 20 probes) strictly under 16384 bytes limit while preserving lossless identity fields', () => {
     const rawMetrics = createMockMetrics(10, 20);
     const minute = createMockMinute(rawMetrics);
 
@@ -144,8 +144,16 @@ describe('DO WebSocket Attachment 2048-Byte Boundary & Lifecycle Tests', () => {
     const jsonStr = JSON.stringify(compacted);
     const byteLength = new TextEncoder().encode(jsonStr).length;
 
-    // Cloudflare DO Attachment limit is 2048 bytes
-    expect(byteLength).toBeLessThanOrEqual(2048);
+    // Cloudflare DO Attachment official limit is 16,384 bytes
+    expect(byteLength).toBeLessThanOrEqual(16384);
+
+    // Assert critical identity fields are 100% lossless (no destructive truncation)
+    expect(compacted.node_name).toBe('production-fra-edge-node-01');
+    expect(compacted.last_counter_id).toBe('a94a8fe5ccb19ba6');
+    expect(compacted.traffic_state.active_counter_id).toBe('a94a8fe5ccb19ba6');
+    expect(compacted.current_minute?.last_metrics.boot_id).toBe('8f8b056e-8d8a-4467-bc1a-5bfbf816d953');
+    expect(compacted.current_minute?.last_metrics.network?.counter_id).toBe('a94a8fe5ccb19ba6');
+    expect(compacted.current_minute?.last_metrics.probes).toHaveLength(20);
     expect(compacted.current_minute?.last_metrics.cpu?.temp_celsius).toBe(54.2);
     expect(compacted.traffic_state.finalized_rx_bytes).toBe(600000000);
   });

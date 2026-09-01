@@ -322,39 +322,41 @@ export function buildTrafficD1Statements(
     );
   }
 
-  // UPSERT the current active billing period snapshot (Idempotent state mutation)
-  statements.push(
-    db
-      .prepare(
-        `INSERT INTO traffic_periods (
-          node_id,
-          period_start_ms,
-          finalized_rx_bytes,
-          finalized_tx_bytes,
-          active_counter_id,
-          active_rx_base_bytes,
-          active_tx_base_bytes,
-          updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(node_id, period_start_ms) DO UPDATE SET
-          finalized_rx_bytes = excluded.finalized_rx_bytes,
-          finalized_tx_bytes = excluded.finalized_tx_bytes,
-          active_counter_id = excluded.active_counter_id,
-          active_rx_base_bytes = excluded.active_rx_base_bytes,
-          active_tx_base_bytes = excluded.active_tx_base_bytes,
-          updated_at_ms = excluded.updated_at_ms`
-      )
-      .bind(
-        nodeId,
-        state.period_start_ms,
-        state.finalized_rx_bytes,
-        state.finalized_tx_bytes,
-        state.active_counter_id,
-        state.active_rx_base_bytes,
-        state.active_tx_base_bytes,
-        nowMs
-      )
-  );
+  // UPSERT the current active billing period snapshot (Idempotent state mutation, executed only when dirty or rolling over)
+  if (state.dirty || state.prev_period_settlement) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO traffic_periods (
+            node_id,
+            period_start_ms,
+            finalized_rx_bytes,
+            finalized_tx_bytes,
+            active_counter_id,
+            active_rx_base_bytes,
+            active_tx_base_bytes,
+            updated_at_ms
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(node_id, period_start_ms) DO UPDATE SET
+            finalized_rx_bytes = excluded.finalized_rx_bytes,
+            finalized_tx_bytes = excluded.finalized_tx_bytes,
+            active_counter_id = excluded.active_counter_id,
+            active_rx_base_bytes = excluded.active_rx_base_bytes,
+            active_tx_base_bytes = excluded.active_tx_base_bytes,
+            updated_at_ms = excluded.updated_at_ms`
+        )
+        .bind(
+          nodeId,
+          state.period_start_ms,
+          state.finalized_rx_bytes,
+          state.finalized_tx_bytes,
+          state.active_counter_id,
+          state.active_rx_base_bytes,
+          state.active_tx_base_bytes,
+          nowMs
+        )
+    );
+  }
 
   return statements;
 }

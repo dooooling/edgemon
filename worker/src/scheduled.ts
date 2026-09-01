@@ -88,6 +88,7 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
   }
 
   // B. Database configured notification rules (supporting AES-GCM encrypted secret_settings)
+  let decryptionFailedCount = 0;
   try {
     const customRulesResult = await env.DB
       .prepare("SELECT id, config_json FROM alert_rules WHERE enabled = 1 AND (type IN ('channel', 'webhook') OR config_json LIKE '%secret_key%')")
@@ -100,15 +101,24 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
         let parsed = JSON.parse(r.config_json);
 
         // Check if sensitive credentials are encrypted in secret_settings
-        if (parsed.secret_key && encryptionKey) {
+        if (parsed.secret_key) {
+          if (!encryptionKey) {
+            decryptionFailedCount++;
+            console.error(`[Alerts] Channel rule ${r.id} requires DATA_ENCRYPTION_KEY to decrypt credentials`);
+            continue;
+          }
           const decryptedJson = await getSecretSetting(env.DB, parsed.secret_key, encryptionKey);
-          if (decryptedJson) {
-            try {
-              const decryptedConfig = JSON.parse(decryptedJson);
-              parsed = { ...parsed, ...decryptedConfig };
-            } catch {
-              // ignore
-            }
+          if (!decryptedJson) {
+            decryptionFailedCount++;
+            console.error(`[Alerts] Channel rule ${r.id} failed to decrypt credentials from secret_settings`);
+            continue;
+          }
+          try {
+            const decryptedConfig = JSON.parse(decryptedJson);
+            parsed = { ...parsed, ...decryptedConfig };
+          } catch {
+            decryptionFailedCount++;
+            continue;
           }
         }
 
@@ -137,7 +147,25 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
   }
 
   if (webhookConfigs.length === 0) {
-    // If no webhook targets configured, mark all transitions as delivered to prevent duplicate notification loops
+    if (decryptionFailedCount > 0) {
+      // Configuration / Decryption failure: DO NOT mark delivered, log and record audit event
+      console.error(`[Alerts] Notification channels exist (${decryptionFailedCount} channel(s) failed decryption) but no valid webhook config available. Skipping markAlertDelivered to allow retry.`);
+      for (const t of transitions) {
+        try {
+          await recordEvent(env.DB, t.nodeId, 'alert_notification_degraded', {
+            reason: 'Channel decryption failed or encryption key misconfigured',
+            decryption_failed_count: decryptionFailedCount,
+            status: t.status,
+            type: t.type,
+          });
+        } catch {
+          // ignore
+        }
+      }
+      return;
+    }
+
+    // Legitimately no webhook targets configured: mark transitions as delivered to prevent duplicate loops
     for (const t of transitions) {
       try {
         await markAlertDelivered(env.DB, t.stateKey, Date.now());

@@ -68,3 +68,9 @@ jobs:
 
       - name: Build Web Dashboard
         run: pnpm --filter edgemon-web build
+
+      - name: Verify Local D1 Migrations Apply Cleanly
+        run: pnpm exec wrangler d1 migrations apply DB --local
+
+      - name: Wrangler Deploy Dry-Run (Compile & Asset Binding Validation)
+        run: pnpm exec wrangler deploy --dry-run

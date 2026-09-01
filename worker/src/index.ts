@@ -16,9 +16,70 @@ app.route('/', authRoutes);
 app.route('/', publicRoutes);
 app.route('/', adminRoutes);
 
-// Health check
+// Health check (Liveness)
 app.get('/api/health', (c) => {
   return c.json({ status: 'ok', version: '0.1.0', time: Date.now() });
+});
+
+// Readiness check: verifies D1 database connectivity, schema tables, DO binding, and security secrets
+app.get('/api/ready', async (c) => {
+  let dbOk = false;
+  let tablesOk = false;
+  let realtimeOk = false;
+
+  try {
+    if (c.env.DB) {
+      const res = await c.env.DB.prepare('SELECT 1').first();
+      dbOk = Boolean(res);
+      const tables = await c.env.DB.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('nodes', 'node_state', 'alert_rules', 'events')"
+      ).all();
+      tablesOk = (tables.results || []).length >= 4;
+    }
+  } catch {
+    dbOk = false;
+    tablesOk = false;
+  }
+
+  try {
+    if (c.env.REALTIME) {
+      const id = c.env.REALTIME.idFromName('health-check');
+      realtimeOk = Boolean(id);
+    }
+  } catch {
+    realtimeOk = false;
+  }
+
+  const secrets = {
+    admin_key: Boolean(c.env.ADMIN_KEY),
+    session_secret: Boolean(c.env.SESSION_SECRET),
+    data_encryption_key: Boolean(c.env.DATA_ENCRYPTION_KEY),
+  };
+
+  const isReady = dbOk && tablesOk && realtimeOk && secrets.admin_key && secrets.session_secret;
+
+  return c.json(
+    {
+      status: isReady ? 'ready' : 'degraded',
+      db: dbOk && tablesOk,
+      realtime: realtimeOk,
+      secrets: {
+        admin_key: secrets.admin_key,
+        session_secret: secrets.session_secret,
+        data_encryption_key: secrets.data_encryption_key,
+      },
+      time: Date.now(),
+    },
+    isReady ? 200 : 503
+  );
+});
+
+// Fallback 404 handler: serve static SPA assets for non-API requests when ASSETS binding is present
+app.notFound(async (c) => {
+  if (c.env.ASSETS && !c.req.path.startsWith('/api')) {
+    return c.env.ASSETS.fetch(c.req.raw);
+  }
+  return c.text('Not Found', 404);
 });
 
 // WebSocket Realtime Hub Upgrade for Browser Dashboards (strictly restricted to role=browser)
@@ -61,8 +122,25 @@ app.get('/api/realtime', async (c) => {
 });
 
 export default {
-  fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    return app.fetch(request, env, ctx);
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+
+    // Direct Static Asset pass-through for non-API routes
+    if (!url.pathname.startsWith('/api') && env.ASSETS) {
+      const assetRes = await env.ASSETS.fetch(request);
+      if (assetRes.status !== 404) {
+        return assetRes;
+      }
+    }
+
+    const res = await app.fetch(request, env, ctx);
+
+    // If Hono returned 404 for a non-API route, try SPA fallback via ASSETS
+    if (res.status === 404 && env.ASSETS && !url.pathname.startsWith('/api')) {
+      return env.ASSETS.fetch(request);
+    }
+
+    return res;
   },
 
   scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {

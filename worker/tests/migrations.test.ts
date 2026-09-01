@@ -18,13 +18,14 @@ describe('D1 Migrations Verification (Fresh Install & Upgrade Path)', () => {
     }));
   }
 
-  it('Migration sequence has exactly 4 strictly numbered files starting with 0001_init.sql', () => {
+  it('Migration sequence has exactly 5 strictly numbered files starting with 0001_init.sql', () => {
     const migrations = getMigrationFiles();
     expect(migrations.map((m) => m.name)).toEqual([
       '0001_init.sql',
       '0002_data_integrity.sql',
       '0003_wss_active_instance.sql',
       '0004_node_finance.sql',
+      '0005_time_indexes.sql',
     ]);
   });
 
@@ -38,11 +39,12 @@ describe('D1 Migrations Verification (Fresh Install & Upgrade Path)', () => {
     expect(initSql).not.toContain('auto_renewal');
   });
 
-  it('Guarantees 0002 and 0003 match historical ALTER TABLE schema extensions', () => {
+  it('Guarantees 0002, 0003, 0004, and 0005 match schema extensions and indexes', () => {
     const migrations = getMigrationFiles();
     const m2 = migrations.find((m) => m.name === '0002_data_integrity.sql')!.sql;
     const m3 = migrations.find((m) => m.name === '0003_wss_active_instance.sql')!.sql;
     const m4 = migrations.find((m) => m.name === '0004_node_finance.sql')!.sql;
+    const m5 = migrations.find((m) => m.name === '0005_time_indexes.sql')!.sql;
 
     expect(m2).toContain('persisted_instance_id');
     expect(m2).toContain('persisted_sample_seq');
@@ -50,9 +52,13 @@ describe('D1 Migrations Verification (Fresh Install & Upgrade Path)', () => {
     expect(m3).toContain('last_stream_connected_at_ms');
     expect(m4).toContain('plan_price');
     expect(m4).toContain('billing_cycle');
+    expect(m5).toContain('idx_metrics_raw_bucket_start');
+    expect(m5).toContain('idx_metrics_hourly_bucket_start');
+    expect(m5).toContain('idx_events_ts');
+    expect(m5).toContain('idx_traffic_periods_start');
   });
 
-  it('Real SQLite WebAssembly Execution: Fresh install executes 0001 -> 0004 sequentially without SQL errors', async () => {
+  it('Real SQLite WebAssembly Execution: Fresh install executes 0001 -> 0005 sequentially without SQL errors', async () => {
     const SQL = await initSqlJs();
     const db = new SQL.Database();
     const migrations = getMigrationFiles();
@@ -92,10 +98,23 @@ describe('D1 Migrations Verification (Fresh Install & Upgrade Path)', () => {
     expect(secretColumns).toContain('nonce_b64');
     expect(secretColumns).toContain('cipher_b64');
 
+    // Verify indexes created in 0005
+    const idxRes = db.exec("SELECT name FROM sqlite_master WHERE type='index'");
+    const idxNames = idxRes[0].values.map((row) => row[0] as string);
+    expect(idxNames).toContain('idx_metrics_raw_bucket_start');
+    expect(idxNames).toContain('idx_metrics_hourly_bucket_start');
+    expect(idxNames).toContain('idx_events_ts');
+    expect(idxNames).toContain('idx_traffic_periods_start');
+
+    // EXPLAIN QUERY PLAN verification: Ensure rollup & retention use index search rather than full table scan
+    const planRollup = db.exec('EXPLAIN QUERY PLAN SELECT avg(cpu_usage_pct) FROM metrics_raw WHERE bucket_start_ms >= 1000 AND bucket_start_ms < 2000 GROUP BY node_id');
+    const planStr = JSON.stringify(planRollup);
+    expect(planStr).toContain('idx_metrics_raw_bucket_start');
+
     db.close();
   });
 
-  it('Real SQLite WebAssembly Execution: Historical upgrade executes 0001~0003, inserts data, then migrates 0004 cleanly', async () => {
+  it('Real SQLite WebAssembly Execution: Historical upgrade executes 0001~0003, inserts data, then migrates 0004 & 0005 cleanly', async () => {
     const SQL = await initSqlJs();
     const db = new SQL.Database();
     const migrations = getMigrationFiles();
@@ -111,8 +130,9 @@ describe('D1 Migrations Verification (Fresh Install & Upgrade Path)', () => {
       VALUES ('node-test-1', 'Tokyo Node', 'hash123', 1700000000000, 1700000000000)
     `);
 
-    // 3. Apply 0004
+    // 3. Apply 0004 and 0005
     db.run(migrations[3].sql);
+    db.run(migrations[4].sql);
 
     // 4. Query migrated node
     const res = db.exec("SELECT id, name, plan_price, plan_currency, billing_cycle, auto_renewal FROM nodes WHERE id = 'node-test-1'");

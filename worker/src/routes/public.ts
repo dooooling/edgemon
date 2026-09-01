@@ -45,9 +45,11 @@ publicRoutes.get('/api/public/nodes', async (c) => {
   const rows = await c.env.DB.prepare(query).all();
   const now = Date.now();
 
-  // Query active traffic periods for all nodes
+  // Query active traffic periods for all nodes (bounded to recent billing cycles utilizing idx_traffic_periods_start)
+  const minPeriodStartMs = now - 35 * 86400 * 1000;
   const periodRows = await c.env.DB
-    .prepare('SELECT * FROM traffic_periods')
+    .prepare('SELECT * FROM traffic_periods WHERE period_start_ms >= ?')
+    .bind(minPeriodStartMs)
     .all();
 
   const periodMap = new Map<string, any>();
@@ -198,6 +200,8 @@ publicRoutes.get('/api/public/nodes/:id/history', async (c) => {
   const points = isHourly
     ? await getHourlyHistory(c.env.DB, nodeId, fromMs, nowMs)
     : await getRawHistory(c.env.DB, nodeId, fromMs, nowMs);
+
+  c.header('Cache-Control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
 
   return c.json({
     resolution_sec: resolutionSec,

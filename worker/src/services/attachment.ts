@@ -14,20 +14,20 @@ export function compactReportMetrics(metrics?: ReportMetrics | null): ReportMetr
   const res: any = {
     config_rev: metrics.config_rev,
     uptime_sec: metrics.uptime_sec,
-    probes: metrics.probes?.slice(0, 2).map((p) => ({
-      id: p.id.slice(0, 8),
+    probes: metrics.probes?.map((p) => ({
+      id: p.id,
       status: p.status,
       latency_ms: p.latency_ms != null ? Math.round(p.latency_ms * 10) / 10 : undefined,
       loss_ratio: p.loss_ratio,
     })) || [],
     network: {
-      interface: (metrics.network?.interface || 'eth0').slice(0, 6),
+      interface: metrics.network?.interface || 'eth0',
       rx_total_bytes: metrics.network?.rx_total_bytes ?? 0,
       tx_total_bytes: metrics.network?.tx_total_bytes ?? 0,
     },
   };
 
-  if (metrics.boot_id) res.boot_id = metrics.boot_id.slice(0, 12);
+  if (metrics.boot_id) res.boot_id = metrics.boot_id;
 
   if (metrics.cpu) {
     res.cpu = {
@@ -59,7 +59,7 @@ export function compactReportMetrics(metrics?: ReportMetrics | null): ReportMetr
   }
 
   if (metrics.network) {
-    if (metrics.network.counter_id) res.network.counter_id = metrics.network.counter_id.slice(0, 12);
+    if (metrics.network.counter_id) res.network.counter_id = metrics.network.counter_id;
     if (metrics.network.rx_bps !== undefined) res.network.rx_bps = metrics.network.rx_bps;
     if (metrics.network.tx_bps !== undefined) res.network.tx_bps = metrics.network.tx_bps;
     if (metrics.network.tcp_established_count !== undefined) res.network.tcp_established_count = metrics.network.tcp_established_count;
@@ -80,14 +80,19 @@ export function compactMinuteAccumulator(acc: MinuteAccumulator, isHistorical = 
     last_metrics: isHistorical
       ? ({
           config_rev: acc.last_metrics?.config_rev ?? 0,
-          boot_id: acc.last_metrics?.boot_id ? acc.last_metrics.boot_id.slice(0, 12) : undefined,
+          boot_id: acc.last_metrics?.boot_id,
           network: {
-            interface: (acc.last_metrics?.network?.interface || 'eth0').slice(0, 6),
-            counter_id: acc.last_metrics?.network?.counter_id ? acc.last_metrics.network.counter_id.slice(0, 12) : undefined,
+            interface: acc.last_metrics?.network?.interface || 'eth0',
+            counter_id: acc.last_metrics?.network?.counter_id,
             rx_total_bytes: acc.last_metrics?.network?.rx_total_bytes ?? 0,
             tx_total_bytes: acc.last_metrics?.network?.tx_total_bytes ?? 0,
           },
-          probes: [],
+          probes: acc.last_metrics?.probes?.map((p) => ({
+            id: p.id,
+            status: p.status,
+            latency_ms: p.latency_ms != null ? Math.round(p.latency_ms * 10) / 10 : undefined,
+            loss_ratio: p.loss_ratio,
+          })) || [],
         } as unknown as ReportMetrics)
       : compactReportMetrics(acc.last_metrics),
   };
@@ -143,8 +148,8 @@ export function compactAgentAttachment(attachment: AgentAttachment): AgentAttach
     },
   };
 
-  if (attachment.node_name) res.node_name = attachment.node_name.slice(0, 8);
-  if (attachment.last_counter_id) res.last_counter_id = attachment.last_counter_id.slice(0, 12);
+  if (attachment.node_name) res.node_name = attachment.node_name;
+  if (attachment.last_counter_id) res.last_counter_id = attachment.last_counter_id;
   if (attachment.token_hash) res.token_hash = attachment.token_hash;
   if (attachment.last_token_verified_at_ms) res.last_token_verified_at_ms = attachment.last_token_verified_at_ms;
   if (attachment.last_ping_ts_ms && attachment.last_ping_ts_ms !== attachment.last_report_received_at_ms) {
@@ -166,7 +171,7 @@ export function compactAgentAttachment(attachment: AgentAttachment): AgentAttach
 
   if (attachment.traffic_state) {
     if (attachment.traffic_state.active_counter_id) {
-      res.traffic_state.active_counter_id = attachment.traffic_state.active_counter_id.slice(0, 12);
+      res.traffic_state.active_counter_id = attachment.traffic_state.active_counter_id;
     }
     if (attachment.traffic_state.active_rx_base_bytes != null) {
       res.traffic_state.active_rx_base_bytes = attachment.traffic_state.active_rx_base_bytes;

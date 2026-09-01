@@ -567,6 +567,9 @@ export async function ingestReportCore(
       ) {
         currentAttachment.traffic_state.prev_period_settlement = null;
       }
+      if (cutTrafficState.dirty && currentAttachment.traffic_state.period_start_ms === cutTrafficState.period_start_ms) {
+        currentAttachment.traffic_state.dirty = false;
+      }
       currentAttachment.persisted_sample_seq = Math.max(currentAttachment.persisted_sample_seq, cutSampleSeq);
       currentAttachment.last_persist_bucket_ms = Math.max(
         currentAttachment.last_persist_bucket_ms,

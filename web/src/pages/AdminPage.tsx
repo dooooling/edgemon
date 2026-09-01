@@ -631,11 +631,6 @@ export const AdminPage: React.FC = () => {
                   {t('create_node_btn')}
                 </button>
               )}
-              {activeTab === 'alerts' && (
-                <button className="button-ghost-on-dark button-ghost-sm" onClick={loadAlertRules}>
-                  {loadingAlerts ? '刷新中...' : '刷新策略 ⟳'}
-                </button>
-              )}
               {activeTab === 'events' && (
                 <button className="button-ghost-on-dark button-ghost-sm" onClick={loadSystemEvents}>
                   {loadingEvents ? '刷新中...' : '刷新事件 ⟳'}

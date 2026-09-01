@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   adminLogin,
   adminLogout,
@@ -8,9 +8,15 @@ import {
   rotateAdminNodeToken,
   fetchNodeConfig,
   updateNodeConfig,
+  fetchAlertRules,
+  createAlertRule,
+  deleteAlertRule,
+  fetchSystemEvents,
   PROBE_PRESETS,
   NodeServerConfig,
   ProbeConfig,
+  AlertRule,
+  SystemEvent,
 } from '../api/client';
 import { useAdminSessionQuery, useAdminNodesQuery } from '../queries/nodes';
 import { useTranslation } from '../i18n/I18nContext';
@@ -26,6 +32,22 @@ export const AdminPage: React.FC = () => {
   const [adminKey, setAdminKey] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<'nodes' | 'alerts' | 'events'>('nodes');
+  const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
+  const [loadingAlerts, setLoadingAlerts] = useState(false);
+  const [systemEvents, setSystemEvents] = useState<SystemEvent[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+
+  const [showAddAlertModal, setShowAddAlertModal] = useState(false);
+  const [newAlertType, setNewAlertType] = useState<'webhook' | 'offline' | 'cpu' | 'memory' | 'disk'>('webhook');
+  const [newAlertNodeId, setNewAlertNodeId] = useState<string>('');
+  const [newAlertChannel, setNewAlertChannel] = useState<'discord' | 'telegram' | 'slack' | 'custom'>('discord');
+  const [newAlertWebhookUrl, setNewAlertWebhookUrl] = useState('');
+  const [newAlertHeaders, setNewAlertHeaders] = useState('');
+  const [newAlertThreshold, setNewAlertThreshold] = useState<number>(85);
+  const [newAlertDurationSec, setNewAlertDurationSec] = useState<number>(60);
+  const [creatingAlert, setCreatingAlert] = useState(false);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newNodeName, setNewNodeName] = useState('');
@@ -163,6 +185,96 @@ export const AdminPage: React.FC = () => {
   async function handleLogout() {
     await adminLogout();
     refetchSession();
+  }
+
+  async function loadAlertRules() {
+    setLoadingAlerts(true);
+    try {
+      const res = await fetchAlertRules();
+      setAlertRules(res.rules || []);
+    } catch (err: any) {
+      console.error('Failed to load alert rules:', err);
+    } finally {
+      setLoadingAlerts(false);
+    }
+  }
+
+  async function loadSystemEvents() {
+    setLoadingEvents(true);
+    try {
+      const res = await fetchSystemEvents();
+      setSystemEvents(res.events || []);
+    } catch (err: any) {
+      console.error('Failed to load system events:', err);
+    } finally {
+      setLoadingEvents(false);
+    }
+  }
+
+  useEffect(() => {
+    if (authenticated) {
+      if (activeTab === 'alerts') {
+        loadAlertRules();
+      } else if (activeTab === 'events') {
+        loadSystemEvents();
+      }
+    }
+  }, [authenticated, activeTab]);
+
+  async function handleCreateAlert(e: React.FormEvent) {
+    e.preventDefault();
+    setCreatingAlert(true);
+    try {
+      let config: Record<string, any> = {};
+      if (newAlertType === 'webhook') {
+        if (!newAlertWebhookUrl) {
+          alert('Webhook URL is required');
+          return;
+        }
+        let headersObj: Record<string, string> | undefined = undefined;
+        if (newAlertHeaders.trim()) {
+          try {
+            headersObj = JSON.parse(newAlertHeaders.trim());
+          } catch {
+            alert('Custom Headers must be valid JSON (e.g. {"Authorization": "Bearer ..."})');
+            return;
+          }
+        }
+        config = {
+          channel: newAlertChannel,
+          webhook_url: newAlertWebhookUrl.trim(),
+          headers: headersObj,
+        };
+      }
+
+      await createAlertRule({
+        node_id: newAlertNodeId || null,
+        type: newAlertType,
+        threshold: newAlertType === 'webhook' || newAlertType === 'offline' ? null : newAlertThreshold,
+        duration_sec: newAlertType === 'offline' ? 90 : newAlertDurationSec,
+        enabled: 1,
+        config,
+      });
+
+      setShowAddAlertModal(false);
+      setNewAlertWebhookUrl('');
+      setNewAlertHeaders('');
+      loadAlertRules();
+    } catch (err: any) {
+      alert(err.message || 'Failed to create alert rule');
+    } finally {
+      setCreatingAlert(false);
+    }
+  }
+
+  async function handleDeleteAlert(id: number) {
+    if (!confirm('DELETE ALERT RULE / WEBHOOK DESTINATION?')) return;
+    try {
+      await deleteAlertRule(id);
+      loadAlertRules();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete alert rule');
+    }
   }
 
   async function handleCreateNode(e: React.FormEvent) {
@@ -356,20 +468,49 @@ export const AdminPage: React.FC = () => {
         </div>
       ) : (
         <div>
-          {/* Admin Section Title Bar */}
-          <div className="section-title-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <h2 className="display-lg" style={{ fontSize: '20px' }}>
-                {t('admin_nodes_title')}
-              </h2>
-              <span className="spacex-chip" style={{ fontSize: '11px', fontFamily: 'monospace' }}>
-                {adminNodes.length}
-              </span>
+          {/* Admin Section Title Bar & Sub-Tabs */}
+          <div className="section-title-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <div className="range-capsules" style={{ margin: 0 }}>
+                <button
+                  type="button"
+                  className={`range-capsule-btn ${activeTab === 'nodes' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('nodes')}
+                >
+                  {t('admin_nodes_title')} ({adminNodes.length})
+                </button>
+                <button
+                  type="button"
+                  className={`range-capsule-btn ${activeTab === 'alerts' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('alerts')}
+                >
+                  告警策略与推送 ({alertRules.length})
+                </button>
+                <button
+                  type="button"
+                  className={`range-capsule-btn ${activeTab === 'events' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('events')}
+                >
+                  审计事件
+                </button>
+              </div>
             </div>
             <div style={{ display: 'flex', gap: '12px' }}>
-              <button className="button-ghost-on-dark button-ghost-sm" onClick={() => setShowAddModal(true)}>
-                {t('create_node_btn')}
-              </button>
+              {activeTab === 'nodes' && (
+                <button className="button-ghost-on-dark button-ghost-sm" onClick={() => setShowAddModal(true)}>
+                  {t('create_node_btn')}
+                </button>
+              )}
+              {activeTab === 'alerts' && (
+                <button className="button-ghost-on-dark button-ghost-sm" onClick={() => setShowAddAlertModal(true)}>
+                  + 添加告警 / 推送渠道
+                </button>
+              )}
+              {activeTab === 'events' && (
+                <button className="button-ghost-on-dark button-ghost-sm" onClick={loadSystemEvents}>
+                  {loadingEvents ? '刷新中...' : '刷新事件 ⟳'}
+                </button>
+              )}
               <button className="button-ghost-on-dark button-ghost-sm" onClick={handleLogout}>
                 {t('admin_logout_btn')}
               </button>
@@ -400,76 +541,239 @@ export const AdminPage: React.FC = () => {
             </div>
           )}
 
-          {/* Node Table */}
-          <div className="map-band" style={{ padding: 0 }}>
-            <table className="spacex-table">
-              <thead>
-                <tr>
-                  <th>{t('th_node_identifier')}</th>
-                  <th>{t('th_node_uuid')}</th>
-                  <th>{t('th_billing_reset')}</th>
-                  <th>{t('th_provision_date')}</th>
-                  <th>{t('th_actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {adminNodes.map((n) => (
-                  <tr key={n.id}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <strong>{n.name.toUpperCase()}</strong>
-                        {n.plan_price != null && n.plan_price > 0 && (
-                          <span className="spacex-chip" style={{ color: '#00e676', borderColor: 'rgba(0, 230, 118, 0.4)', fontSize: '10px' }}>
-                            {n.plan_currency || 'USD'} {n.plan_price}/{n.billing_cycle || 'mo'}
-                          </span>
-                        )}
-                        {n.billing_cycle === 'free' && (
-                          <span className="spacex-chip" style={{ color: 'var(--colors-muted)', fontSize: '10px' }}>
-                            FREE
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--colors-on-primary-mute)' }}>
-                        {n.id}
-                      </span>
-                    </td>
-                    <td>{t('day_prefix')}{n.traffic_reset_day}{t('day_suffix')}</td>
-                    <td>{formatBeijingDate(n.created_at_ms)}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                          className="button-ghost-on-dark button-ghost-sm"
-                          onClick={() => openEditModal(n)}
-                        >
-                          {t('btn_edit')}
-                        </button>
-                        <button
-                          className="button-ghost-on-dark button-ghost-sm"
-                          onClick={() => openProbeModal({ id: n.id, name: n.name })}
-                        >
-                          {t('probes_title')}
-                        </button>
-                        <button
-                          className="button-ghost-on-dark button-ghost-sm"
-                          onClick={() => handleRotateToken(n.id)}
-                        >
-                          {t('btn_rotate')}
-                        </button>
-                        <button
-                          className="button-ghost-on-dark button-ghost-sm button-ghost-danger"
-                          onClick={() => handleDeleteNode(n.id)}
-                        >
-                          {t('btn_delete')}
-                        </button>
-                      </div>
-                    </td>
+          {/* TAB 1: Node Table */}
+          {activeTab === 'nodes' && (
+            <div className="map-band" style={{ padding: 0 }}>
+              <table className="spacex-table">
+                <thead>
+                  <tr>
+                    <th>{t('th_node_identifier')}</th>
+                    <th>{t('th_node_uuid')}</th>
+                    <th>{t('th_billing_reset')}</th>
+                    <th>{t('th_provision_date')}</th>
+                    <th>{t('th_actions')}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {adminNodes.map((n) => (
+                    <tr key={n.id}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <strong>{n.name.toUpperCase()}</strong>
+                          {n.plan_price != null && n.plan_price > 0 && (
+                            <span className="spacex-chip" style={{ color: '#00e676', borderColor: 'rgba(0, 230, 118, 0.4)', fontSize: '10px' }}>
+                              {n.plan_currency || 'USD'} {n.plan_price}/{n.billing_cycle || 'mo'}
+                            </span>
+                          )}
+                          {n.billing_cycle === 'free' && (
+                            <span className="spacex-chip" style={{ color: 'var(--colors-muted)', fontSize: '10px' }}>
+                              FREE
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--colors-on-primary-mute)' }}>
+                          {n.id}
+                        </span>
+                      </td>
+                      <td>{t('day_prefix')}{n.traffic_reset_day}{t('day_suffix')}</td>
+                      <td>{formatBeijingDate(n.created_at_ms)}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            className="button-ghost-on-dark button-ghost-sm"
+                            onClick={() => openEditModal(n)}
+                          >
+                            {t('btn_edit')}
+                          </button>
+                          <button
+                            className="button-ghost-on-dark button-ghost-sm"
+                            onClick={() => openProbeModal({ id: n.id, name: n.name })}
+                          >
+                            探针
+                          </button>
+                          <button
+                            className="button-ghost-on-dark button-ghost-sm"
+                            onClick={() => handleRotateToken(n.id)}
+                          >
+                            {t('btn_rotate')}
+                          </button>
+                          <button
+                            className="button-ghost-on-dark button-ghost-sm button-ghost-danger"
+                            onClick={() => handleDeleteNode(n.id)}
+                          >
+                            {t('btn_delete')}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* TAB 2: Alerts & Webhooks */}
+          {activeTab === 'alerts' && (
+            <div className="map-band" style={{ padding: 0 }}>
+              <table className="spacex-table">
+                <thead>
+                  <tr>
+                    <th>类型 / TYPE</th>
+                    <th>作用范围 / SCOPE</th>
+                    <th>触发条件 / 渠道详情</th>
+                    <th>安全凭据 / CREDENTIAL</th>
+                    <th>状态 / STATUS</th>
+                    <th>操作 / ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingAlerts ? (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '32px', color: 'var(--colors-muted)' }}>
+                        正在加载告警规则...
+                      </td>
+                    </tr>
+                  ) : alertRules.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '32px', color: 'var(--colors-muted)' }}>
+                        暂无自定义告警策略或 Webhook 推送渠道（默认已内置 90 秒节点离线与恢复告警）。
+                      </td>
+                    </tr>
+                  ) : (
+                    alertRules.map((rule) => {
+                      let parsedConfig: any = {};
+                      try {
+                        parsedConfig = rule.config_json ? JSON.parse(rule.config_json) : {};
+                      } catch {
+                        parsedConfig = {};
+                      }
+
+                      const targetNode = rule.node_id ? adminNodes.find((n) => n.id === rule.node_id) : null;
+                      const scopeText = targetNode ? `${targetNode.name} (${targetNode.id.substring(0, 8)}...)` : '全量节点 (GLOBAL)';
+
+                      return (
+                        <tr key={rule.id}>
+                          <td>
+                            <span className="spacex-chip" style={{
+                              borderColor: rule.type === 'webhook' ? '#00e676' : rule.type === 'offline' ? '#e22718' : '#38bdf8',
+                              color: rule.type === 'webhook' ? '#00e676' : rule.type === 'offline' ? '#e22718' : '#38bdf8',
+                            }}>
+                              {rule.type.toUpperCase()}
+                            </span>
+                          </td>
+                          <td>
+                            <span style={{ fontSize: '12px', fontWeight: 600 }}>{scopeText}</span>
+                          </td>
+                          <td>
+                            {rule.type === 'webhook' ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <strong style={{ textTransform: 'uppercase' }}>{parsedConfig.channel || 'WEBHOOK'}</strong>
+                                <span style={{ color: 'var(--colors-muted)', fontSize: '11px' }}>
+                                  {parsedConfig.is_encrypted ? '🔒 AES-GCM 已加密' : 'PLAIN'}
+                                </span>
+                              </div>
+                            ) : rule.type === 'offline' ? (
+                              <span>离线持续 &gt; {rule.duration_sec || 90} 秒</span>
+                            ) : (
+                              <span>
+                                {rule.type.toUpperCase()} &gt; {rule.threshold}% (持续 {rule.duration_sec}s)
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            {parsedConfig.secret_key ? (
+                              <span style={{ fontFamily: 'monospace', fontSize: '10px', color: 'var(--colors-muted)' }}>
+                                {parsedConfig.secret_key.substring(0, 20)}...
+                              </span>
+                            ) : (
+                              <span style={{ color: 'var(--colors-muted)', fontSize: '11px' }}>-</span>
+                            )}
+                          </td>
+                          <td>
+                            <span className={`spacex-chip ${rule.enabled ? 'spacex-chip-active' : ''}`}>
+                              {rule.enabled ? 'ACTIVE' : 'DISABLED'}
+                            </span>
+                          </td>
+                          <td>
+                            <button
+                              className="button-ghost-on-dark button-ghost-sm button-ghost-danger"
+                              onClick={() => handleDeleteAlert(rule.id)}
+                            >
+                              {t('btn_delete')}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* TAB 3: Audit Events */}
+          {activeTab === 'events' && (
+            <div className="map-band" style={{ padding: 0 }}>
+              <table className="spacex-table">
+                <thead>
+                  <tr>
+                    <th>时间 / TIME</th>
+                    <th>节点 / NODE</th>
+                    <th>事件类型 / EVENT TYPE</th>
+                    <th>事件内容 / DETAIL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingEvents ? (
+                    <tr>
+                      <td colSpan={4} style={{ textAlign: 'center', padding: '32px', color: 'var(--colors-muted)' }}>
+                        正在加载审计日志...
+                      </td>
+                    </tr>
+                  ) : systemEvents.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} style={{ textAlign: 'center', padding: '32px', color: 'var(--colors-muted)' }}>
+                        暂无系统审计事件记录。
+                      </td>
+                    </tr>
+                  ) : (
+                    systemEvents.map((evt) => {
+                      const targetNode = evt.node_id ? adminNodes.find((n) => n.id === evt.node_id) : null;
+                      return (
+                        <tr key={evt.id}>
+                          <td>{formatBeijingDate(evt.created_at_ms)}</td>
+                          <td>
+                            {targetNode ? (
+                              <strong>{targetNode.name.toUpperCase()}</strong>
+                            ) : evt.node_id ? (
+                              <span style={{ fontFamily: 'monospace', fontSize: '11px' }}>{evt.node_id.substring(0, 8)}...</span>
+                            ) : (
+                              <span style={{ color: 'var(--colors-muted)' }}>SYSTEM</span>
+                            )}
+                          </td>
+                          <td>
+                            <span className="spacex-chip" style={{
+                              borderColor: evt.type.includes('fail') ? '#e22718' : evt.type.includes('alert') ? '#f59e0b' : '#38bdf8',
+                              color: evt.type.includes('fail') ? '#e22718' : evt.type.includes('alert') ? '#f59e0b' : '#38bdf8',
+                            }}>
+                              {evt.type.toUpperCase()}
+                            </span>
+                          </td>
+                          <td>
+                            <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--colors-muted)', wordBreak: 'break-all' }}>
+                              {evt.payload_json || '-'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Provision Node Modal */}
           {showAddModal && (
@@ -1124,6 +1428,160 @@ WantedBy=multi-user.target`;
                     {savingConfig ? '正在保存并热推送...' : '保存并即时生效 ➔'}
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+          {/* Add Alert Rule / Webhook Destination Modal */}
+          {showAddAlertModal && (
+            <div className="modal-backdrop-dark">
+              <div className="modal-box-dark" style={{ maxWidth: '540px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <span className="eyebrow-cap">+ 添加告警策略 / WEBHOOK 渠道</span>
+                  <button
+                    style={{ background: 'none', border: 'none', color: '#ffffff', fontSize: '18px', cursor: 'pointer' }}
+                    onClick={() => setShowAddAlertModal(false)}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <form onSubmit={handleCreateAlert}>
+                  <div style={{ marginBottom: '16px' }}>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>规则类型 / RULE TYPE</span>
+                    <select
+                      value={newAlertType}
+                      onChange={(e) => setNewAlertType(e.target.value as any)}
+                      className="spacex-input"
+                      style={{ background: '#000000', color: '#ffffff' }}
+                    >
+                      <option value="webhook">📢 Webhook 报警推送渠道 (Discord / Telegram / Slack / HTTP)</option>
+                      <option value="offline">⚠️ 节点离线告警 (Offline 90s)</option>
+                      <option value="cpu">🔥 CPU 使用率超限告警 (%)</option>
+                      <option value="memory">🧠 内存使用率超限告警 (%)</option>
+                      <option value="disk">💾 磁盘使用率超限告警 (%)</option>
+                    </select>
+                  </div>
+
+                  <div style={{ marginBottom: '16px' }}>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>作用节点 / TARGET NODE</span>
+                    <select
+                      value={newAlertNodeId}
+                      onChange={(e) => setNewAlertNodeId(e.target.value)}
+                      className="spacex-input"
+                      style={{ background: '#000000', color: '#ffffff' }}
+                    >
+                      <option value="">🌐 全量节点 / GLOBAL (适用于所有机器)</option>
+                      {adminNodes.map((n) => (
+                        <option key={n.id} value={n.id}>
+                          🖥️ {n.name.toUpperCase()} ({n.id.substring(0, 8)}...)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {newAlertType === 'webhook' ? (
+                    <>
+                      <div style={{ marginBottom: '16px' }}>
+                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>推送渠道平台 / CHANNEL</span>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                          {(['discord', 'telegram', 'slack', 'custom'] as const).map((ch) => (
+                            <button
+                              key={ch}
+                              type="button"
+                              className={`range-capsule-btn ${newAlertChannel === ch ? 'active' : ''}`}
+                              style={{ width: '100%', textTransform: 'uppercase', height: '32px', fontSize: '11px' }}
+                              onClick={() => setNewAlertChannel(ch)}
+                            >
+                              {ch}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div style={{ marginBottom: '16px' }}>
+                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>
+                          WEBHOOK URL
+                          {newAlertChannel === 'telegram' && ' (如 https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<ID>)'}
+                          {newAlertChannel === 'discord' && ' (如 https://discord.com/api/webhooks/...)'}
+                        </span>
+                        <input
+                          value={newAlertWebhookUrl}
+                          onChange={(e) => setNewAlertWebhookUrl(e.target.value)}
+                          placeholder="https://..."
+                          className="spacex-input"
+                          required
+                        />
+                      </div>
+
+                      {newAlertChannel === 'custom' && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>
+                            自定义请求头 / HEADERS (JSON, 可选)
+                          </span>
+                          <input
+                            value={newAlertHeaders}
+                            onChange={(e) => setNewAlertHeaders(e.target.value)}
+                            placeholder='{"Authorization": "Bearer your-token"}'
+                            className="spacex-input"
+                          />
+                        </div>
+                      )}
+
+                      <div style={{ padding: '10px 14px', background: 'rgba(0, 230, 118, 0.06)', border: '1px solid rgba(0, 230, 118, 0.2)', borderRadius: '4px', marginBottom: '20px', fontSize: '11px', color: '#00e676' }}>
+                        🔒 凭据保护：Webhook 地址与请求头将使用 AES-GCM 256 位高强度加密落盘，防范任何数据泄漏。
+                      </div>
+                    </>
+                  ) : newAlertType === 'offline' ? (
+                    <div style={{ padding: '12px 16px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--colors-hairline-on-dark)', borderRadius: '4px', marginBottom: '20px', fontSize: '12px', color: 'var(--colors-muted)' }}>
+                      ℹ️ 离线判定规则：当被控端 Agent 超过 90 秒无有效心跳上报时自动触发 Firing 告警，心跳恢复后自动触发 Resolved 恢复通知。
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+                      <div>
+                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>触发阈值 / THRESHOLD (%)</span>
+                        <input
+                          type="number"
+                          value={newAlertThreshold}
+                          onChange={(e) => setNewAlertThreshold(parseInt(e.target.value) || 80)}
+                          min={1}
+                          max={100}
+                          className="spacex-input"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>持续时间 / DURATION (秒)</span>
+                        <input
+                          type="number"
+                          value={newAlertDurationSec}
+                          onChange={(e) => setNewAlertDurationSec(parseInt(e.target.value) || 60)}
+                          min={10}
+                          max={3600}
+                          className="spacex-input"
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                    <button
+                      type="button"
+                      className="button-ghost-on-dark button-ghost-sm"
+                      onClick={() => setShowAddAlertModal(false)}
+                    >
+                      {t('cancel_btn')}
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={creatingAlert}
+                      className="button-ghost-on-dark button-ghost-sm"
+                      style={{ backgroundColor: '#ffffff', color: '#000000', fontWeight: 700 }}
+                    >
+                      {creatingAlert ? '正在保存并加密...' : '保存策略 ➔'}
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           )}

@@ -262,3 +262,62 @@ export async function updateNodeConfig(id: string, config: NodeServerConfig): Pr
   }
   return await res.json();
 }
+
+export interface AlertRule {
+  id: number;
+  node_id: string | null;
+  type: 'offline' | 'cpu' | 'memory' | 'disk' | 'expiry' | 'webhook';
+  threshold: number | null;
+  duration_sec: number;
+  enabled: number;
+  config_json: string | null;
+  created_at_ms: number;
+  updated_at_ms: number;
+}
+
+export interface SystemEvent {
+  id: number;
+  node_id: string | null;
+  type: string;
+  payload_json: string | null;
+  created_at_ms: number;
+}
+
+export async function fetchAlertRules(): Promise<{ rules: AlertRule[] }> {
+  const res = await fetch('/api/admin/alerts/rules');
+  if (!res.ok) throw new Error('Failed to fetch alert rules');
+  return await res.json();
+}
+
+export async function createAlertRule(rule: {
+  node_id?: string | null;
+  type: string;
+  threshold?: number | null;
+  duration_sec?: number | null;
+  enabled?: number | boolean;
+  config?: Record<string, any>;
+}): Promise<{ success: boolean; id: number }> {
+  const res = await fetch('/api/admin/alerts/rules', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(rule),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to create rule (${res.status})`);
+  }
+  return await res.json();
+}
+
+export async function deleteAlertRule(id: number): Promise<{ success: boolean }> {
+  const res = await fetch(`/api/admin/alerts/rules/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete alert rule');
+  return await res.json();
+}
+
+export async function fetchSystemEvents(): Promise<{ events: SystemEvent[] }> {
+  const res = await fetch('/api/admin/events');
+  if (!res.ok) throw new Error('Failed to fetch system events');
+  return await res.json();
+}
+

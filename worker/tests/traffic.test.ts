@@ -138,7 +138,8 @@ describe('Traffic Period Calculation', () => {
 
     const { loadTrafficRuntimeState } = await import('../src/db/traffic');
     // Admin switched reset_day back to 1 on Aug 27:
-    const state = await loadTrafficRuntimeState(mockDb, 'node-1', 1);
+    const aug27 = Date.UTC(2026, 7, 27, 0, 0, 0);
+    const state = await loadTrafficRuntimeState(mockDb, 'node-1', 1, aug27);
 
     // Returns the active target period Aug 01 with latest live baseline (6000) inherited from Aug 15
     expect(state.period_start_ms).toBe(aug01);
@@ -290,7 +291,7 @@ describe('Traffic Period Calculation', () => {
 
     const { loadTrafficRuntimeState } = await import('../src/db/traffic');
     // Load state with new resetDay = 1 on Aug 27:
-    const state = await loadTrafficRuntimeState(mockDb, 'node-1', 1);
+    const state = await loadTrafficRuntimeState(mockDb, 'node-1', 1, aug27);
 
     // Verified: period_start_ms is strictly set to Aug 01 (matching reset_day = 1)
     expect(state.period_start_ms).toBe(aug01);

@@ -71,10 +71,10 @@ export function computeBillingPeriodStart(nowMs: number, resetDay = 1): number {
 export async function getCurrentPeriodTraffic(
   db: D1Database,
   nodeId: string,
-  resetDay = 1
+  resetDay = 1,
+  nowMs = Date.now()
 ): Promise<{ periodStartMs: number; periodRxBytes: number; periodTxBytes: number }> {
-  const now = Date.now();
-  const periodStartMs = computeBillingPeriodStart(now, resetDay);
+  const periodStartMs = computeBillingPeriodStart(nowMs, resetDay);
 
   const period = await db
     .prepare('SELECT * FROM traffic_periods WHERE node_id = ? AND period_start_ms = ?')
@@ -110,10 +110,10 @@ export async function getCurrentPeriodTraffic(
 export async function loadTrafficRuntimeState(
   db: D1Database,
   nodeId: string,
-  resetDay = 1
+  resetDay = 1,
+  nowMs = Date.now()
 ): Promise<TrafficRuntimeState> {
-  const now = Date.now();
-  const currentPeriodStartMs = computeBillingPeriodStart(now, resetDay);
+  const currentPeriodStartMs = computeBillingPeriodStart(nowMs, resetDay);
 
   // 1. First check if a period row matching currentPeriodStartMs exists
   const exactPeriod = await db

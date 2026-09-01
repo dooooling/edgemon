@@ -382,11 +382,12 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
       is_encrypted: true,
     });
   } else {
-    // Standard alert policy (offline, cpu, memory, disk, expiry)
+    // Compound or standard alert policy
     configJson = JSON.stringify({
       name: config.name || `${body.type.toUpperCase()} 告警策略`,
       channel_ids: config.channel_ids || [],
       is_global: body.node_id ? false : true,
+      conditions: config.conditions || undefined,
     });
   }
 

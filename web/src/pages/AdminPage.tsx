@@ -58,13 +58,21 @@ export const AdminPage: React.FC = () => {
   const [testingAlert, setTestingAlert] = useState(false);
   const [testFeedback, setTestFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
-  // Alert Rule Creation Modal State
+  // Alert Rule Creation Modal State (Multi-Condition Support)
   const [showAddRuleModal, setShowAddRuleModal] = useState(false);
   const [newRuleName, setNewRuleName] = useState('');
-  const [newAlertType, setNewAlertType] = useState<'offline' | 'cpu' | 'memory' | 'disk' | 'expiry'>('offline');
-  const [newAlertNodeId, setNewAlertNodeId] = useState<string>('');
-  const [newAlertThreshold, setNewAlertThreshold] = useState<number>(85);
-  const [newAlertDurationSec, setNewAlertDurationSec] = useState<number>(60);
+  const [condOfflineEnabled, setCondOfflineEnabled] = useState(true);
+  const [condOfflineDurationSec, setCondOfflineDurationSec] = useState(90);
+  const [condCpuEnabled, setCondCpuEnabled] = useState(true);
+  const [condCpuThreshold, setCondCpuThreshold] = useState(85);
+  const [condCpuDurationSec, setCondCpuDurationSec] = useState(60);
+  const [condMemoryEnabled, setCondMemoryEnabled] = useState(true);
+  const [condMemoryThreshold, setCondMemoryThreshold] = useState(90);
+  const [condMemoryDurationSec, setCondMemoryDurationSec] = useState(60);
+  const [condDiskEnabled, setCondDiskEnabled] = useState(true);
+  const [condDiskThreshold, setCondDiskThreshold] = useState(90);
+  const [condExpiryEnabled, setCondExpiryEnabled] = useState(false);
+  const [condExpiryDays, setCondExpiryDays] = useState(7);
   const [newRuleChannelIds, setNewRuleChannelIds] = useState<number[]>([]);
   const [creatingAlert, setCreatingAlert] = useState(false);
 
@@ -352,16 +360,28 @@ export const AdminPage: React.FC = () => {
     e.preventDefault();
     setCreatingAlert(true);
     try {
+      const conditions = {
+        offline: { enabled: condOfflineEnabled, duration_sec: condOfflineDurationSec },
+        cpu: { enabled: condCpuEnabled, threshold: condCpuThreshold, duration_sec: condCpuDurationSec },
+        memory: { enabled: condMemoryEnabled, threshold: condMemoryThreshold, duration_sec: condMemoryDurationSec },
+        disk: { enabled: condDiskEnabled, threshold: condDiskThreshold },
+        expiry: { enabled: condExpiryEnabled, days: condExpiryDays },
+      };
+
+      const hasAnyEnabled = Object.values(conditions).some((c: any) => c.enabled);
+      if (!hasAnyEnabled) {
+        alert('请至少启用一个告警监控条件！');
+        return;
+      }
+
       const config = {
-        name: newRuleName.trim() || `${newAlertType.toUpperCase()} 告警策略`,
+        name: newRuleName.trim() || '综合告警策略',
         channel_ids: newRuleChannelIds,
+        conditions,
       };
 
       await createAlertRule({
-        node_id: newAlertNodeId || null,
-        type: newAlertType,
-        threshold: newAlertType === 'offline' ? null : newAlertThreshold,
-        duration_sec: newAlertType === 'offline' ? 90 : newAlertDurationSec,
+        type: 'policy',
         enabled: 1,
         config,
       });
@@ -833,8 +853,7 @@ export const AdminPage: React.FC = () => {
                   <thead>
                     <tr>
                       <th>策略名称 / NAME</th>
-                      <th>监控指标 / METRIC</th>
-                      <th>触发条件 / CONDITION</th>
+                      <th colSpan={2}>已启用的监控条件 / ACTIVE CONDITIONS</th>
                       <th>关联推送渠道 / TARGET CHANNELS</th>
                       <th>作用范围 / SCOPE</th>
                       <th>操作 / ACTIONS</th>
@@ -876,23 +895,47 @@ export const AdminPage: React.FC = () => {
                             <td>
                               <strong style={{ fontSize: '13px' }}>{parsedConfig.name || `${rule.type.toUpperCase()} 策略`}</strong>
                             </td>
-                            <td>
-                              <span className="spacex-chip" style={{
-                                borderColor: rule.type === 'offline' ? '#e22718' : '#38bdf8',
-                                color: rule.type === 'offline' ? '#e22718' : '#38bdf8',
-                              }}>
-                                {rule.type.toUpperCase()}
-                              </span>
-                            </td>
-                            <td>
-                              {rule.type === 'offline' ? (
-                                <span>离线持续 &gt; {rule.duration_sec || 90} 秒</span>
-                              ) : rule.type === 'expiry' ? (
-                                <span>到期前 &le; {rule.threshold || 3} 天</span>
+                            <td colSpan={2}>
+                              {parsedConfig.conditions ? (
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                  {parsedConfig.conditions.offline?.enabled && (
+                                    <span className="spacex-chip" style={{ color: '#e22718', borderColor: '#e22718', fontSize: '10px' }}>
+                                      ⚠️ 离线 &gt; {parsedConfig.conditions.offline.duration_sec || 90}s
+                                    </span>
+                                  )}
+                                  {parsedConfig.conditions.cpu?.enabled && (
+                                    <span className="spacex-chip" style={{ color: '#ffaa00', borderColor: '#ffaa00', fontSize: '10px' }}>
+                                      🔥 CPU &ge; {parsedConfig.conditions.cpu.threshold}% ({parsedConfig.conditions.cpu.duration_sec}s)
+                                    </span>
+                                  )}
+                                  {parsedConfig.conditions.memory?.enabled && (
+                                    <span className="spacex-chip" style={{ color: '#38bdf8', borderColor: '#38bdf8', fontSize: '10px' }}>
+                                      🧠 内存 &ge; {parsedConfig.conditions.memory.threshold}% ({parsedConfig.conditions.memory.duration_sec}s)
+                                    </span>
+                                  )}
+                                  {parsedConfig.conditions.disk?.enabled && (
+                                    <span className="spacex-chip" style={{ color: '#c084fc', borderColor: '#c084fc', fontSize: '10px' }}>
+                                      💾 磁盘 &ge; {parsedConfig.conditions.disk.threshold}%
+                                    </span>
+                                  )}
+                                  {parsedConfig.conditions.expiry?.enabled && (
+                                    <span className="spacex-chip" style={{ color: '#fbbf24', borderColor: '#fbbf24', fontSize: '10px' }}>
+                                      📅 到期 &le; {parsedConfig.conditions.expiry.days}天
+                                    </span>
+                                  )}
+                                </div>
                               ) : (
-                                <span>
-                                  {rule.type.toUpperCase()} &ge; {rule.threshold}% (持续 {rule.duration_sec}s)
-                                </span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span className="spacex-chip" style={{
+                                    borderColor: rule.type === 'offline' ? '#e22718' : '#38bdf8',
+                                    color: rule.type === 'offline' ? '#e22718' : '#38bdf8',
+                                  }}>
+                                    {rule.type.toUpperCase()}
+                                  </span>
+                                  <span style={{ fontSize: '12px' }}>
+                                    {rule.type === 'offline' ? `离线持续 > ${rule.duration_sec || 90} 秒` : `${rule.type.toUpperCase()} ≥ ${rule.threshold}% (持续 ${rule.duration_sec}s)`}
+                                  </span>
+                                </div>
                               )}
                             </td>
                             <td>
@@ -2057,12 +2100,17 @@ WantedBy=multi-user.target`;
             </div>
           )}
 
-          {/* Modal 2: Add Alert Policy Modal */}
+          {/* Modal 2: Add Alert Policy Modal (Multi-Condition Compound Support) */}
           {showAddRuleModal && (
             <div className="modal-backdrop-dark">
-              <div className="modal-box-dark" style={{ maxWidth: '540px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                  <span className="eyebrow-cap">+ 添加告警策略 / ALERT POLICY</span>
+              <div className="modal-box-dark" style={{ maxWidth: '620px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <div>
+                    <span className="eyebrow-cap">+ 添加综合告警策略 / ALERT POLICY</span>
+                    <p style={{ fontSize: '11px', color: 'var(--colors-muted)', margin: '2px 0 0 0' }}>
+                      在一套策略中自由组合多个监控条件（离线/CPU/内存/磁盘/到期），并关联接收渠道。
+                    </p>
+                  </div>
                   <button
                     style={{ background: 'none', border: 'none', color: '#ffffff', fontSize: '18px', cursor: 'pointer' }}
                     onClick={() => setShowAddRuleModal(false)}
@@ -2077,62 +2125,195 @@ WantedBy=multi-user.target`;
                     <input
                       value={newRuleName}
                       onChange={(e) => setNewRuleName(e.target.value)}
-                      placeholder="如 核心生产节点 CPU 严重过高 或 数据库磁盘预警"
+                      placeholder="如 核心生产节点综合监控策略 或 基础离线与磁盘策略"
                       className="spacex-input"
                       required
                     />
                   </div>
 
+                  {/* Multi-Condition Switch & Threshold Rows */}
                   <div style={{ marginBottom: '16px' }}>
-                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>监控指标类型 / METRIC TYPE</span>
-                    <select
-                      value={newAlertType}
-                      onChange={(e) => setNewAlertType(e.target.value as any)}
-                      className="spacex-input"
-                      style={{ background: '#000000', color: '#ffffff' }}
-                    >
-                      <option value="offline">⚠️ 节点离线告警 (Offline 90s)</option>
-                      <option value="cpu">🔥 CPU 使用率超限告警 (%)</option>
-                      <option value="memory">🧠 内存使用率超限告警 (%)</option>
-                      <option value="disk">💾 磁盘使用率超限告警 (%)</option>
-                      <option value="expiry">📅 服务器到期提醒 (天)</option>
-                    </select>
-                  </div>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>
+                      监控条件组合 / MONITORING CONDITIONS (可同时启用多项)
+                    </span>
 
-                  {newAlertType === 'offline' ? (
-                    <div style={{ padding: '12px 16px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--colors-hairline-on-dark)', borderRadius: '4px', marginBottom: '20px', fontSize: '12px', color: 'var(--colors-muted)' }}>
-                      ℹ️ 离线判定规则：当被控端 Agent 超过 90 秒无有效心跳上报时自动触发 Firing 告警，心跳恢复后自动触发 Resolved 恢复通知。
-                    </div>
-                  ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-                      <div>
-                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>
-                          {newAlertType === 'expiry' ? '到期提醒提前 (天)' : '触发阈值 / THRESHOLD (%)'}
-                        </span>
-                        <input
-                          type="number"
-                          value={newAlertThreshold}
-                          onChange={(e) => setNewAlertThreshold(parseInt(e.target.value) || 80)}
-                          min={1}
-                          max={newAlertType === 'expiry' ? 30 : 100}
-                          className="spacex-input"
-                          required
-                        />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {/* Condition 1: Offline */}
+                      <div style={{ padding: '10px 12px', background: condOfflineEnabled ? 'rgba(226, 39, 24, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condOfflineEnabled ? 'rgba(226, 39, 24, 0.3)' : 'var(--colors-hairline-on-dark)'}`, borderRadius: '4px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>
+                            <input
+                              type="checkbox"
+                              checked={condOfflineEnabled}
+                              onChange={(e) => setCondOfflineEnabled(e.target.checked)}
+                            />
+                            <span>⚠️ 节点离线告警 (Node Offline)</span>
+                          </label>
+                          {condOfflineEnabled && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
+                              <span style={{ color: 'var(--colors-muted)' }}>持续超过</span>
+                              <input
+                                type="number"
+                                value={condOfflineDurationSec}
+                                onChange={(e) => setCondOfflineDurationSec(parseInt(e.target.value) || 90)}
+                                min={10}
+                                max={3600}
+                                className="spacex-input"
+                                style={{ width: '70px', padding: '3px 6px', fontSize: '11px' }}
+                              />
+                              <span style={{ color: 'var(--colors-muted)' }}>秒无心跳触发</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div>
-                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>持续时间 / DURATION (秒)</span>
-                        <input
-                          type="number"
-                          value={newAlertDurationSec}
-                          onChange={(e) => setNewAlertDurationSec(parseInt(e.target.value) || 60)}
-                          min={0}
-                          max={3600}
-                          className="spacex-input"
-                          required
-                        />
+
+                      {/* Condition 2: CPU */}
+                      <div style={{ padding: '10px 12px', background: condCpuEnabled ? 'rgba(255, 170, 0, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condCpuEnabled ? 'rgba(255, 170, 0, 0.3)' : 'var(--colors-hairline-on-dark)'}`, borderRadius: '4px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>
+                            <input
+                              type="checkbox"
+                              checked={condCpuEnabled}
+                              onChange={(e) => setCondCpuEnabled(e.target.checked)}
+                            />
+                            <span>🔥 CPU 使用率告警 (CPU Usage)</span>
+                          </label>
+                          {condCpuEnabled && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ color: 'var(--colors-muted)' }}>阈值 &ge;</span>
+                                <input
+                                  type="number"
+                                  value={condCpuThreshold}
+                                  onChange={(e) => setCondCpuThreshold(parseInt(e.target.value) || 85)}
+                                  min={1}
+                                  max={100}
+                                  className="spacex-input"
+                                  style={{ width: '60px', padding: '3px 6px', fontSize: '11px' }}
+                                />
+                                <span>%</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ color: 'var(--colors-muted)' }}>持续</span>
+                                <input
+                                  type="number"
+                                  value={condCpuDurationSec}
+                                  onChange={(e) => setCondCpuDurationSec(parseInt(e.target.value) || 60)}
+                                  min={0}
+                                  max={3600}
+                                  className="spacex-input"
+                                  style={{ width: '60px', padding: '3px 6px', fontSize: '11px' }}
+                                />
+                                <span>秒</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Condition 3: Memory */}
+                      <div style={{ padding: '10px 12px', background: condMemoryEnabled ? 'rgba(56, 189, 248, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condMemoryEnabled ? 'rgba(56, 189, 248, 0.3)' : 'var(--colors-hairline-on-dark)'}`, borderRadius: '4px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>
+                            <input
+                              type="checkbox"
+                              checked={condMemoryEnabled}
+                              onChange={(e) => setCondMemoryEnabled(e.target.checked)}
+                            />
+                            <span>🧠 内存使用率告警 (Memory Usage)</span>
+                          </label>
+                          {condMemoryEnabled && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ color: 'var(--colors-muted)' }}>阈值 &ge;</span>
+                                <input
+                                  type="number"
+                                  value={condMemoryThreshold}
+                                  onChange={(e) => setCondMemoryThreshold(parseInt(e.target.value) || 90)}
+                                  min={1}
+                                  max={100}
+                                  className="spacex-input"
+                                  style={{ width: '60px', padding: '3px 6px', fontSize: '11px' }}
+                                />
+                                <span>%</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ color: 'var(--colors-muted)' }}>持续</span>
+                                <input
+                                  type="number"
+                                  value={condMemoryDurationSec}
+                                  onChange={(e) => setCondMemoryDurationSec(parseInt(e.target.value) || 60)}
+                                  min={0}
+                                  max={3600}
+                                  className="spacex-input"
+                                  style={{ width: '60px', padding: '3px 6px', fontSize: '11px' }}
+                                />
+                                <span>秒</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Condition 4: Disk */}
+                      <div style={{ padding: '10px 12px', background: condDiskEnabled ? 'rgba(192, 132, 252, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condDiskEnabled ? 'rgba(192, 132, 252, 0.3)' : 'var(--colors-hairline-on-dark)'}`, borderRadius: '4px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>
+                            <input
+                              type="checkbox"
+                              checked={condDiskEnabled}
+                              onChange={(e) => setCondDiskEnabled(e.target.checked)}
+                            />
+                            <span>💾 磁盘使用率告警 (Disk Usage)</span>
+                          </label>
+                          {condDiskEnabled && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
+                              <span style={{ color: 'var(--colors-muted)' }}>阈值 &ge;</span>
+                              <input
+                                type="number"
+                                value={condDiskThreshold}
+                                onChange={(e) => setCondDiskThreshold(parseInt(e.target.value) || 90)}
+                                min={1}
+                                max={100}
+                                className="spacex-input"
+                                style={{ width: '60px', padding: '3px 6px', fontSize: '11px' }}
+                              />
+                              <span>%</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Condition 5: Expiry */}
+                      <div style={{ padding: '10px 12px', background: condExpiryEnabled ? 'rgba(251, 191, 36, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condExpiryEnabled ? 'rgba(251, 191, 36, 0.3)' : 'var(--colors-hairline-on-dark)'}`, borderRadius: '4px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>
+                            <input
+                              type="checkbox"
+                              checked={condExpiryEnabled}
+                              onChange={(e) => setCondExpiryEnabled(e.target.checked)}
+                            />
+                            <span>📅 服务器临期提醒 (Plan Expiry)</span>
+                          </label>
+                          {condExpiryEnabled && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
+                              <span style={{ color: 'var(--colors-muted)' }}>提前</span>
+                              <input
+                                type="number"
+                                value={condExpiryDays}
+                                onChange={(e) => setCondExpiryDays(parseInt(e.target.value) || 7)}
+                                min={1}
+                                max={30}
+                                className="spacex-input"
+                                style={{ width: '60px', padding: '3px 6px', fontSize: '11px' }}
+                              />
+                              <span>天发送提醒</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  )}
+                  </div>
 
                   {/* Target Notification Channels Multi-Select */}
                   <div style={{ marginBottom: '20px' }}>
@@ -2144,7 +2325,7 @@ WantedBy=multi-user.target`;
                         暂未配置专属渠道，将默认使用系统全局环境变量配置的通知接收端。
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '140px', overflowY: 'auto', padding: '8px', background: 'rgba(0, 0, 0, 0.4)', border: '1px solid var(--colors-hairline-on-dark)', borderRadius: '4px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '130px', overflowY: 'auto', padding: '8px', background: 'rgba(0, 0, 0, 0.4)', border: '1px solid var(--colors-hairline-on-dark)', borderRadius: '4px' }}>
                         {alertRules.filter(r => r.type === 'channel' || r.type === 'webhook').map((c) => {
                           let cConfig: any = {};
                           try { cConfig = c.config_json ? JSON.parse(c.config_json) : {}; } catch { cConfig = {}; }

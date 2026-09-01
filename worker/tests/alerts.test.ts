@@ -380,6 +380,72 @@ describe('Alert Engine & State Machine', () => {
     expect(transitions[0].type).toBe('memory');
     expect(transitions[0].channelIds).toEqual([20]);
   });
+
+  it('evaluates compound multi-condition policy with multiple metric triggers simultaneously', async () => {
+    const node = {
+      id: 'node-multi',
+      name: 'Tokyo-Multi',
+      hidden: 0,
+      expires_at_ms: Date.now() + 2 * 86400 * 1000, // 2 days left (< 7 days)
+      memory_limit_bytes: 1000,
+      rootfs_limit_bytes: 1000,
+      last_seen_at_ms: Date.now(),
+      cpu_usage_pct: 95.0, // High CPU (> 85%)
+      memory_used_bytes: 950, // High RAM (> 90%)
+      rootfs_used_bytes: 100, // Normal Disk
+      node_config_json: null, // Default global
+    };
+
+    const compoundRule = {
+      id: 301,
+      node_id: null,
+      type: 'policy',
+      threshold: null,
+      duration_sec: 0,
+      enabled: 1,
+      config_json: JSON.stringify({
+        name: '综合生产策略',
+        channel_ids: [100, 200],
+        conditions: {
+          offline: { enabled: true, duration_sec: 90 },
+          cpu: { enabled: true, threshold: 85, duration_sec: 0 },
+          memory: { enabled: true, threshold: 90, duration_sec: 0 },
+          disk: { enabled: true, threshold: 90 },
+          expiry: { enabled: true, days: 7 },
+        },
+      }),
+    };
+
+    const mockDb = {
+      prepare(sql: string) {
+        return {
+          bind(...args: any[]) { return this; },
+          async all() {
+            if (sql.includes('FROM nodes')) return { results: [node] };
+            if (sql.includes('FROM alert_rules')) return { results: [compoundRule] };
+            return { results: [] };
+          },
+          async first() { return null; },
+          async run() { return { success: true }; },
+        };
+      },
+    } as any;
+
+    const transitions = await evaluateAlerts(mockDb, 90);
+    const ruleTransitions = transitions.filter((t) => t.stateKey.startsWith('rule:301:'));
+    expect(ruleTransitions.length).toBe(3);
+
+    const types = ruleTransitions.map((t) => t.type);
+    expect(types).toContain('cpu');
+    expect(types).toContain('memory');
+    expect(types).toContain('expiry');
+    expect(types).not.toContain('offline');
+    expect(types).not.toContain('disk');
+
+    for (const t of ruleTransitions) {
+      expect(t.channelIds).toEqual([100, 200]);
+    }
+  });
 });
 
 

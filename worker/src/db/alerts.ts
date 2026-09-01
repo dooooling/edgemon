@@ -336,17 +336,18 @@ export async function evaluateAlerts(
     );
   }
 
-  // 3. Custom Alert Rules (CPU, Memory, Disk)
+  // 3. Custom / Compound Alert Policies (CPU, Memory, Disk, Offline, Expiry)
   for (const rule of customRules) {
     let ruleChannelIds: number[] | undefined = undefined;
+    let parsedConfig: any = {};
     if (rule.config_json) {
       try {
-        const parsed = JSON.parse(rule.config_json);
-        if (Array.isArray(parsed.channel_ids) && parsed.channel_ids.length > 0) {
-          ruleChannelIds = parsed.channel_ids;
+        parsedConfig = JSON.parse(rule.config_json);
+        if (Array.isArray(parsedConfig.channel_ids) && parsedConfig.channel_ids.length > 0) {
+          ruleChannelIds = parsedConfig.channel_ids;
         }
       } catch {
-        // ignore
+        parsedConfig = {};
       }
     }
 
@@ -363,54 +364,186 @@ export async function evaluateAlerts(
         continue;
       }
 
-      const stateKey = `rule:${rule.id}:${node.id}`;
-      let conditionMet = false;
-      let curVal: number | null = null;
-      let firingMsg = '';
-      let resolvedMsg = '';
-      const threshold = rule.threshold ?? 80;
+      // Check if this is a compound multi-condition policy
+      if (parsedConfig.conditions && typeof parsedConfig.conditions === 'object') {
+        const conds = parsedConfig.conditions;
 
-      if (rule.type === 'cpu') {
-        curVal = node.cpu_usage_pct;
-        conditionMet = curVal != null && curVal >= threshold;
-        firingMsg = `CPU usage is at ${curVal?.toFixed(1)}% (threshold: ${threshold}%).`;
-        resolvedMsg = `CPU usage normalized to ${curVal?.toFixed(1)}%.`;
-      } else if (rule.type === 'memory') {
-        const used = node.memory_used_bytes;
-        const limit = node.memory_limit_bytes;
-        if (used != null && limit != null && limit > 0) {
-          curVal = (used / limit) * 100;
-          conditionMet = curVal >= threshold;
-          firingMsg = `Memory usage is at ${curVal.toFixed(1)}% (threshold: ${threshold}%).`;
-          resolvedMsg = `Memory usage normalized to ${curVal.toFixed(1)}%.`;
+        // Condition A: Offline
+        if (conds.offline && conds.offline.enabled) {
+          const offSec = conds.offline.duration_sec || 90;
+          const isOff = !node.last_seen_at_ms || node.last_seen_at_ms < now - offSec * 1000;
+          await checkTransition(
+            `rule:${rule.id}:offline:${node.id}`,
+            rule.id,
+            node.id,
+            node.name,
+            'offline',
+            isOff,
+            `Node ${node.name} is Offline`,
+            `Node has not reported telemetry for more than ${offSec} seconds.`,
+            `Node ${node.name} is Online`,
+            `Node has resumed normal telemetry reporting.`,
+            node.last_seen_at_ms ? Math.round((now - node.last_seen_at_ms) / 1000) : null,
+            offSec,
+            0,
+            ruleChannelIds
+          );
         }
-      } else if (rule.type === 'disk') {
-        const used = node.rootfs_used_bytes;
-        const limit = node.rootfs_limit_bytes;
-        if (used != null && limit != null && limit > 0) {
-          curVal = (used / limit) * 100;
-          conditionMet = curVal >= threshold;
-          firingMsg = `Disk usage is at ${curVal.toFixed(1)}% (threshold: ${threshold}%).`;
-          resolvedMsg = `Disk usage normalized to ${curVal.toFixed(1)}%.`;
+
+        // Condition B: CPU
+        if (conds.cpu && conds.cpu.enabled) {
+          const cpuThresh = conds.cpu.threshold ?? 80;
+          const curCpu = node.cpu_usage_pct;
+          const met = curCpu != null && curCpu >= cpuThresh;
+          await checkTransition(
+            `rule:${rule.id}:cpu:${node.id}`,
+            rule.id,
+            node.id,
+            node.name,
+            'cpu',
+            met,
+            `Node ${node.name} CPU Alert`,
+            `CPU usage is at ${curCpu?.toFixed(1)}% (threshold: ${cpuThresh}%).`,
+            `Node ${node.name} CPU Recovered`,
+            `CPU usage normalized to ${curCpu?.toFixed(1)}%.`,
+            curCpu,
+            cpuThresh,
+            conds.cpu.duration_sec ?? 0,
+            ruleChannelIds
+          );
         }
+
+        // Condition C: Memory
+        if (conds.memory && conds.memory.enabled) {
+          const memThresh = conds.memory.threshold ?? 80;
+          const used = node.memory_used_bytes;
+          const limit = node.memory_limit_bytes;
+          let curMem: number | null = null;
+          let met = false;
+          if (used != null && limit != null && limit > 0) {
+            curMem = (used / limit) * 100;
+            met = curMem >= memThresh;
+          }
+          await checkTransition(
+            `rule:${rule.id}:memory:${node.id}`,
+            rule.id,
+            node.id,
+            node.name,
+            'memory',
+            met,
+            `Node ${node.name} Memory Alert`,
+            `Memory usage is at ${curMem?.toFixed(1)}% (threshold: ${memThresh}%).`,
+            `Node ${node.name} Memory Recovered`,
+            `Memory usage normalized to ${curMem?.toFixed(1)}%.`,
+            curMem,
+            memThresh,
+            conds.memory.duration_sec ?? 0,
+            ruleChannelIds
+          );
+        }
+
+        // Condition D: Disk
+        if (conds.disk && conds.disk.enabled) {
+          const diskThresh = conds.disk.threshold ?? 85;
+          const used = node.rootfs_used_bytes;
+          const limit = node.rootfs_limit_bytes;
+          let curDisk: number | null = null;
+          let met = false;
+          if (used != null && limit != null && limit > 0) {
+            curDisk = (used / limit) * 100;
+            met = curDisk >= diskThresh;
+          }
+          await checkTransition(
+            `rule:${rule.id}:disk:${node.id}`,
+            rule.id,
+            node.id,
+            node.name,
+            'disk',
+            met,
+            `Node ${node.name} Disk Alert`,
+            `Disk usage is at ${curDisk?.toFixed(1)}% (threshold: ${diskThresh}%).`,
+            `Node ${node.name} Disk Recovered`,
+            `Disk usage normalized to ${curDisk?.toFixed(1)}%.`,
+            curDisk,
+            diskThresh,
+            conds.disk.duration_sec ?? 0,
+            ruleChannelIds
+          );
+        }
+
+        // Condition E: Expiry
+        if (conds.expiry && conds.expiry.enabled && node.expires_at_ms) {
+          const days = conds.expiry.days ?? 7;
+          const daysMs = days * 86400 * 1000;
+          const isExpiring = node.expires_at_ms - now <= daysMs;
+          await checkTransition(
+            `rule:${rule.id}:expiry:${node.id}`,
+            rule.id,
+            node.id,
+            node.name,
+            'expiry',
+            isExpiring,
+            `Node ${node.name} Plan Expiring Soon`,
+            `Node plan will expire at ${new Date(node.expires_at_ms).toISOString()} (<= ${days} days).`,
+            `Node ${node.name} Plan Renewed`,
+            `Node plan expiration date updated or resolved.`,
+            node.expires_at_ms,
+            daysMs,
+            0,
+            ruleChannelIds
+          );
+        }
+      } else {
+        // Legacy single-metric rule format
+        const stateKey = `rule:${rule.id}:${node.id}`;
+        let conditionMet = false;
+        let curVal: number | null = null;
+        let firingMsg = '';
+        let resolvedMsg = '';
+        const threshold = rule.threshold ?? 80;
+
+        if (rule.type === 'cpu') {
+          curVal = node.cpu_usage_pct;
+          conditionMet = curVal != null && curVal >= threshold;
+          firingMsg = `CPU usage is at ${curVal?.toFixed(1)}% (threshold: ${threshold}%).`;
+          resolvedMsg = `CPU usage normalized to ${curVal?.toFixed(1)}%.`;
+        } else if (rule.type === 'memory') {
+          const used = node.memory_used_bytes;
+          const limit = node.memory_limit_bytes;
+          if (used != null && limit != null && limit > 0) {
+            curVal = (used / limit) * 100;
+            conditionMet = curVal >= threshold;
+            firingMsg = `Memory usage is at ${curVal.toFixed(1)}% (threshold: ${threshold}%).`;
+            resolvedMsg = `Memory usage normalized to ${curVal.toFixed(1)}%.`;
+          }
+        } else if (rule.type === 'disk') {
+          const used = node.rootfs_used_bytes;
+          const limit = node.rootfs_limit_bytes;
+          if (used != null && limit != null && limit > 0) {
+            curVal = (used / limit) * 100;
+            conditionMet = curVal >= threshold;
+            firingMsg = `Disk usage is at ${curVal.toFixed(1)}% (threshold: ${threshold}%).`;
+            resolvedMsg = `Disk usage normalized to ${curVal.toFixed(1)}%.`;
+          }
+        }
+
+        await checkTransition(
+          stateKey,
+          rule.id,
+          node.id,
+          node.name,
+          rule.type as any,
+          conditionMet,
+          `Node ${node.name} ${rule.type.toUpperCase()} Alert`,
+          firingMsg,
+          `Node ${node.name} ${rule.type.toUpperCase()} Recovered`,
+          resolvedMsg,
+          curVal,
+          threshold,
+          rule.duration_sec ?? 0,
+          ruleChannelIds
+        );
       }
-
-      await checkTransition(
-        stateKey,
-        rule.id,
-        node.id,
-        node.name,
-        rule.type,
-        conditionMet,
-        `Node ${node.name} ${rule.type.toUpperCase()} Alert`,
-        firingMsg,
-        `Node ${node.name} ${rule.type.toUpperCase()} Recovered`,
-        resolvedMsg,
-        curVal,
-        threshold,
-        rule.duration_sec ?? 0,
-        ruleChannelIds
-      );
     }
   }
 

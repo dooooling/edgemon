@@ -283,8 +283,10 @@ export interface SystemEvent {
   id: number;
   node_id: string | null;
   type: string;
-  payload_json: string | null;
-  created_at_ms: number;
+  ts_ms?: number;
+  created_at_ms?: number;
+  data_json?: string | null;
+  payload_json?: string | null;
 }
 
 export async function fetchAlertRules(): Promise<{ rules: AlertRule[] }> {

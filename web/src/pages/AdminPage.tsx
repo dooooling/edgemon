@@ -99,7 +99,7 @@ export const AdminPage: React.FC = () => {
     warning?: string;
   } | null>(null);
   const [adminBannerWarning, setAdminBannerWarning] = useState<string | null>(null);
-  const [cmdTab, setCmdTab] = useState<'binary' | 'docker' | 'systemd' | 'raw'>('binary');
+  const [cmdTab, setCmdTab] = useState<'install' | 'binary' | 'docker' | 'systemd' | 'raw'>('install');
   const [copyFeedback, setCopyFeedback] = useState(false);
 
   const [editingConfig, setEditingConfig] = useState<NodeServerConfig | null>(null);
@@ -1077,7 +1077,7 @@ export const AdminPage: React.FC = () => {
                       const targetNode = evt.node_id ? adminNodes.find((n) => n.id === evt.node_id) : null;
                       return (
                         <tr key={evt.id}>
-                          <td>{formatBeijingDate(evt.created_at_ms)}</td>
+                          <td>{formatBeijingDate(evt.ts_ms || evt.created_at_ms)}</td>
                           <td>
                             {targetNode ? (
                               <strong>{targetNode.name.toUpperCase()}</strong>
@@ -1097,7 +1097,7 @@ export const AdminPage: React.FC = () => {
                           </td>
                           <td>
                             <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--colors-muted)', wordBreak: 'break-all' }}>
-                              {evt.payload_json || '-'}
+                              {evt.data_json || evt.payload_json || '-'}
                             </span>
                           </td>
                         </tr>
@@ -1699,17 +1699,30 @@ export const AdminPage: React.FC = () => {
             const nodeId = oneTimeTokenModal.nodeId;
             const token = oneTimeTokenModal.rawToken;
 
-            const binaryCmd = `./edgemon-agent --server ${serverUrl} --id ${nodeId} --token ${token}`;
-            const dockerCmd = `docker run -d --name edgemon --restart always --net=host -v /proc:/host/proc:ro -v /sys:/host/sys:ro dooooling/edgemon-agent:latest --server ${serverUrl} --id ${nodeId} --token ${token}`;
+            const installCmd = `curl -fsSL https://raw.githubusercontent.com/dooooling/edgemon/main/scripts/install.sh | EDGEMON_SERVER="${serverUrl}" EDGEMON_NODE_ID="${nodeId}" EDGEMON_TOKEN="${token}" bash`;
+            const binaryCmd = `EDGEMON_SERVER="${serverUrl}" EDGEMON_NODE_ID="${nodeId}" EDGEMON_TOKEN="${token}" ./edgemon-agent`;
+            const dockerCmd = `docker run -d --name edgemon --restart always --net=host -v /proc:/host/proc:ro -v /sys:/host/sys:ro -e EDGEMON_SERVER="${serverUrl}" -e EDGEMON_NODE_ID="${nodeId}" -e EDGEMON_TOKEN="${token}" dooooling/edgemon-agent:latest`;
             const systemdUnit = `[Unit]
 Description=EdgeMon Telemetry Agent Daemon
-After=network.target
+Documentation=https://github.com/dooooling/edgemon
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/edgemon-agent --server ${serverUrl} --id ${nodeId} --token ${token}
+Environment="EDGEMON_SERVER=${serverUrl}"
+Environment="EDGEMON_NODE_ID=${nodeId}"
+Environment="EDGEMON_TOKEN=${token}"
+ExecStart=/usr/local/bin/edgemon-agent
 Restart=always
-RestartSec=5
+RestartSec=5s
+LimitNOFILE=65535
+StandardOutput=journal
+StandardError=journal
+
+ProtectSystem=full
+ProtectHome=true
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target`;
@@ -1741,6 +1754,12 @@ WantedBy=multi-user.target`;
                   {/* Command Tab Selector */}
                   <div className="range-capsules" style={{ margin: '16px 0 12px 0' }}>
                     <button
+                      className={`range-capsule-btn ${cmdTab === 'install' ? 'active' : ''}`}
+                      onClick={() => setCmdTab('install')}
+                    >
+                      {t('cmd_linux_systemd')}
+                    </button>
+                    <button
                       className={`range-capsule-btn ${cmdTab === 'binary' ? 'active' : ''}`}
                       onClick={() => setCmdTab('binary')}
                     >
@@ -1768,13 +1787,18 @@ WantedBy=multi-user.target`;
 
                   {/* Command Content Box */}
                   <div style={{ position: 'relative' }}>
+                    {cmdTab === 'install' && (
+                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px', wordBreak: 'break-all' }}>
+                        {installCmd}
+                      </div>
+                    )}
                     {cmdTab === 'binary' && (
-                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px' }}>
+                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px', wordBreak: 'break-all' }}>
                         {binaryCmd}
                       </div>
                     )}
                     {cmdTab === 'docker' && (
-                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px' }}>
+                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px', wordBreak: 'break-all' }}>
                         {dockerCmd}
                       </div>
                     )}
@@ -1784,7 +1808,7 @@ WantedBy=multi-user.target`;
                       </pre>
                     )}
                     {cmdTab === 'raw' && (
-                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px' }}>
+                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px', wordBreak: 'break-all' }}>
                         {token}
                       </div>
                     )}
@@ -1803,7 +1827,9 @@ WantedBy=multi-user.target`;
                       }}
                       onClick={() => {
                         const contentToCopy =
-                          cmdTab === 'binary'
+                          cmdTab === 'install'
+                            ? installCmd
+                            : cmdTab === 'binary'
                             ? binaryCmd
                             : cmdTab === 'docker'
                             ? dockerCmd

@@ -191,20 +191,33 @@ export async function validateDnsAndSsrf(rawUrl: string, allowHttp = false): Pro
           fetch(`https://1.1.1.1/dns-query?name=${encodeURIComponent(host)}&type=A`, {
             headers: { Accept: 'application/dns-json' },
             signal: dohController.signal,
-          }).then((r) => r.json() as Promise<any>).catch(() => null),
+          }).then((r) => (r.ok ? (r.json() as Promise<any>) : null)).catch(() => null),
           fetch(`https://1.1.1.1/dns-query?name=${encodeURIComponent(host)}&type=AAAA`, {
             headers: { Accept: 'application/dns-json' },
             signal: dohController.signal,
-          }).then((r) => r.json() as Promise<any>).catch(() => null),
+          }).then((r) => (r.ok ? (r.json() as Promise<any>) : null)).catch(() => null),
         ]);
         clearTimeout(dohTimeout);
-        const answersA = dohResA?.Answer || [];
-        for (const ans of answersA) {
-          if (ans.type === 1 && ans.data && !isAllowedWebhookUrl(`https://${ans.data}/`, false)) return false;
+
+        // Fail-Closed: If DoH query completely failed or errored out, reject
+        if (!dohResA && !dohResAaaa) {
+          return false;
         }
-        const answersAaaa = dohResAaaa?.Answer || [];
+
+        const answersA = (dohResA?.Answer || []).filter((ans: any) => ans.type === 1 && ans.data);
+        const answersAaaa = (dohResAaaa?.Answer || []).filter((ans: any) => ans.type === 28 && ans.data);
+
+        // Fail-Closed: Must resolve to at least one valid A or AAAA record
+        if (answersA.length === 0 && answersAaaa.length === 0) {
+          return false;
+        }
+
+        // Fail-Closed: Every resolved address must strictly pass SSRF boundary check
+        for (const ans of answersA) {
+          if (!isAllowedWebhookUrl(`https://${ans.data}/`, false)) return false;
+        }
         for (const ans of answersAaaa) {
-          if (ans.type === 28 && ans.data && !isAllowedWebhookUrl(`https://[${ans.data}]/`, false)) return false;
+          if (!isAllowedWebhookUrl(`https://[${ans.data}]/`, false)) return false;
         }
       } catch {
         clearTimeout(dohTimeout);

@@ -183,6 +183,18 @@ describe('Alert Engine & State Machine', () => {
     expect(isAllowedWebhookUrl('https://[2606:4700:4700::1111]/')).toBe(true); // Public Cloudflare IPv6
   });
 
+  it('validateDnsAndSsrf: fail-closed on private IPs, invalid protocols, and resolution failures', async () => {
+    const { validateDnsAndSsrf } = await import('../src/services/notifications');
+
+    // Direct private IP tests (fail-closed)
+    expect(await validateDnsAndSsrf('http://127.0.0.1/hook')).toBe(false);
+    expect(await validateDnsAndSsrf('https://10.0.0.1/hook')).toBe(false);
+    expect(await validateDnsAndSsrf('https://192.168.1.1/hook')).toBe(false);
+    expect(await validateDnsAndSsrf('https://169.254.169.254/latest/meta-data')).toBe(false);
+    expect(await validateDnsAndSsrf('https://[::ffff:127.0.0.1]/hook')).toBe(false);
+    expect(await validateDnsAndSsrf('ftp://example.com/hook')).toBe(false);
+  });
+
   it('formats notification payloads properly for Discord, Telegram, and Generic channels', async () => {
     const { formatWebhookPayload } = await import('../src/services/notifications');
 

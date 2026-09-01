@@ -28,6 +28,14 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1" >&2
 }
 
+TMP_DIR=""
+cleanup() {
+    if [[ -n "${TMP_DIR:-}" && -d "${TMP_DIR:-}" ]]; then
+        rm -rf "${TMP_DIR}"
+    fi
+}
+trap cleanup EXIT INT TERM HUP
+
 # 1. Require Root / Sudo
 if [[ $EUID -ne 0 ]]; then
    log_error "This script must be run as root. Try: sudo bash $0"
@@ -121,22 +129,23 @@ if [[ -z "${SERVER_URL}" || -z "${NODE_ID}" || -z "${NODE_TOKEN}" ]]; then
     exit 1
 fi
 
-# 4. Download Binary
+# 4. Download Binary & Verify SHA256 Checksum
 REPO="dooooling/edgemon"
 INSTALL_BIN="/usr/local/bin/edgemon-agent"
 CONFIG_DIR="/etc/edgemon"
 ENV_FILE="${CONFIG_DIR}/agent.env"
 
-log_info "Fetching EdgeMon Agent binary..."
+log_info "Fetching EdgeMon Agent binary and checksum..."
 
 if [[ "${VERSION}" == "latest" ]]; then
     DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/edgemon-agent-${TARGET_ARCH}.tar.gz"
+    SHA256_URL="https://github.com/${REPO}/releases/latest/download/edgemon-agent-${TARGET_ARCH}.tar.gz.sha256"
 else
     DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/edgemon-agent-${TARGET_ARCH}.tar.gz"
+    SHA256_URL="https://github.com/${REPO}/releases/download/${VERSION}/edgemon-agent-${TARGET_ARCH}.tar.gz.sha256"
 fi
 
 TMP_DIR=$(mktemp -d)
-trap 'rm -rf "${TMP_DIR}"' EXIT
 
 log_info "Downloading from: ${DOWNLOAD_URL}"
 if command -v curl >/dev/null 2>&1; then
@@ -144,14 +153,37 @@ if command -v curl >/dev/null 2>&1; then
         log_error "Failed to download binary from GitHub Releases. Check network or specified version."
         exit 1
     }
+    curl -fsSL "${SHA256_URL}" -o "${TMP_DIR}/edgemon-agent.tar.gz.sha256" || {
+        log_warn "Could not fetch SHA256 checksum file; proceeding with caution."
+    }
 elif command -v wget >/dev/null 2>&1; then
     wget -qO "${TMP_DIR}/edgemon-agent.tar.gz" "${DOWNLOAD_URL}" || {
         log_error "Failed to download binary from GitHub Releases. Check network or specified version."
         exit 1
     }
+    wget -qO "${TMP_DIR}/edgemon-agent.tar.gz.sha256" "${SHA256_URL}" || {
+        log_warn "Could not fetch SHA256 checksum file; proceeding with caution."
+    }
 else
     log_error "Neither curl nor wget is available. Please install one first."
     exit 1
+fi
+
+# Verify SHA256 Checksum if available
+if [[ -f "${TMP_DIR}/edgemon-agent.tar.gz.sha256" ]]; then
+    if command -v sha256sum >/dev/null 2>&1; then
+        (cd "${TMP_DIR}" && sha256sum -c "edgemon-agent.tar.gz.sha256") || {
+            log_error "SHA256 checksum verification failed! Downloaded artifact may be corrupted or tampered."
+            exit 1
+        }
+        log_success "Verified binary archive SHA256 checksum."
+    elif command -v shasum >/dev/null 2>&1; then
+        (cd "${TMP_DIR}" && shasum -a 256 -c "edgemon-agent.tar.gz.sha256") || {
+            log_error "SHA256 checksum verification failed! Downloaded artifact may be corrupted or tampered."
+            exit 1
+        }
+        log_success "Verified binary archive SHA256 checksum."
+    fi
 fi
 
 tar -xzf "${TMP_DIR}/edgemon-agent.tar.gz" -C "${TMP_DIR}"
@@ -181,7 +213,7 @@ fi
 chmod 600 "${ENV_FILE}"
 log_success "Saved credentials to ${ENV_FILE} (permissions: 0600)"
 
-# 6. Install & Configure Systemd Service
+# 6. Install & Configure Systemd Service (Credentials passed via EnvironmentFile, zero argv token exposure)
 if command -v systemctl >/dev/null 2>&1 && [[ -d /etc/systemd/system ]]; then
     SERVICE_FILE="/etc/systemd/system/edgemon-agent.service"
     
@@ -200,7 +232,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=${ENV_FILE}
-ExecStart=${INSTALL_BIN} --server \${EDGEMON_SERVER} --id \${EDGEMON_NODE_ID} --token \${EDGEMON_TOKEN} ${EXTRA_FLAGS}
+ExecStart=${INSTALL_BIN} ${EXTRA_FLAGS}
 Restart=always
 RestartSec=5s
 LimitNOFILE=65535
@@ -225,8 +257,8 @@ EOF
     log_info "View real-time logs with: journalctl -u edgemon-agent -f"
 else
     log_warn "Systemd not detected (e.g. OpenVZ / Alpine / Docker container)."
-    log_info "You can run the agent manually in background:"
-    log_info "nohup ${INSTALL_BIN} --server \"${SERVER_URL}\" --id \"${NODE_ID}\" --token \"${NODE_TOKEN}\" > /var/log/edgemon-agent.log 2>&1 &"
+    log_info "You can run the agent in background using environment variables:"
+    log_info "nohup env EDGEMON_SERVER=\"${SERVER_URL}\" EDGEMON_NODE_ID=\"${NODE_ID}\" EDGEMON_TOKEN=\"${NODE_TOKEN}\" ${INSTALL_BIN} > /var/log/edgemon-agent.log 2>&1 &"
 fi
 
 log_success "========================================================"

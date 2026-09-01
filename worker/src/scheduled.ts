@@ -166,7 +166,22 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
     }
   }
 
-  const successMap = new Map<string, boolean>();
+  // Track delivery statistics per transition for explicit semantics
+  interface TransitionDeliveryStats {
+    total: number;
+    succeeded: string[];
+    failed: string[];
+  }
+
+  const deliveryStats = new Map<string, TransitionDeliveryStats>();
+  for (const t of transitions) {
+    deliveryStats.set(t.stateKey, { total: 0, succeeded: [], failed: [] });
+  }
+
+  for (const job of jobs) {
+    const stat = deliveryStats.get(job.transition.stateKey);
+    if (stat) stat.total++;
+  }
 
   await mapConcurrent(jobs, 5, async (job) => {
     const t = job.transition;
@@ -183,9 +198,11 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
     const maskedTarget = maskWebhookUrl(cfg.url);
     try {
       const ok = await sendWebhookNotification(cfg, eventPayload);
+      const stat = deliveryStats.get(t.stateKey);
       if (ok) {
-        successMap.set(t.stateKey, true);
+        stat?.succeeded.push(maskedTarget);
       } else {
+        stat?.failed.push(maskedTarget);
         await recordEvent(env.DB, t.nodeId, 'alert_notification_failed', {
           target: maskedTarget,
           status: t.status,
@@ -194,6 +211,8 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
       }
     } catch (err) {
       console.error(`[Alerts] Error sending webhook to ${maskedTarget}:`, err);
+      const stat = deliveryStats.get(t.stateKey);
+      stat?.failed.push(maskedTarget);
       await recordEvent(env.DB, t.nodeId, 'alert_notification_failed', {
         target: maskedTarget,
         error: String(err),
@@ -201,14 +220,46 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
     }
   });
 
-  // For every transition that succeeded delivery on at least one destination, advance state
+  // Explicit delivery outcome evaluation & state transition
   for (const t of transitions) {
-    if (successMap.get(t.stateKey)) {
+    const stat = deliveryStats.get(t.stateKey);
+    if (!stat || stat.total === 0) continue;
+
+    const successCount = stat.succeeded.length;
+
+    if (successCount === stat.total) {
+      // 1. Complete delivery across all targeted channels
+      await recordEvent(env.DB, t.nodeId, 'alert_delivered_all', {
+        status: t.status,
+        type: t.type,
+        targets: stat.succeeded,
+      });
       try {
         await markAlertDelivered(env.DB, t.stateKey, Date.now());
       } catch (err) {
         console.error('[Alerts] Failed to mark alert delivered:', err);
       }
+    } else if (successCount > 0) {
+      // 2. Partial delivery (some channels succeeded, some failed)
+      // Advance last_notified_at_ms to prevent notification storming, but audit failure
+      await recordEvent(env.DB, t.nodeId, 'alert_delivered_partial', {
+        status: t.status,
+        type: t.type,
+        succeeded_targets: stat.succeeded,
+        failed_targets: stat.failed,
+      });
+      try {
+        await markAlertDelivered(env.DB, t.stateKey, Date.now());
+      } catch (err) {
+        console.error('[Alerts] Failed to mark alert delivered:', err);
+      }
+    } else {
+      // 3. Complete failure across all channels - do NOT mark delivered, will retry next evaluation cycle
+      await recordEvent(env.DB, t.nodeId, 'alert_delivery_all_failed', {
+        status: t.status,
+        type: t.type,
+        failed_targets: stat.failed,
+      });
     }
   }
 }

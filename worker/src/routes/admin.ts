@@ -331,8 +331,18 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
   let configJson = JSON.stringify(config);
   const statements = [];
 
-  // If this is a channel or contains sensitive URL, tokens or headers, require DATA_ENCRYPTION_KEY and encrypt into secret_settings
-  if (body.type === 'channel' || body.type === 'webhook' || config.webhook_url || (config.bot_token && config.chat_id) || config.url_template) {
+  const isChannelOrSensitive =
+    body.type === 'channel' ||
+    body.type === 'webhook' ||
+    Boolean(config.channel) ||
+    Boolean(config.webhook_url) ||
+    Boolean(config.bot_token) ||
+    Boolean(config.chat_id) ||
+    Boolean(config.headers) ||
+    Boolean(config.url_template) ||
+    Boolean(config.body_template);
+
+  if (isChannelOrSensitive) {
     if (!encryptionKey) {
       return c.json(
         { error: 'Server misconfiguration: DATA_ENCRYPTION_KEY secret is required to safely store Webhook credentials' },
@@ -344,6 +354,7 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
     const { encryptSecret } = await import('../services/crypto');
     const sensitivePayload = {
       name: config.name || '推送渠道',
+      channel: config.channel || 'telegram',
       webhook_url: config.webhook_url,
       bot_token: config.bot_token,
       chat_id: config.chat_id,
@@ -377,7 +388,7 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
     // In alert_rules table, only store metadata + reference key (zero plaintext secret)
     configJson = JSON.stringify({
       name: config.name || '推送渠道',
-      channel: config.channel,
+      channel: config.channel || 'telegram',
       secret_key: ruleKey,
       is_encrypted: true,
     });
@@ -502,7 +513,18 @@ adminRoutes.put('/api/admin/alerts/rules/:id', async (c) => {
   let configJson = JSON.stringify(config);
   const statements = [];
 
-  if (ruleType === 'channel' || ruleType === 'webhook' || config.webhook_url || (config.bot_token && config.chat_id) || config.url_template) {
+  const isPutChannelOrSensitive =
+    ruleType === 'channel' ||
+    ruleType === 'webhook' ||
+    Boolean(config.channel) ||
+    Boolean(config.webhook_url) ||
+    Boolean(config.bot_token) ||
+    Boolean(config.chat_id) ||
+    Boolean(config.headers) ||
+    Boolean(config.url_template) ||
+    Boolean(config.body_template);
+
+  if (isPutChannelOrSensitive) {
     if (!encryptionKey) {
       return c.json(
         { error: 'Server misconfiguration: DATA_ENCRYPTION_KEY secret is required to safely store Webhook credentials' },
@@ -634,7 +656,7 @@ adminRoutes.delete('/api/admin/alerts/rules/:id', async (c) => {
 adminRoutes.get('/api/admin/events', async (c) => {
   const limit = Math.min(100, Number(c.req.query('limit') || 50));
   const rows = await c.env.DB
-    .prepare('SELECT * FROM events ORDER BY ts_ms DESC LIMIT ?')
+    .prepare('SELECT id, node_id, ts_ms, ts_ms AS created_at_ms, type, data_json, data_json AS payload_json FROM events ORDER BY ts_ms DESC LIMIT ?')
     .bind(limit)
     .all();
 

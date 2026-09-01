@@ -21,6 +21,12 @@ fn test_loopback_and_private_ipv4() {
     assert!(is_private_or_loopback(
         &"0.0.0.0".parse::<IpAddr>().unwrap()
     ));
+    assert!(is_private_or_loopback(
+        &"100.64.0.1".parse::<IpAddr>().unwrap()
+    )); // CGNAT
+    assert!(is_private_or_loopback(
+        &"224.0.0.1".parse::<IpAddr>().unwrap()
+    )); // Multicast
 
     // Public IP must return false
     assert!(!is_private_or_loopback(
@@ -44,6 +50,15 @@ fn test_loopback_and_private_ipv6() {
     assert!(is_private_or_loopback(
         &"fc00::1".parse::<IpAddr>().unwrap()
     )); // ULA
+    assert!(is_private_or_loopback(
+        &"::ffff:127.0.0.1".parse::<IpAddr>().unwrap()
+    )); // IPv4-mapped loopback
+    assert!(is_private_or_loopback(
+        &"::ffff:10.0.0.1".parse::<IpAddr>().unwrap()
+    )); // IPv4-mapped private
+    assert!(is_private_or_loopback(
+        &"ff02::1".parse::<IpAddr>().unwrap()
+    )); // IPv6 Multicast
 
     // Public IPv6
     assert!(!is_private_or_loopback(

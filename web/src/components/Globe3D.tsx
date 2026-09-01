@@ -219,7 +219,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
       const centerY = height / 2 + panYRef.current;
 
       if (!isDraggingRef.current && morph < 0.8) {
-        rotYRef.current += 0.0016 * (1 - morph); // Gentle continuous orbit rotation
+        rotYRef.current -= 0.0016 * (1 - morph); // Natural continuous West-to-East orbit rotation
       }
       pulsePhase += 0.035;
 
@@ -618,7 +618,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
       const deltaY = e.clientY - lastMouseRef.current.y;
 
       if (mode === '3d' && morphRef.current < 0.5) {
-        rotYRef.current += deltaX * 0.008;
+        rotYRef.current -= deltaX * 0.008;
         rotXRef.current = Math.max(-1.0, Math.min(1.0, rotXRef.current + deltaY * 0.008));
       } else {
         const baseRadius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.36;

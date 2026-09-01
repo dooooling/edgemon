@@ -27,6 +27,7 @@ import { verifyAdminSession, getAdminSessionExpiry } from '../services/session';
 export interface Env {
   DB: D1Database;
   REALTIME: DurableObjectNamespace;
+  ASSETS?: Fetcher;
   ADMIN_KEY?: string;
   SESSION_SECRET?: string;
   DATA_ENCRYPTION_KEY?: string;

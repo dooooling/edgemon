@@ -95,19 +95,28 @@ curl -fsSL https://raw.githubusercontent.com/dooooling/edgemon/main/scripts/inst
    ```bash
    chmod +x /usr/local/bin/edgemon-agent
    ```
-3. 创建 Systemd 服务文件 `/etc/systemd/system/edgemon.service`：
+3. 创建环境配置文件 `/etc/edgemon/agent.env`（权限 `0600`）：
+   ```bash
+   mkdir -p /etc/edgemon
+   cat > /etc/edgemon/agent.env <<EOF
+   EDGEMON_SERVER=https://<你的_WORKER_DOMAIN>
+   EDGEMON_NODE_ID=<NODE_ID>
+   EDGEMON_TOKEN=<NODE_TOKEN>
+   EOF
+   chmod 600 /etc/edgemon/agent.env
+   ```
+4. 创建 Systemd 服务文件 `/etc/systemd/system/edgemon.service`：
    ```ini
    [Unit]
    Description=EdgeMon Telemetry Agent
-   After=network.target network-online.target
+   Documentation=https://github.com/dooooling/edgemon
+   After=network-online.target
    Wants=network-online.target
 
    [Service]
    Type=simple
-   ExecStart=/usr/local/bin/edgemon-agent \
-     --server https://<你的_WORKER_DOMAIN> \
-     --id <NODE_ID> \
-     --token <NODE_TOKEN>
+   EnvironmentFile=/etc/edgemon/agent.env
+   ExecStart=/usr/local/bin/edgemon-agent
    Restart=always
    RestartSec=5s
    LimitNOFILE=65535
@@ -116,7 +125,7 @@ curl -fsSL https://raw.githubusercontent.com/dooooling/edgemon/main/scripts/inst
    [Install]
    WantedBy=multi-user.target
    ```
-4. 启动服务并加入开机自启：
+5. 启动服务并加入开机自启：
    ```bash
    systemctl daemon-reload
    systemctl enable --now edgemon

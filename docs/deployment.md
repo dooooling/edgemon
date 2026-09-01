@@ -159,19 +159,29 @@ cargo build --release -p edgemon-agent
    chmod +x /usr/local/bin/edgemon-agent
    ```
 
-2. 创建 Systemd 服务文件 `/etc/systemd/system/edgemon.service`：
+2. 创建配置目录与环境配置文件 `/etc/edgemon/agent.env`（权限设为 `0600`，杜绝 `ps aux` / 进程参数泄露凭据）：
+   ```bash
+   mkdir -p /etc/edgemon
+   cat > /etc/edgemon/agent.env <<EOF
+   EDGEMON_SERVER=https://edgemon.<你的_SUBDOMAIN>.workers.dev
+   EDGEMON_NODE_ID=<NODE_UUID>
+   EDGEMON_TOKEN=<NODE_TOKEN>
+   EOF
+   chmod 600 /etc/edgemon/agent.env
+   ```
+
+3. 创建 Systemd 服务文件 `/etc/systemd/system/edgemon.service`：
    ```ini
    [Unit]
    Description=EdgeMon Telemetry Agent
-   After=network.target network-online.target
+   Documentation=https://github.com/dooooling/edgemon
+   After=network-online.target
    Wants=network-online.target
 
    [Service]
    Type=simple
-   ExecStart=/usr/local/bin/edgemon-agent \
-     --server https://edgemon.<你的_SUBDOMAIN>.workers.dev \
-     --id <NODE_UUID> \
-     --token <NODE_TOKEN>
+   EnvironmentFile=/etc/edgemon/agent.env
+   ExecStart=/usr/local/bin/edgemon-agent
    Restart=always
    RestartSec=5s
    LimitNOFILE=65535
@@ -181,7 +191,7 @@ cargo build --release -p edgemon-agent
    WantedBy=multi-user.target
    ```
 
-3. 启动并启用开机自启：
+4. 启动并启用开机自启：
    ```bash
    systemctl daemon-reload
    systemctl enable --now edgemon

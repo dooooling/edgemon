@@ -534,20 +534,21 @@ export async function evaluateAlerts(
         let curVal: number | null = null;
         let firingMsg = '';
         let resolvedMsg = '';
-        const threshold = rule.threshold ?? 80;
+        let actualThreshold = rule.threshold ?? 80;
+        let transitionDuration = rule.duration_sec ?? 0;
 
         if (rule.type === 'cpu') {
           curVal = node.cpu_usage_pct;
-          conditionMet = curVal != null && curVal >= threshold;
-          firingMsg = `CPU usage is at ${curVal?.toFixed(1)}% (threshold: ${threshold}%).`;
+          conditionMet = curVal != null && curVal >= actualThreshold;
+          firingMsg = `CPU usage is at ${curVal?.toFixed(1)}% (threshold: ${actualThreshold}%).`;
           resolvedMsg = `CPU usage normalized to ${curVal?.toFixed(1)}%.`;
         } else if (rule.type === 'memory') {
           const used = node.memory_used_bytes;
           const limit = node.memory_limit_bytes;
           if (used != null && limit != null && limit > 0) {
             curVal = (used / limit) * 100;
-            conditionMet = curVal >= threshold;
-            firingMsg = `Memory usage is at ${curVal.toFixed(1)}% (threshold: ${threshold}%).`;
+            conditionMet = curVal >= actualThreshold;
+            firingMsg = `Memory usage is at ${curVal.toFixed(1)}% (threshold: ${actualThreshold}%).`;
             resolvedMsg = `Memory usage normalized to ${curVal.toFixed(1)}%.`;
           }
         } else if (rule.type === 'disk') {
@@ -555,20 +556,24 @@ export async function evaluateAlerts(
           const limit = node.rootfs_limit_bytes;
           if (used != null && limit != null && limit > 0) {
             curVal = (used / limit) * 100;
-            conditionMet = curVal >= threshold;
-            firingMsg = `Disk usage is at ${curVal.toFixed(1)}% (threshold: ${threshold}%).`;
+            conditionMet = curVal >= actualThreshold;
+            firingMsg = `Disk usage is at ${curVal.toFixed(1)}% (threshold: ${actualThreshold}%).`;
             resolvedMsg = `Disk usage normalized to ${curVal.toFixed(1)}%.`;
           }
         } else if (rule.type === 'offline') {
           const offlineCutoffSec = (rule.duration_sec && rule.duration_sec > 0)
             ? rule.duration_sec
             : (rule.threshold && rule.threshold > 0 ? rule.threshold : offlineThresholdSec);
+          actualThreshold = offlineCutoffSec;
+          transitionDuration = 0; // Cutoff time is the condition trigger; transition is immediate (zero pending delay)
           curVal = node.last_seen_at_ms ? Math.round((now - node.last_seen_at_ms) / 1000) : null;
           conditionMet = !node.last_seen_at_ms || node.last_seen_at_ms < now - offlineCutoffSec * 1000;
           firingMsg = `Node has not reported telemetry for more than ${offlineCutoffSec} seconds.`;
           resolvedMsg = `Node has resumed normal telemetry reporting.`;
         } else if (rule.type === 'expiry') {
           const days = (rule.threshold && rule.threshold > 0) ? rule.threshold : 7;
+          actualThreshold = days;
+          transitionDuration = 0;
           const daysMs = days * 86400 * 1000;
           curVal = node.expires_at_ms;
           conditionMet = node.expires_at_ms != null && (node.expires_at_ms - now <= daysMs);
@@ -596,8 +601,8 @@ export async function evaluateAlerts(
             : `Node ${node.name} ${rule.type.toUpperCase()} Recovered`,
           resolvedMsg,
           curVal,
-          threshold,
-          rule.duration_sec ?? 0,
+          actualThreshold,
+          transitionDuration,
           ruleChannelIds
         );
       }

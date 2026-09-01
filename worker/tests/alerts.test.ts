@@ -619,6 +619,56 @@ describe('Alert Engine & State Machine', () => {
     expect(transitions[0].status).toBe('firing');
     expect(transitions[0].channelIds).toEqual([20]);
   });
+
+  it('legacy offline rule with duration_sec = 90 fires immediately on first evaluation without double pending delay', async () => {
+    const offlineNode = {
+      id: 'node-legacy-off-dur',
+      name: 'Tokyo-Legacy-Off-Dur',
+      hidden: 0,
+      expires_at_ms: null,
+      memory_limit_bytes: 1000,
+      rootfs_limit_bytes: 1000,
+      last_seen_at_ms: Date.now() - 150 * 1000, // Offline 150s (> 90s cutoff)
+      cpu_usage_pct: 10.0,
+      memory_used_bytes: 100,
+      rootfs_used_bytes: 100,
+      node_config_json: null, // Global mode
+    };
+
+    const legacyOfflineRule = {
+      id: 602,
+      node_id: null,
+      type: 'offline',
+      threshold: null, // Threshold is null, duration_sec is 90
+      duration_sec: 90,
+      enabled: 1,
+      config_json: JSON.stringify({ name: 'Legacy Offline 90s Duration', channel_ids: [15] }),
+    };
+
+    const mockDb = {
+      prepare(sql: string) {
+        return {
+          bind(...args: any[]) { return this; },
+          async all() {
+            if (sql.includes('FROM nodes')) return { results: [offlineNode] };
+            if (sql.includes('FROM alert_rules')) return { results: [legacyOfflineRule] };
+            return { results: [] };
+          },
+          async first() { return null; },
+          async run() { return { success: true }; },
+        };
+      },
+    } as any;
+
+    const transitions = await evaluateAlerts(mockDb, 90);
+    // MUST trigger firing immediately on first evaluation cycle (not enter pending state)
+    expect(transitions.length).toBe(1);
+    expect(transitions[0].stateKey).toBe('rule:602:node-legacy-off-dur');
+    expect(transitions[0].type).toBe('offline');
+    expect(transitions[0].status).toBe('firing');
+    expect(transitions[0].threshold).toBe(90); // Exact offline threshold reported in audit event
+    expect(transitions[0].channelIds).toEqual([15]);
+  });
 });
 
 

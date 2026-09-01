@@ -567,7 +567,15 @@ export async function ingestReportCore(
       ) {
         currentAttachment.traffic_state.prev_period_settlement = null;
       }
-      if (cutTrafficState.dirty && currentAttachment.traffic_state.period_start_ms === cutTrafficState.period_start_ms) {
+      // Strict equality check: clear dirty ONLY if no new traffic mutations occurred during async persistence
+      if (
+        currentAttachment.traffic_state.period_start_ms === cutTrafficState.period_start_ms &&
+        currentAttachment.traffic_state.active_counter_id === cutTrafficState.active_counter_id &&
+        currentAttachment.traffic_state.active_rx_base_bytes === cutTrafficState.active_rx_base_bytes &&
+        currentAttachment.traffic_state.active_tx_base_bytes === cutTrafficState.active_tx_base_bytes &&
+        currentAttachment.traffic_state.finalized_rx_bytes === cutTrafficState.finalized_rx_bytes &&
+        currentAttachment.traffic_state.finalized_tx_bytes === cutTrafficState.finalized_tx_bytes
+      ) {
         currentAttachment.traffic_state.dirty = false;
       }
       currentAttachment.persisted_sample_seq = Math.max(currentAttachment.persisted_sample_seq, cutSampleSeq);

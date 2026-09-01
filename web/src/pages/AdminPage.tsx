@@ -9,7 +9,9 @@ import {
   fetchNodeConfig,
   updateNodeConfig,
   fetchAlertRules,
+  fetchAlertRuleDetails,
   createAlertRule,
+  updateAlertRule,
   deleteAlertRule,
   testAlertWebhook,
   fetchSystemEvents,
@@ -40,8 +42,9 @@ export const AdminPage: React.FC = () => {
   const [systemEvents, setSystemEvents] = useState<SystemEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
 
-  // Channel Creation Modal State
+  // Channel Modal State (Add & Edit)
   const [showAddChannelModal, setShowAddChannelModal] = useState(false);
+  const [editingChannel, setEditingChannel] = useState<AlertRule | null>(null);
   const [newChannelName, setNewChannelName] = useState('');
   const [newAlertChannel, setNewAlertChannel] = useState<
     'telegram' | 'discord' | 'feishu' | 'dingtalk' | 'wecom' | 'bark' | 'serverchan' | 'pushdeer' | 'slack' | 'custom'
@@ -58,8 +61,9 @@ export const AdminPage: React.FC = () => {
   const [testingAlert, setTestingAlert] = useState(false);
   const [testFeedback, setTestFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
-  // Alert Rule Creation Modal State (Multi-Condition Support)
+  // Alert Rule Modal State (Add & Edit, Multi-Condition Support)
   const [showAddRuleModal, setShowAddRuleModal] = useState(false);
+  const [editingPolicy, setEditingPolicy] = useState<AlertRule | null>(null);
   const [newRuleName, setNewRuleName] = useState('');
   const [condOfflineEnabled, setCondOfflineEnabled] = useState(true);
   const [condOfflineDurationSec, setCondOfflineDurationSec] = useState(90);
@@ -241,21 +245,104 @@ export const AdminPage: React.FC = () => {
     }
   }
 
-  async function handleCreateChannel(e: React.FormEvent) {
+  function openAddChannelModal() {
+    setEditingChannel(null);
+    setNewChannelName('');
+    setNewAlertChannel('telegram');
+    setNewAlertWebhookUrl('');
+    setNewAlertBotToken('');
+    setNewAlertChatId('');
+    setNewAlertApiHost('');
+    setNewAlertMethod('POST');
+    setNewAlertContentType('json');
+    setNewAlertUrlTemplate('');
+    setNewAlertBodyTemplate('');
+    setNewAlertHeaders('');
+    setTestFeedback(null);
+    setShowAddChannelModal(true);
+  }
+
+  async function openEditChannelModal(channel: AlertRule) {
+    setEditingChannel(channel);
+    setTestFeedback(null);
+    setShowAddChannelModal(true);
+    try {
+      const res = await fetchAlertRuleDetails(channel.id);
+      const cfg = res.decryptedConfig || res.parsedConfig || {};
+      setNewChannelName(cfg.name || '');
+      setNewAlertChannel(cfg.channel || 'telegram');
+      setNewAlertWebhookUrl(cfg.webhook_url || '');
+      setNewAlertBotToken(cfg.bot_token || '');
+      setNewAlertChatId(cfg.chat_id || '');
+      setNewAlertApiHost(cfg.api_host || '');
+      setNewAlertMethod(cfg.method || 'POST');
+      setNewAlertHeaders(cfg.headers ? JSON.stringify(cfg.headers, null, 2) : '');
+      setNewAlertUrlTemplate(cfg.url_template || '');
+      setNewAlertBodyTemplate(cfg.body_template || '');
+      setNewAlertContentType(cfg.content_type || 'json');
+    } catch (err: any) {
+      console.error('Failed to load channel details:', err);
+    }
+  }
+
+  function openAddPolicyModal() {
+    setEditingPolicy(null);
+    setNewRuleName('');
+    setNewRuleChannelIds([]);
+    setCondOfflineEnabled(true);
+    setCondOfflineDurationSec(90);
+    setCondCpuEnabled(true);
+    setCondCpuThreshold(85);
+    setCondCpuDurationSec(60);
+    setCondMemoryEnabled(true);
+    setCondMemoryThreshold(90);
+    setCondMemoryDurationSec(60);
+    setCondDiskEnabled(true);
+    setCondDiskThreshold(90);
+    setCondExpiryEnabled(false);
+    setCondExpiryDays(7);
+    setShowAddRuleModal(true);
+  }
+
+  function openEditPolicyModal(rule: AlertRule) {
+    setEditingPolicy(rule);
+    let parsedConfig: any = {};
+    try {
+      parsedConfig = rule.config_json ? JSON.parse(rule.config_json) : {};
+    } catch {}
+    setNewRuleName(parsedConfig.name || '');
+    setNewRuleChannelIds(parsedConfig.channel_ids || []);
+    const conds = parsedConfig.conditions || {};
+    setCondOfflineEnabled(Boolean(conds.offline?.enabled ?? (rule.type === 'offline')));
+    setCondOfflineDurationSec(conds.offline?.duration_sec ?? rule.duration_sec ?? 90);
+    setCondCpuEnabled(Boolean(conds.cpu?.enabled ?? (rule.type === 'cpu')));
+    setCondCpuThreshold(conds.cpu?.threshold ?? (rule.type === 'cpu' ? rule.threshold ?? 85 : 85));
+    setCondCpuDurationSec(conds.cpu?.duration_sec ?? (rule.type === 'cpu' ? rule.duration_sec ?? 60 : 60));
+    setCondMemoryEnabled(Boolean(conds.memory?.enabled ?? (rule.type === 'memory')));
+    setCondMemoryThreshold(conds.memory?.threshold ?? (rule.type === 'memory' ? rule.threshold ?? 90 : 90));
+    setCondMemoryDurationSec(conds.memory?.duration_sec ?? (rule.type === 'memory' ? rule.duration_sec ?? 60 : 60));
+    setCondDiskEnabled(Boolean(conds.disk?.enabled ?? (rule.type === 'disk')));
+    setCondDiskThreshold(conds.disk?.threshold ?? (rule.type === 'disk' ? rule.threshold ?? 90 : 90));
+    setCondExpiryEnabled(Boolean(conds.expiry?.enabled ?? (rule.type === 'expiry')));
+    setCondExpiryDays(conds.expiry?.days ?? 7);
+    setShowAddRuleModal(true);
+  }
+
+  async function handleSaveChannel(e: React.FormEvent) {
     e.preventDefault();
     setCreatingAlert(true);
     try {
       if (!newChannelName.trim()) {
-        alert('请输入推送渠道名称');
+        alert(t('channel_name') + ' required');
         return;
       }
       if (newAlertChannel === 'telegram') {
         if (!newAlertBotToken || !newAlertChatId) {
-          alert('Telegram Bot Token 与 Chat ID 均为必填项');
+          alert('Telegram Bot Token & Chat ID required');
           return;
         }
       } else if (newAlertChannel !== 'custom' && !newAlertWebhookUrl) {
-        alert('Webhook URL 是必填项');
+        alert('Webhook URL required');
         return;
       }
 
@@ -264,7 +351,7 @@ export const AdminPage: React.FC = () => {
         try {
           headersObj = JSON.parse(newAlertHeaders.trim());
         } catch {
-          alert('Custom Headers 必须是合法的 JSON 格式 (如 {"Authorization": "Bearer ..."})');
+          alert('Headers JSON format error');
           return;
         }
       }
@@ -283,31 +370,32 @@ export const AdminPage: React.FC = () => {
         content_type: newAlertContentType,
       };
 
-      await createAlertRule({
-        type: 'channel',
-        enabled: 1,
-        config,
-      });
+      if (editingChannel) {
+        await updateAlertRule(editingChannel.id, {
+          type: 'channel',
+          enabled: 1,
+          config,
+        });
+      } else {
+        await createAlertRule({
+          type: 'channel',
+          enabled: 1,
+          config,
+        });
+      }
 
       setShowAddChannelModal(false);
-      setNewChannelName('');
-      setNewAlertWebhookUrl('');
-      setNewAlertBotToken('');
-      setNewAlertChatId('');
-      setNewAlertApiHost('');
-      setNewAlertHeaders('');
-      setNewAlertUrlTemplate('');
-      setNewAlertBodyTemplate('');
+      setEditingChannel(null);
       setTestFeedback(null);
       loadAlertRules();
     } catch (err: any) {
-      alert(err.message || 'Failed to create notification channel');
+      alert(err.message || 'Failed to save notification channel');
     } finally {
       setCreatingAlert(false);
     }
   }
 
-  async function handleCreateRule(e: React.FormEvent) {
+  async function handleSavePolicy(e: React.FormEvent) {
     e.preventDefault();
     setCreatingAlert(true);
     try {
@@ -321,7 +409,7 @@ export const AdminPage: React.FC = () => {
 
       const hasAnyEnabled = Object.values(conditions).some((c: any) => c.enabled);
       if (!hasAnyEnabled) {
-        alert('请至少启用一个告警监控条件！');
+        alert(t('policy_conditions_heading') + ' required');
         return;
       }
 
@@ -331,18 +419,25 @@ export const AdminPage: React.FC = () => {
         conditions,
       };
 
-      await createAlertRule({
-        type: 'policy',
-        enabled: 1,
-        config,
-      });
+      if (editingPolicy) {
+        await updateAlertRule(editingPolicy.id, {
+          type: 'policy',
+          enabled: 1,
+          config,
+        });
+      } else {
+        await createAlertRule({
+          type: 'policy',
+          enabled: 1,
+          config,
+        });
+      }
 
       setShowAddRuleModal(false);
-      setNewRuleName('');
-      setNewRuleChannelIds([]);
+      setEditingPolicy(null);
       loadAlertRules();
     } catch (err: any) {
-      alert(err.message || 'Failed to create alert rule');
+      alert(err.message || 'Failed to save alert rule');
     } finally {
       setCreatingAlert(false);
     }
@@ -587,21 +682,21 @@ export const AdminPage: React.FC = () => {
                   className={`range-capsule-btn ${activeTab === 'nodes' ? 'active' : ''}`}
                   onClick={() => setActiveTab('nodes')}
                 >
-                  {t('admin_nodes_title')} ({adminNodes.length})
+                  {t('tab_nodes')} ({adminNodes.length})
                 </button>
                 <button
                   type="button"
                   className={`range-capsule-btn ${activeTab === 'alerts' ? 'active' : ''}`}
                   onClick={() => setActiveTab('alerts')}
                 >
-                  告警策略与推送 ({alertRules.length})
+                  {t('tab_alerts')} ({alertRules.length})
                 </button>
                 <button
                   type="button"
                   className={`range-capsule-btn ${activeTab === 'events' ? 'active' : ''}`}
                   onClick={() => setActiveTab('events')}
                 >
-                  审计事件
+                  {t('tab_events')}
                 </button>
               </div>
             </div>
@@ -613,7 +708,7 @@ export const AdminPage: React.FC = () => {
               )}
               {activeTab === 'events' && (
                 <button className="button-ghost-on-dark button-ghost-sm" onClick={loadSystemEvents}>
-                  {loadingEvents ? '刷新中...' : '刷新事件 ⟳'}
+                  {loadingEvents ? '...' : `${t('refresh_fleet')} ⟳`}
                 </button>
               )}
               <button className="button-ghost-on-dark button-ghost-sm" onClick={handleLogout}>
@@ -716,42 +811,39 @@ export const AdminPage: React.FC = () => {
 
           {/* TAB 2: Alerts & Webhooks (Decoupled Channels & Policies) */}
           {activeTab === 'alerts' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
               {/* SECTION 1: Notification Channels */}
               <div className="map-band" style={{ padding: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
                   <div>
-                    <span className="eyebrow-cap">📢 推送渠道管理 / NOTIFICATION CHANNELS ({alertRules.filter(r => r.type === 'channel' || r.type === 'webhook').length})</span>
-                    <p style={{ fontSize: '11px', color: 'var(--colors-muted)', margin: '4px 0 0 0' }}>
-                      配置 Telegram、Discord、飞书、钉钉、企业微信、Bark 等报警接收终端。凭据均由 AES-GCM 256 位加密存储。
-                    </p>
+                    <span className="eyebrow-cap">📢 {t('channels_title')} ({alertRules.filter(r => r.type === 'channel' || r.type === 'webhook').length})</span>
                   </div>
-                  <button className="button-ghost-on-dark button-ghost-sm" onClick={() => setShowAddChannelModal(true)}>
-                    + 添加推送渠道
+                  <button className="button-ghost-on-dark button-ghost-sm" onClick={openAddChannelModal}>
+                    {t('channels_add_btn')}
                   </button>
                 </div>
 
                 <table className="spacex-table">
                   <thead>
                     <tr>
-                      <th>渠道名称 / NAME</th>
-                      <th>平台类型 / PLATFORM</th>
-                      <th>安全凭据 / CREDENTIAL</th>
-                      <th>状态 / STATUS</th>
-                      <th>操作 / ACTIONS</th>
+                      <th>{t('th_channel_name')}</th>
+                      <th>{t('th_channel_type')}</th>
+                      <th>{t('th_channel_target')}</th>
+                      <th>{t('th_channel_status')}</th>
+                      <th>{t('th_actions')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {loadingAlerts ? (
                       <tr>
                         <td colSpan={5} style={{ textAlign: 'center', padding: '24px', color: 'var(--colors-muted)' }}>
-                          正在加载推送渠道...
+                          ...
                         </td>
                       </tr>
                     ) : alertRules.filter(r => r.type === 'channel' || r.type === 'webhook').length === 0 ? (
                       <tr>
                         <td colSpan={5} style={{ textAlign: 'center', padding: '24px', color: 'var(--colors-muted)' }}>
-                          暂未添加推送渠道，请点击上方「+ 添加推送渠道」配置 Telegram 或 Webhook 接收端。
+                          {t('no_channels_configured')}
                         </td>
                       </tr>
                     ) : (
@@ -767,7 +859,7 @@ export const AdminPage: React.FC = () => {
                         return (
                           <tr key={channel.id}>
                             <td>
-                              <strong style={{ fontSize: '13px' }}>{parsedConfig.name || '推送渠道'}</strong>
+                              <strong style={{ fontSize: '13px' }}>{parsedConfig.name || t('channels_title')}</strong>
                             </td>
                             <td>
                               <span className="spacex-chip" style={{ color: '#00e676', borderColor: '#00e676' }}>
@@ -776,7 +868,7 @@ export const AdminPage: React.FC = () => {
                             </td>
                             <td>
                               <span style={{ fontSize: '11px', color: 'var(--colors-muted)' }}>
-                                🔒 AES-GCM 已加密保护
+                                🔒 AES-GCM Encrypted
                               </span>
                             </td>
                             <td>
@@ -785,12 +877,21 @@ export const AdminPage: React.FC = () => {
                               </span>
                             </td>
                             <td>
-                              <button
-                                className="button-ghost-on-dark button-ghost-sm button-ghost-danger"
-                                onClick={() => handleDeleteAlert(channel.id)}
-                              >
-                                {t('btn_delete')}
-                              </button>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                  className="button-ghost-on-dark button-ghost-sm"
+                                  style={{ borderColor: '#38bdf8', color: '#38bdf8' }}
+                                  onClick={() => openEditChannelModal(channel)}
+                                >
+                                  {t('btn_edit')}
+                                </button>
+                                <button
+                                  className="button-ghost-on-dark button-ghost-sm button-ghost-danger"
+                                  onClick={() => handleDeleteAlert(channel.id)}
+                                >
+                                  {t('btn_delete')}
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -804,37 +905,34 @@ export const AdminPage: React.FC = () => {
               <div className="map-band" style={{ padding: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
                   <div>
-                    <span className="eyebrow-cap">⚡ 告警策略与规则 / ALERT POLICIES & RULES ({alertRules.filter(r => r.type !== 'channel' && r.type !== 'webhook').length})</span>
-                    <p style={{ fontSize: '11px', color: 'var(--colors-muted)', margin: '4px 0 0 0' }}>
-                      定义触发阈值与关联的推送渠道。服务器节点可在编辑中自由选择已配置好的策略，或选择静音不推送。
-                    </p>
+                    <span className="eyebrow-cap">🚨 {t('policies_title')} ({alertRules.filter(r => r.type !== 'channel' && r.type !== 'webhook').length})</span>
                   </div>
-                  <button className="button-ghost-on-dark button-ghost-sm" style={{ backgroundColor: 'rgba(56, 189, 248, 0.1)', borderColor: '#38bdf8', color: '#38bdf8' }} onClick={() => setShowAddRuleModal(true)}>
-                    + 添加告警策略
+                  <button className="button-ghost-on-dark button-ghost-sm" style={{ backgroundColor: 'rgba(56, 189, 248, 0.1)', borderColor: '#38bdf8', color: '#38bdf8' }} onClick={openAddPolicyModal}>
+                    {t('policies_add_btn')}
                   </button>
                 </div>
 
                 <table className="spacex-table">
                   <thead>
                     <tr>
-                      <th>策略名称 / NAME</th>
-                      <th colSpan={2}>已启用的监控条件 / ACTIVE CONDITIONS</th>
-                      <th>关联推送渠道 / TARGET CHANNELS</th>
-                      <th>作用范围 / SCOPE</th>
-                      <th>操作 / ACTIONS</th>
+                      <th>{t('th_policy_name')}</th>
+                      <th colSpan={2}>{t('th_policy_conditions')}</th>
+                      <th>{t('th_policy_channels')}</th>
+                      <th>{t('th_policy_scope')}</th>
+                      <th>{t('th_actions')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {loadingAlerts ? (
                       <tr>
                         <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--colors-muted)' }}>
-                          正在加载告警策略...
+                          ...
                         </td>
                       </tr>
                     ) : alertRules.filter(r => r.type !== 'channel' && r.type !== 'webhook').length === 0 ? (
                       <tr>
                         <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--colors-muted)' }}>
-                          暂无自定义告警策略（默认已内置 90 秒节点离线与恢复告警）。点击「+ 添加告警策略」创建针对 CPU、内存或磁盘的告警规则。
+                          {t('no_policies_configured')}
                         </td>
                       </tr>
                     ) : (
@@ -847,7 +945,7 @@ export const AdminPage: React.FC = () => {
                         }
 
                         const targetNode = rule.node_id ? adminNodes.find((n) => n.id === rule.node_id) : null;
-                        const scopeText = targetNode ? `${targetNode.name} (${targetNode.id.substring(0, 8)}...)` : '全量默认 (GLOBAL)';
+                        const scopeText = targetNode ? `${targetNode.name} (${targetNode.id.substring(0, 8)}...)` : t('scope_global');
 
                         // Resolve associated channels
                         const allChannels = alertRules.filter(r => r.type === 'channel' || r.type === 'webhook');
@@ -858,14 +956,14 @@ export const AdminPage: React.FC = () => {
                         return (
                           <tr key={rule.id}>
                             <td>
-                              <strong style={{ fontSize: '13px' }}>{parsedConfig.name || `${rule.type.toUpperCase()} 策略`}</strong>
+                              <strong style={{ fontSize: '13px' }}>{parsedConfig.name || `${rule.type.toUpperCase()} Policy`}</strong>
                             </td>
                             <td colSpan={2}>
                               {parsedConfig.conditions ? (
                                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                                   {parsedConfig.conditions.offline?.enabled && (
                                     <span className="spacex-chip" style={{ color: '#e22718', borderColor: '#e22718', fontSize: '10px' }}>
-                                      ⚠️ 离线 &gt; {parsedConfig.conditions.offline.duration_sec || 90}s
+                                      ⚠️ {t('policy_cond_offline')} &gt; {parsedConfig.conditions.offline.duration_sec || 90}s
                                     </span>
                                   )}
                                   {parsedConfig.conditions.cpu?.enabled && (
@@ -875,17 +973,17 @@ export const AdminPage: React.FC = () => {
                                   )}
                                   {parsedConfig.conditions.memory?.enabled && (
                                     <span className="spacex-chip" style={{ color: '#38bdf8', borderColor: '#38bdf8', fontSize: '10px' }}>
-                                      🧠 内存 &ge; {parsedConfig.conditions.memory.threshold}% ({parsedConfig.conditions.memory.duration_sec}s)
+                                      🧠 RAM &ge; {parsedConfig.conditions.memory.threshold}% ({parsedConfig.conditions.memory.duration_sec}s)
                                     </span>
                                   )}
                                   {parsedConfig.conditions.disk?.enabled && (
                                     <span className="spacex-chip" style={{ color: '#c084fc', borderColor: '#c084fc', fontSize: '10px' }}>
-                                      💾 磁盘 &ge; {parsedConfig.conditions.disk.threshold}%
+                                      💾 DISK &ge; {parsedConfig.conditions.disk.threshold}%
                                     </span>
                                   )}
                                   {parsedConfig.conditions.expiry?.enabled && (
                                     <span className="spacex-chip" style={{ color: '#fbbf24', borderColor: '#fbbf24', fontSize: '10px' }}>
-                                      📅 到期 &le; {parsedConfig.conditions.expiry.days}天
+                                      📅 EXP &le; {parsedConfig.conditions.expiry.days}d
                                     </span>
                                   )}
                                 </div>
@@ -898,21 +996,21 @@ export const AdminPage: React.FC = () => {
                                     {rule.type.toUpperCase()}
                                   </span>
                                   <span style={{ fontSize: '12px' }}>
-                                    {rule.type === 'offline' ? `离线持续 > ${rule.duration_sec || 90} 秒` : `${rule.type.toUpperCase()} ≥ ${rule.threshold}% (持续 ${rule.duration_sec}s)`}
+                                    {rule.type === 'offline' ? `> ${rule.duration_sec || 90}s` : `${rule.type.toUpperCase()} ≥ ${rule.threshold}% (${rule.duration_sec}s)`}
                                   </span>
                                 </div>
                               )}
                             </td>
                             <td>
                               {associatedChannels.length === 0 ? (
-                                <span style={{ fontSize: '11px', color: 'var(--colors-muted)' }}>🌐 全量推送渠道</span>
+                                <span style={{ fontSize: '11px', color: 'var(--colors-muted)' }}>{t('channel_all_default')}</span>
                               ) : (
                                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                                   {associatedChannels.map(c => {
                                     const cConfig = c.config_json ? JSON.parse(c.config_json) : {};
                                     return (
                                       <span key={c.id} className="spacex-chip" style={{ fontSize: '10px', color: '#00e676', borderColor: '#00e676' }}>
-                                        📢 {cConfig.name || '推送渠道'}
+                                        📢 {cConfig.name || t('channels_title')}
                                       </span>
                                     );
                                   })}
@@ -923,12 +1021,21 @@ export const AdminPage: React.FC = () => {
                               <span style={{ fontSize: '12px', color: 'var(--colors-muted)' }}>{scopeText}</span>
                             </td>
                             <td>
-                              <button
-                                className="button-ghost-on-dark button-ghost-sm button-ghost-danger"
-                                onClick={() => handleDeleteAlert(rule.id)}
-                              >
-                                {t('btn_delete')}
-                              </button>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                  className="button-ghost-on-dark button-ghost-sm"
+                                  style={{ borderColor: '#38bdf8', color: '#38bdf8' }}
+                                  onClick={() => openEditPolicyModal(rule)}
+                                >
+                                  {t('btn_edit')}
+                                </button>
+                                <button
+                                  className="button-ghost-on-dark button-ghost-sm button-ghost-danger"
+                                  onClick={() => handleDeleteAlert(rule.id)}
+                                >
+                                  {t('btn_delete')}
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -1740,34 +1847,39 @@ WantedBy=multi-user.target`;
 
 
 
-          {/* Modal 1: Add Notification Channel Modal */}
+          {/* Modal 1: Add / Edit Notification Channel Modal */}
           {showAddChannelModal && (
             <div className="modal-backdrop-dark">
               <div className="modal-box-dark" style={{ maxWidth: '540px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                  <span className="eyebrow-cap">+ 添加推送渠道 / NOTIFICATION CHANNEL</span>
+                  <span className="eyebrow-cap">
+                    {editingChannel ? t('modal_edit_channel_title') : t('modal_add_channel_title')}
+                  </span>
                   <button
                     style={{ background: 'none', border: 'none', color: '#ffffff', fontSize: '18px', cursor: 'pointer' }}
-                    onClick={() => setShowAddChannelModal(false)}
+                    onClick={() => {
+                      setShowAddChannelModal(false);
+                      setEditingChannel(null);
+                    }}
                   >
                     ✕
                   </button>
                 </div>
 
-                <form onSubmit={handleCreateChannel}>
+                <form onSubmit={handleSaveChannel}>
                   <div style={{ marginBottom: '16px' }}>
-                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>渠道名称 / CHANNEL NAME</span>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>{t('channel_name')}</span>
                     <input
                       value={newChannelName}
                       onChange={(e) => setNewChannelName(e.target.value)}
-                      placeholder="如 运维核心群 (Telegram) 或 值班飞书机器人"
+                      placeholder="e.g. Telegram Ops / Feishu Bot"
                       className="spacex-input"
                       required
                     />
                   </div>
 
                   <div style={{ marginBottom: '16px' }}>
-                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>推送渠道平台 / PLATFORM</span>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('channel_type')}</span>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '8px' }}>
                       {([
                         { id: 'telegram', label: 'Telegram' },
@@ -1802,12 +1914,12 @@ WantedBy=multi-user.target`;
                     <>
                       <div style={{ marginBottom: '12px' }}>
                         <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
-                          TELEGRAM BOT TOKEN (来自 @BotFather)
+                          {t('channel_bot_token')} (@BotFather)
                         </span>
                         <input
                           value={newAlertBotToken}
                           onChange={(e) => setNewAlertBotToken(e.target.value)}
-                          placeholder="如 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                          placeholder="e.g. 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
                           className="spacex-input"
                           required
                         />
@@ -1816,19 +1928,19 @@ WantedBy=multi-user.target`;
                       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '12px', marginBottom: '16px' }}>
                         <div>
                           <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
-                            CHAT ID (用户/群组/频道 ID)
+                            {t('channel_chat_id')}
                           </span>
                           <input
                             value={newAlertChatId}
                             onChange={(e) => setNewAlertChatId(e.target.value)}
-                            placeholder="如 -100123456789 或 @my_channel"
+                            placeholder="e.g. -100123456789 / @my_channel"
                             className="spacex-input"
                             required
                           />
                         </div>
                         <div>
                           <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
-                            API 域名 (可选，反代/加速)
+                            {t('channel_api_host')}
                           </span>
                           <input
                             value={newAlertApiHost}
@@ -1842,12 +1954,12 @@ WantedBy=multi-user.target`;
                   ) : newAlertChannel === 'bark' ? (
                     <div style={{ marginBottom: '16px' }}>
                       <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
-                        BARK 服务器地址或设备 KEY
+                        Bark {t('channel_webhook_url')} / Device Key
                       </span>
                       <input
                         value={newAlertWebhookUrl}
                         onChange={(e) => setNewAlertWebhookUrl(e.target.value)}
-                        placeholder="如 https://api.day.app/your_device_key 或自建 Bark 地址"
+                        placeholder="https://api.day.app/your_device_key"
                         className="spacex-input"
                         required
                       />
@@ -1855,7 +1967,7 @@ WantedBy=multi-user.target`;
                   ) : newAlertChannel === 'serverchan' ? (
                     <div style={{ marginBottom: '16px' }}>
                       <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
-                        SERVER酱 SENDKEY 或完整 WEBHOOK URL
+                        Server酱 SendKey / {t('channel_webhook_url')}
                       </span>
                       <input
                         value={newAlertWebhookUrl}
@@ -1867,7 +1979,7 @@ WantedBy=multi-user.target`;
                             setNewAlertWebhookUrl(val);
                           }
                         }}
-                        placeholder="如 SCTxxxxxxxxxxxxxxxxxxxx 或 https://sctapi.ftqq.com/xxx.send"
+                        placeholder="SCTxxxxxxxxxxxxxxxxxxxx / https://sctapi.ftqq.com/xxx.send"
                         className="spacex-input"
                         required
                       />
@@ -1875,7 +1987,7 @@ WantedBy=multi-user.target`;
                   ) : newAlertChannel === 'pushdeer' ? (
                     <div style={{ marginBottom: '16px' }}>
                       <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
-                        PUSHDEER PUSHKEY 或完整 WEBHOOK URL
+                        PushDeer PushKey / {t('channel_webhook_url')}
                       </span>
                       <input
                         value={newAlertWebhookUrl}
@@ -1887,7 +1999,7 @@ WantedBy=multi-user.target`;
                             setNewAlertWebhookUrl(val);
                           }
                         }}
-                        placeholder="如 PDUxxxxxxxxxxxxxxxxxxxx 或完整 URL"
+                        placeholder="PDUxxxxxxxxxxxxxxxxxxxx / https://api2.pushdeer.com/..."
                         className="spacex-input"
                         required
                       />
@@ -1896,7 +2008,7 @@ WantedBy=multi-user.target`;
                     <>
                       <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '12px', marginBottom: '12px' }}>
                         <div>
-                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>请求方式</span>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>METHOD</span>
                           <select
                             value={newAlertMethod}
                             onChange={(e) => setNewAlertMethod(e.target.value as any)}
@@ -1909,7 +2021,7 @@ WantedBy=multi-user.target`;
                         </div>
                         <div>
                           <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
-                            请求 URL (支持模板变量，如 &#123;&#123;node_name&#125;&#125;)
+                            {t('channel_webhook_url')} (&#123;&#123;node_name&#125;&#125;)
                           </span>
                           <input
                             value={newAlertWebhookUrl}
@@ -1925,7 +2037,7 @@ WantedBy=multi-user.target`;
                         <>
                           <div style={{ marginBottom: '12px' }}>
                             <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
-                              BODY 数据格式 (CONTENT-TYPE)
+                              CONTENT-TYPE
                             </span>
                             <div style={{ display: 'flex', gap: '8px' }}>
                               {(['json', 'form', 'text'] as const).map((ct) => (
@@ -1944,12 +2056,12 @@ WantedBy=multi-user.target`;
 
                           <div style={{ marginBottom: '12px' }}>
                             <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
-                              自定义 POST 请求体模板 (可选，留空使用标准 JSON)
+                              BODY TEMPLATE (JSON)
                             </span>
                             <textarea
                               value={newAlertBodyTemplate}
                               onChange={(e) => setNewAlertBodyTemplate(e.target.value)}
-                              placeholder='如 {"title":"{{title}}", "msg":"{{message}}", "node":"{{node_name}}"}'
+                              placeholder='{"title":"{{title}}", "msg":"{{message}}", "node":"{{node_name}}"}'
                               className="spacex-input"
                               style={{ height: '70px', resize: 'vertical', fontSize: '11px', fontFamily: 'monospace' }}
                             />
@@ -1959,7 +2071,7 @@ WantedBy=multi-user.target`;
 
                       <div style={{ marginBottom: '12px' }}>
                         <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
-                          自定义请求头 / HEADERS (JSON 格式，可选)
+                          HEADERS (JSON)
                         </span>
                         <input
                           value={newAlertHeaders}
@@ -1970,13 +2082,13 @@ WantedBy=multi-user.target`;
                       </div>
 
                       <div style={{ padding: '8px 12px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--colors-hairline-on-dark)', borderRadius: '4px', marginBottom: '16px', fontSize: '10px', color: 'var(--colors-muted)' }}>
-                        💡 可用模板变量：<code>&#123;&#123;node_name&#125;&#125;</code>, <code>&#123;&#123;event&#125;&#125;</code>, <code>&#123;&#123;title&#125;&#125;</code>, <code>&#123;&#123;message&#125;&#125;</code>, <code>&#123;&#123;emoji&#125;&#125;</code>, <code>&#123;&#123;time&#125;&#125;</code>
+                        💡 Variables: <code>&#123;&#123;node_name&#125;&#125;</code>, <code>&#123;&#123;event&#125;&#125;</code>, <code>&#123;&#123;title&#125;&#125;</code>, <code>&#123;&#123;message&#125;&#125;</code>, <code>&#123;&#123;time&#125;&#125;</code>
                       </div>
                     </>
                   ) : (
                     <div style={{ marginBottom: '16px' }}>
                       <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
-                        {newAlertChannel.toUpperCase()} WEBHOOK URL
+                        {newAlertChannel.toUpperCase()} {t('channel_webhook_url')}
                       </span>
                       <input
                         value={newAlertWebhookUrl}
@@ -2015,7 +2127,7 @@ WantedBy=multi-user.target`;
                   )}
 
                   <div style={{ padding: '8px 12px', background: 'rgba(0, 230, 118, 0.05)', border: '1px solid rgba(0, 230, 118, 0.2)', borderRadius: '4px', marginBottom: '20px', fontSize: '11px', color: '#00e676' }}>
-                    🔒 凭据保护：所有 Bot Token、Key 与 Webhook 地址均使用 AES-GCM 256 位高强度加密落盘，数据库零明文残留。
+                    🔒 AES-GCM 256-bit Encrypted Storage
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
@@ -2026,14 +2138,17 @@ WantedBy=multi-user.target`;
                       style={{ borderColor: '#38bdf8', color: '#38bdf8' }}
                       onClick={handleTestAlert}
                     >
-                      {testingAlert ? '正在测试发送...' : '📢 发送测试通知'}
+                      {testingAlert ? t('channel_testing') : t('channel_test_btn')}
                     </button>
 
                     <div style={{ display: 'flex', gap: '12px' }}>
                       <button
                         type="button"
                         className="button-ghost-on-dark button-ghost-sm"
-                        onClick={() => setShowAddChannelModal(false)}
+                        onClick={() => {
+                          setShowAddChannelModal(false);
+                          setEditingChannel(null);
+                        }}
                       >
                         {t('cancel_btn')}
                       </button>
@@ -2043,7 +2158,7 @@ WantedBy=multi-user.target`;
                         className="button-ghost-on-dark button-ghost-sm"
                         style={{ backgroundColor: '#ffffff', color: '#000000', fontWeight: 700 }}
                       >
-                        {creatingAlert ? '正在保存并加密...' : '保存渠道 ➔'}
+                        {creatingAlert ? '...' : t('channel_save_btn')}
                       </button>
                     </div>
                   </div>
@@ -2052,32 +2167,34 @@ WantedBy=multi-user.target`;
             </div>
           )}
 
-          {/* Modal 2: Add Alert Policy Modal (Multi-Condition Compound Support) */}
+          {/* Modal 2: Add / Edit Alert Policy Modal (Multi-Condition Compound Support) */}
           {showAddRuleModal && (
             <div className="modal-backdrop-dark">
               <div className="modal-box-dark" style={{ maxWidth: '620px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <div>
-                    <span className="eyebrow-cap">+ 添加综合告警策略 / ALERT POLICY</span>
-                    <p style={{ fontSize: '11px', color: 'var(--colors-muted)', margin: '2px 0 0 0' }}>
-                      在一套策略中自由组合多个监控条件（离线/CPU/内存/磁盘/到期），并关联接收渠道。
-                    </p>
+                    <span className="eyebrow-cap">
+                      {editingPolicy ? t('modal_edit_policy_title') : t('modal_add_policy_title')}
+                    </span>
                   </div>
                   <button
                     style={{ background: 'none', border: 'none', color: '#ffffff', fontSize: '18px', cursor: 'pointer' }}
-                    onClick={() => setShowAddRuleModal(false)}
+                    onClick={() => {
+                      setShowAddRuleModal(false);
+                      setEditingPolicy(null);
+                    }}
                   >
                     ✕
                   </button>
                 </div>
 
-                <form onSubmit={handleCreateRule}>
+                <form onSubmit={handleSavePolicy}>
                   <div style={{ marginBottom: '16px' }}>
-                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>策略名称 / POLICY NAME</span>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>{t('policy_name')}</span>
                     <input
                       value={newRuleName}
                       onChange={(e) => setNewRuleName(e.target.value)}
-                      placeholder="如 核心生产节点综合监控策略 或 基础离线与磁盘策略"
+                      placeholder="e.g. Production Compound Policy"
                       className="spacex-input"
                       required
                     />
@@ -2086,7 +2203,7 @@ WantedBy=multi-user.target`;
                   {/* Multi-Condition Switch & Threshold Rows */}
                   <div style={{ marginBottom: '16px' }}>
                     <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>
-                      监控条件组合 / MONITORING CONDITIONS (可同时启用多项)
+                      {t('policy_conditions_heading')}
                     </span>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -2099,11 +2216,11 @@ WantedBy=multi-user.target`;
                               checked={condOfflineEnabled}
                               onChange={(e) => setCondOfflineEnabled(e.target.checked)}
                             />
-                            <span>⚠️ 节点离线告警 (Node Offline)</span>
+                            <span>⚠️ {t('policy_cond_offline')}</span>
                           </label>
                           {condOfflineEnabled && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
-                              <span style={{ color: 'var(--colors-muted)' }}>持续超过</span>
+                              <span style={{ color: 'var(--colors-muted)' }}>&gt;</span>
                               <input
                                 type="number"
                                 value={condOfflineDurationSec}
@@ -2113,7 +2230,7 @@ WantedBy=multi-user.target`;
                                 className="spacex-input"
                                 style={{ width: '70px', padding: '3px 6px', fontSize: '11px' }}
                               />
-                              <span style={{ color: 'var(--colors-muted)' }}>秒无心跳触发</span>
+                              <span style={{ color: 'var(--colors-muted)' }}>s</span>
                             </div>
                           )}
                         </div>
@@ -2128,12 +2245,12 @@ WantedBy=multi-user.target`;
                               checked={condCpuEnabled}
                               onChange={(e) => setCondCpuEnabled(e.target.checked)}
                             />
-                            <span>🔥 CPU 使用率告警 (CPU Usage)</span>
+                            <span>🔥 {t('policy_cond_cpu')}</span>
                           </label>
                           {condCpuEnabled && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <span style={{ color: 'var(--colors-muted)' }}>阈值 &ge;</span>
+                                <span style={{ color: 'var(--colors-muted)' }}>&ge;</span>
                                 <input
                                   type="number"
                                   value={condCpuThreshold}
@@ -2146,7 +2263,7 @@ WantedBy=multi-user.target`;
                                 <span>%</span>
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <span style={{ color: 'var(--colors-muted)' }}>持续</span>
+                                <span style={{ color: 'var(--colors-muted)' }}>{t('policy_cond_offline_duration')}</span>
                                 <input
                                   type="number"
                                   value={condCpuDurationSec}
@@ -2156,7 +2273,7 @@ WantedBy=multi-user.target`;
                                   className="spacex-input"
                                   style={{ width: '60px', padding: '3px 6px', fontSize: '11px' }}
                                 />
-                                <span>秒</span>
+                                <span>s</span>
                               </div>
                             </div>
                           )}
@@ -2172,12 +2289,12 @@ WantedBy=multi-user.target`;
                               checked={condMemoryEnabled}
                               onChange={(e) => setCondMemoryEnabled(e.target.checked)}
                             />
-                            <span>🧠 内存使用率告警 (Memory Usage)</span>
+                            <span>🧠 {t('policy_cond_mem')}</span>
                           </label>
                           {condMemoryEnabled && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <span style={{ color: 'var(--colors-muted)' }}>阈值 &ge;</span>
+                                <span style={{ color: 'var(--colors-muted)' }}>&ge;</span>
                                 <input
                                   type="number"
                                   value={condMemoryThreshold}
@@ -2190,7 +2307,7 @@ WantedBy=multi-user.target`;
                                 <span>%</span>
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <span style={{ color: 'var(--colors-muted)' }}>持续</span>
+                                <span style={{ color: 'var(--colors-muted)' }}>{t('policy_cond_offline_duration')}</span>
                                 <input
                                   type="number"
                                   value={condMemoryDurationSec}
@@ -2200,7 +2317,7 @@ WantedBy=multi-user.target`;
                                   className="spacex-input"
                                   style={{ width: '60px', padding: '3px 6px', fontSize: '11px' }}
                                 />
-                                <span>秒</span>
+                                <span>s</span>
                               </div>
                             </div>
                           )}
@@ -2216,11 +2333,11 @@ WantedBy=multi-user.target`;
                               checked={condDiskEnabled}
                               onChange={(e) => setCondDiskEnabled(e.target.checked)}
                             />
-                            <span>💾 磁盘使用率告警 (Disk Usage)</span>
+                            <span>💾 {t('policy_cond_disk')}</span>
                           </label>
                           {condDiskEnabled && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
-                              <span style={{ color: 'var(--colors-muted)' }}>阈值 &ge;</span>
+                              <span style={{ color: 'var(--colors-muted)' }}>&ge;</span>
                               <input
                                 type="number"
                                 value={condDiskThreshold}
@@ -2245,11 +2362,11 @@ WantedBy=multi-user.target`;
                               checked={condExpiryEnabled}
                               onChange={(e) => setCondExpiryEnabled(e.target.checked)}
                             />
-                            <span>📅 服务器临期提醒 (Plan Expiry)</span>
+                            <span>📅 {t('policy_cond_expiry')}</span>
                           </label>
                           {condExpiryEnabled && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
-                              <span style={{ color: 'var(--colors-muted)' }}>提前</span>
+                              <span style={{ color: 'var(--colors-muted)' }}>&le;</span>
                               <input
                                 type="number"
                                 value={condExpiryDays}
@@ -2259,7 +2376,7 @@ WantedBy=multi-user.target`;
                                 className="spacex-input"
                                 style={{ width: '60px', padding: '3px 6px', fontSize: '11px' }}
                               />
-                              <span>天发送提醒</span>
+                              <span>d</span>
                             </div>
                           )}
                         </div>
@@ -2270,11 +2387,11 @@ WantedBy=multi-user.target`;
                   {/* Target Notification Channels Multi-Select */}
                   <div style={{ marginBottom: '20px' }}>
                     <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>
-                      关联推送渠道 / TARGET CHANNELS (可选，留空推送到所有渠道)
+                      {t('policy_channels_heading')} ({t('policy_channels_hint')})
                     </span>
                     {alertRules.filter(r => r.type === 'channel' || r.type === 'webhook').length === 0 ? (
                       <div style={{ padding: '10px 12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--colors-hairline-on-dark)', borderRadius: '4px', fontSize: '11px', color: 'var(--colors-muted)' }}>
-                        暂未配置专属渠道，将默认使用系统全局环境变量配置的通知接收端。
+                        {t('no_channels_configured')}
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '130px', overflowY: 'auto', padding: '8px', background: 'rgba(0, 0, 0, 0.4)', border: '1px solid var(--colors-hairline-on-dark)', borderRadius: '4px' }}>
@@ -2295,7 +2412,7 @@ WantedBy=multi-user.target`;
                                   }
                                 }}
                               />
-                              <span>📢 {cConfig.name || '推送渠道'} ({cConfig.channel?.toUpperCase() || 'WEBHOOK'})</span>
+                              <span>📢 {cConfig.name || t('channels_title')} ({cConfig.channel?.toUpperCase() || 'WEBHOOK'})</span>
                             </label>
                           );
                         })}
@@ -2307,7 +2424,10 @@ WantedBy=multi-user.target`;
                     <button
                       type="button"
                       className="button-ghost-on-dark button-ghost-sm"
-                      onClick={() => setShowAddRuleModal(false)}
+                      onClick={() => {
+                        setShowAddRuleModal(false);
+                        setEditingPolicy(null);
+                      }}
                     >
                       {t('cancel_btn')}
                     </button>
@@ -2317,7 +2437,7 @@ WantedBy=multi-user.target`;
                       className="button-ghost-on-dark button-ghost-sm"
                       style={{ backgroundColor: '#ffffff', color: '#000000', fontWeight: 700 }}
                     >
-                      {creatingAlert ? '正在保存...' : '保存策略 ➔'}
+                      {creatingAlert ? '...' : t('policy_save_btn')}
                     </button>
                   </div>
                 </form>

@@ -313,6 +313,32 @@ export async function createAlertRule(rule: {
   return await res.json();
 }
 
+export async function fetchAlertRuleDetails(id: number): Promise<{ rule: AlertRule; parsedConfig?: any; decryptedConfig?: any }> {
+  const res = await fetch(`/api/admin/alerts/rules/${id}`);
+  if (!res.ok) throw new Error('Failed to fetch alert rule details');
+  return await res.json();
+}
+
+export async function updateAlertRule(id: number, rule: {
+  node_id?: string | null;
+  type?: string;
+  threshold?: number | null;
+  duration_sec?: number | null;
+  enabled?: number | boolean;
+  config?: Record<string, any>;
+}): Promise<{ success: boolean; id: number }> {
+  const res = await fetch(`/api/admin/alerts/rules/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(rule),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to update rule (${res.status})`);
+  }
+  return await res.json();
+}
+
 export async function deleteAlertRule(id: number): Promise<{ success: boolean }> {
   const res = await fetch(`/api/admin/alerts/rules/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete alert rule');

@@ -448,6 +448,154 @@ adminRoutes.post('/api/admin/alerts/test', async (c) => {
   return c.json(result, result.success ? 200 : 400);
 });
 
+// GET /api/admin/alerts/rules/:id (Fetch single rule and decrypt sensitive config if needed)
+adminRoutes.get('/api/admin/alerts/rules/:id', async (c) => {
+  const id = c.req.param('id');
+  const rule = await c.env.DB.prepare('SELECT * FROM alert_rules WHERE id = ?').bind(id).first<any>();
+  if (!rule) {
+    return c.json({ error: 'Rule not found' }, 404);
+  }
+
+  let decryptedConfig: any = null;
+  let parsedConfig: any = null;
+  if (rule.config_json) {
+    try {
+      parsedConfig = JSON.parse(rule.config_json);
+      if (parsedConfig.secret_key && c.env.DATA_ENCRYPTION_KEY) {
+        const { getSecretSetting } = await import('../services/crypto');
+        const rawSecret = await getSecretSetting(c.env.DB, parsedConfig.secret_key, c.env.DATA_ENCRYPTION_KEY);
+        if (rawSecret) {
+          decryptedConfig = JSON.parse(rawSecret);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return c.json({ rule, parsedConfig, decryptedConfig });
+});
+
+// PUT /api/admin/alerts/rules/:id (Update alert policy or channel)
+adminRoutes.put('/api/admin/alerts/rules/:id', async (c) => {
+  const id = c.req.param('id');
+  const existing = await c.env.DB.prepare('SELECT * FROM alert_rules WHERE id = ?').bind(id).first<any>();
+  if (!existing) {
+    return c.json({ error: 'Rule not found' }, 404);
+  }
+
+  const body = await c.req.json<{
+    node_id?: string | null;
+    type?: 'channel' | 'webhook' | 'offline' | 'cpu' | 'memory' | 'disk' | 'expiry';
+    threshold?: number | null;
+    duration_sec?: number | null;
+    enabled?: number | boolean;
+    config?: Record<string, any>;
+  }>();
+
+  const ruleType = body.type || existing.type;
+  const enabledNum = body.enabled === false || body.enabled === 0 ? 0 : 1;
+  const config = body.config || {};
+  const encryptionKey = c.env.DATA_ENCRYPTION_KEY;
+  const now = Date.now();
+
+  let configJson = JSON.stringify(config);
+  const statements = [];
+
+  if (ruleType === 'channel' || ruleType === 'webhook' || config.webhook_url || (config.bot_token && config.chat_id) || config.url_template) {
+    if (!encryptionKey) {
+      return c.json(
+        { error: 'Server misconfiguration: DATA_ENCRYPTION_KEY secret is required to safely store Webhook credentials' },
+        500
+      );
+    }
+
+    let existingSecretKey: string | null = null;
+    if (existing.config_json) {
+      try {
+        const p = JSON.parse(existing.config_json);
+        if (p.secret_key) existingSecretKey = p.secret_key;
+      } catch {}
+    }
+    const ruleKey = existingSecretKey || `alert_webhook:${crypto.randomUUID()}`;
+    const { encryptSecret } = await import('../services/crypto');
+    const sensitivePayload = {
+      name: config.name || '推送渠道',
+      channel: config.channel || 'telegram',
+      webhook_url: config.webhook_url,
+      bot_token: config.bot_token,
+      chat_id: config.chat_id,
+      api_host: config.api_host,
+      headers: config.headers,
+      url_template: config.url_template,
+      body_template: config.body_template,
+      content_type: config.content_type,
+      method: config.method,
+    };
+
+    const { nonceB64, cipherB64 } = await encryptSecret(
+      JSON.stringify(sensitivePayload),
+      encryptionKey
+    );
+
+    statements.push(
+      c.env.DB
+        .prepare(
+          `INSERT INTO secret_settings (key, nonce_b64, cipher_b64, updated_at_ms)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET
+             nonce_b64 = excluded.nonce_b64,
+             cipher_b64 = excluded.cipher_b64,
+             updated_at_ms = excluded.updated_at_ms`
+        )
+        .bind(ruleKey, nonceB64, cipherB64, now)
+    );
+
+    configJson = JSON.stringify({
+      name: config.name || '推送渠道',
+      channel: config.channel || 'telegram',
+      secret_key: ruleKey,
+      is_encrypted: true,
+    });
+  } else {
+    // Compound or standard alert policy
+    configJson = JSON.stringify({
+      name: config.name || `${ruleType.toUpperCase()} 告警策略`,
+      channel_ids: config.channel_ids || [],
+      is_global: body.node_id ? false : true,
+      conditions: config.conditions || undefined,
+    });
+  }
+
+  statements.push(
+    c.env.DB
+      .prepare(
+        `UPDATE alert_rules SET
+          node_id = ?,
+          type = ?,
+          threshold = ?,
+          duration_sec = ?,
+          enabled = ?,
+          config_json = ?,
+          updated_at_ms = ?
+         WHERE id = ?`
+      )
+      .bind(
+        body.node_id !== undefined ? body.node_id : existing.node_id,
+        ruleType,
+        body.threshold !== undefined ? body.threshold : existing.threshold,
+        body.duration_sec !== undefined ? body.duration_sec : existing.duration_sec,
+        enabledNum,
+        configJson,
+        now,
+        id
+      )
+  );
+
+  await c.env.DB.batch(statements);
+  return c.json({ success: true, id: Number(id) });
+});
+
 // DELETE /api/admin/alerts/rules/:id (Atomically cascades deletion to secret_settings via D1 batch)
 adminRoutes.delete('/api/admin/alerts/rules/:id', async (c) => {
   const id = c.req.param('id');

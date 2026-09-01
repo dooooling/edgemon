@@ -407,19 +407,23 @@ body {
   }
 }
 
+.node-card,
 .node-card-tile {
   background-color: var(--colors-surface-card); /* #1a1a1a */
   border: 1px solid var(--colors-hairline);
-  border-radius: var(--rounded-none); /* Sharp Rectangular Silhouette */
+  border-radius: 6px;
   padding: 24px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  transition: border-color 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
 }
 
+.node-card:hover,
 .node-card-tile:hover {
-  border-color: var(--colors-body);
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
 }
 
 .node-card-header {

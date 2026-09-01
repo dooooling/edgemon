@@ -236,10 +236,70 @@ describe('Alert Engine & State Machine', () => {
     expect(maskWebhookUrl('https://hooks.slack.com/services/T000/B000/XXXXX')).toBe(
       'https://hooks.slack.com/services/***REDACTED***'
     );
-    // Generic webhooks: strips 100% path and query secrets
-    expect(maskWebhookUrl('https://my-webhook.internal.org/endpoint?token=supersecret123')).toBe(
-      'https://my-webhook.internal.org/***REDACTED***'
+    expect(maskWebhookUrl('https://open.feishu.cn/open-apis/bot/v2/hook/abcdef-1234-5678')).toBe(
+      'https://open.feishu.cn/open-apis/bot/v2/hook/***REDACTED***'
     );
+    expect(maskWebhookUrl('https://oapi.dingtalk.com/robot/send?access_token=secret123')).toBe(
+      'https://oapi.dingtalk.com/robot/send?access_token=***REDACTED***'
+    );
+    expect(maskWebhookUrl('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=secret456')).toBe(
+      'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=***REDACTED***'
+    );
+    expect(maskWebhookUrl('https://api.day.app/my_secret_device_key')).toBe(
+      'https://api.day.app/***REDACTED***'
+    );
+    expect(maskWebhookUrl('https://sctapi.ftqq.com/SCT123456789.send')).toBe(
+      'https://sctapi.ftqq.com/***REDACTED***.send'
+    );
+    expect(maskWebhookUrl('https://api2.pushdeer.com/message/push?pushkey=PDU123456')).toBe(
+      'https://api2.pushdeer.com/message/push?pushkey=***REDACTED***'
+    );
+  });
+
+  it('renders template variables accurately for custom webhooks', async () => {
+    const { renderTemplate, formatWebhookPayload } = await import('../src/services/notifications');
+    const event = {
+      title: 'CPU 负载过高',
+      message: 'CPU 使用率已达 95%',
+      nodeId: 'node-tokyo-1',
+      nodeName: 'Tokyo-01',
+      type: 'cpu',
+      status: 'firing' as const,
+    };
+
+    const template = '🚨 [{{event}}] {{node_name}} ({{node_id}}): {{title}} - {{message}}';
+    const rendered = renderTemplate(template, event);
+    expect(rendered).toBe('🚨 [FIRING] Tokyo-01 (node-tokyo-1): CPU 负载过高 - CPU 使用率已达 95%');
+
+    // Test formatWebhookPayload with Feishu, DingTalk, WeCom, Bark
+    const feishuPayload = formatWebhookPayload(
+      { url: 'https://open.feishu.cn/open-apis/bot/v2/hook/xxx', channel: 'feishu' },
+      event
+    );
+    expect(feishuPayload.method).toBe('POST');
+    expect(JSON.parse(feishuPayload.body || '{}').msg_type).toBe('post');
+
+    const dingtalkPayload = formatWebhookPayload(
+      { url: 'https://oapi.dingtalk.com/robot/send?access_token=xxx', channel: 'dingtalk' },
+      event
+    );
+    expect(dingtalkPayload.method).toBe('POST');
+    expect(JSON.parse(dingtalkPayload.body || '{}').msgtype).toBe('markdown');
+
+    const wecomPayload = formatWebhookPayload(
+      { url: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx', channel: 'wecom' },
+      event
+    );
+    expect(wecomPayload.method).toBe('POST');
+    expect(JSON.parse(wecomPayload.body || '{}').msgtype).toBe('markdown');
+
+    const barkPayload = formatWebhookPayload(
+      { url: 'https://api.day.app/my_key', channel: 'bark' },
+      event
+    );
+    expect(barkPayload.method).toBe('GET');
+    expect(barkPayload.url).toContain('https://api.day.app/my_key/');
+    expect(barkPayload.url).toContain('group=EdgeMon');
   });
 
   it('retries resolved notifications until delivered', async () => {
@@ -266,7 +326,6 @@ describe('Alert Engine & State Machine', () => {
           },
           async first() {
             if (sql.includes('FROM alert_states')) {
-              // Was resolved in past, but last_notified_at_ms is null (delivery failed!)
               return { state_key: 'builtin:offline:node-1', active: 0, last_notified_at_ms: null, updated_at_ms: Date.now() - 120_000 };
             }
             return null;

@@ -11,6 +11,7 @@ import {
   fetchAlertRules,
   createAlertRule,
   deleteAlertRule,
+  testAlertWebhook,
   fetchSystemEvents,
   PROBE_PRESETS,
   NodeServerConfig,
@@ -42,12 +43,23 @@ export const AdminPage: React.FC = () => {
   const [showAddAlertModal, setShowAddAlertModal] = useState(false);
   const [newAlertType, setNewAlertType] = useState<'webhook' | 'offline' | 'cpu' | 'memory' | 'disk'>('webhook');
   const [newAlertNodeId, setNewAlertNodeId] = useState<string>('');
-  const [newAlertChannel, setNewAlertChannel] = useState<'discord' | 'telegram' | 'slack' | 'custom'>('discord');
+  const [newAlertChannel, setNewAlertChannel] = useState<
+    'telegram' | 'discord' | 'feishu' | 'dingtalk' | 'wecom' | 'bark' | 'serverchan' | 'pushdeer' | 'slack' | 'custom'
+  >('telegram');
   const [newAlertWebhookUrl, setNewAlertWebhookUrl] = useState('');
+  const [newAlertBotToken, setNewAlertBotToken] = useState('');
+  const [newAlertChatId, setNewAlertChatId] = useState('');
+  const [newAlertApiHost, setNewAlertApiHost] = useState('');
+  const [newAlertMethod, setNewAlertMethod] = useState<'POST' | 'GET'>('POST');
+  const [newAlertContentType, setNewAlertContentType] = useState<'json' | 'form' | 'text'>('json');
+  const [newAlertUrlTemplate, setNewAlertUrlTemplate] = useState('');
+  const [newAlertBodyTemplate, setNewAlertBodyTemplate] = useState('');
   const [newAlertHeaders, setNewAlertHeaders] = useState('');
   const [newAlertThreshold, setNewAlertThreshold] = useState<number>(85);
   const [newAlertDurationSec, setNewAlertDurationSec] = useState<number>(60);
   const [creatingAlert, setCreatingAlert] = useState(false);
+  const [testingAlert, setTestingAlert] = useState(false);
+  const [testFeedback, setTestFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newNodeName, setNewNodeName] = useState('');
@@ -221,29 +233,91 @@ export const AdminPage: React.FC = () => {
     }
   }, [authenticated, activeTab]);
 
+  async function handleTestAlert() {
+    setTestingAlert(true);
+    setTestFeedback(null);
+    try {
+      let headersObj: Record<string, string> | undefined = undefined;
+      if (newAlertHeaders.trim()) {
+        try {
+          headersObj = JSON.parse(newAlertHeaders.trim());
+        } catch {
+          setTestFeedback({ success: false, message: '自定义 Headers 必须是合法的 JSON 格式' });
+          return;
+        }
+      }
+
+      const res = await testAlertWebhook({
+        channel: newAlertChannel,
+        webhook_url: newAlertWebhookUrl.trim() || undefined,
+        bot_token: newAlertBotToken.trim() || undefined,
+        chat_id: newAlertChatId.trim() || undefined,
+        api_host: newAlertApiHost.trim() || undefined,
+        method: newAlertMethod,
+        headers: headersObj,
+        url_template: newAlertUrlTemplate.trim() || undefined,
+        body_template: newAlertBodyTemplate.trim() || undefined,
+        content_type: newAlertContentType,
+      });
+
+      if (res.success) {
+        setTestFeedback({
+          success: true,
+          message: `✅ 测试通知发送成功！目标平台已确认接收 (HTTP ${res.status || 200})`,
+        });
+      } else {
+        setTestFeedback({
+          success: false,
+          message: `❌ 测试发送失败: ${res.error || '未知错误'}`,
+        });
+      }
+    } catch (err: any) {
+      setTestFeedback({
+        success: false,
+        message: `❌ 测试发送失败: ${err.message || '网络请求异常'}`,
+      });
+    } finally {
+      setTestingAlert(false);
+    }
+  }
+
   async function handleCreateAlert(e: React.FormEvent) {
     e.preventDefault();
     setCreatingAlert(true);
     try {
       let config: Record<string, any> = {};
       if (newAlertType === 'webhook') {
-        if (!newAlertWebhookUrl) {
-          alert('Webhook URL is required');
+        if (newAlertChannel === 'telegram') {
+          if (!newAlertBotToken || !newAlertChatId) {
+            alert('Telegram Bot Token 与 Chat ID 均为必填项');
+            return;
+          }
+        } else if (newAlertChannel !== 'custom' && !newAlertWebhookUrl) {
+          alert('Webhook URL 是必填项');
           return;
         }
+
         let headersObj: Record<string, string> | undefined = undefined;
         if (newAlertHeaders.trim()) {
           try {
             headersObj = JSON.parse(newAlertHeaders.trim());
           } catch {
-            alert('Custom Headers must be valid JSON (e.g. {"Authorization": "Bearer ..."})');
+            alert('Custom Headers 必须是合法的 JSON 格式 (如 {"Authorization": "Bearer ..."})');
             return;
           }
         }
+
         config = {
           channel: newAlertChannel,
-          webhook_url: newAlertWebhookUrl.trim(),
+          webhook_url: newAlertWebhookUrl.trim() || undefined,
+          bot_token: newAlertBotToken.trim() || undefined,
+          chat_id: newAlertChatId.trim() || undefined,
+          api_host: newAlertApiHost.trim() || undefined,
+          method: newAlertMethod,
           headers: headersObj,
+          url_template: newAlertUrlTemplate.trim() || undefined,
+          body_template: newAlertBodyTemplate.trim() || undefined,
+          content_type: newAlertContentType,
         };
       }
 
@@ -258,7 +332,13 @@ export const AdminPage: React.FC = () => {
 
       setShowAddAlertModal(false);
       setNewAlertWebhookUrl('');
+      setNewAlertBotToken('');
+      setNewAlertChatId('');
+      setNewAlertApiHost('');
       setNewAlertHeaders('');
+      setNewAlertUrlTemplate('');
+      setNewAlertBodyTemplate('');
+      setTestFeedback(null);
       loadAlertRules();
     } catch (err: any) {
       alert(err.message || 'Failed to create alert rule');
@@ -1482,53 +1562,255 @@ WantedBy=multi-user.target`;
                   {newAlertType === 'webhook' ? (
                     <>
                       <div style={{ marginBottom: '16px' }}>
-                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>推送渠道平台 / CHANNEL</span>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
-                          {(['discord', 'telegram', 'slack', 'custom'] as const).map((ch) => (
+                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>推送渠道平台 / NOTIFICATION PLATFORM</span>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '8px' }}>
+                          {([
+                            { id: 'telegram', label: 'Telegram' },
+                            { id: 'discord', label: 'Discord' },
+                            { id: 'feishu', label: '飞书 Feishu' },
+                            { id: 'dingtalk', label: '钉钉 DingTalk' },
+                            { id: 'wecom', label: '企业微信' },
+                            { id: 'bark', label: 'Bark (iOS)' },
+                            { id: 'serverchan', label: 'Server酱' },
+                            { id: 'pushdeer', label: 'PushDeer' },
+                            { id: 'slack', label: 'Slack' },
+                            { id: 'custom', label: '自定义 HTTP' },
+                          ] as const).map((ch) => (
                             <button
-                              key={ch}
+                              key={ch.id}
                               type="button"
-                              className={`range-capsule-btn ${newAlertChannel === ch ? 'active' : ''}`}
-                              style={{ width: '100%', textTransform: 'uppercase', height: '32px', fontSize: '11px' }}
-                              onClick={() => setNewAlertChannel(ch)}
+                              className={`range-capsule-btn ${newAlertChannel === ch.id ? 'active' : ''}`}
+                              style={{ width: '100%', height: '32px', fontSize: '10px', textTransform: 'none', padding: '0 6px' }}
+                              onClick={() => {
+                                setNewAlertChannel(ch.id as any);
+                                setTestFeedback(null);
+                              }}
                             >
-                              {ch}
+                              {ch.label}
                             </button>
                           ))}
                         </div>
                       </div>
 
-                      <div style={{ marginBottom: '16px' }}>
-                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>
-                          WEBHOOK URL
-                          {newAlertChannel === 'telegram' && ' (如 https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<ID>)'}
-                          {newAlertChannel === 'discord' && ' (如 https://discord.com/api/webhooks/...)'}
-                        </span>
-                        <input
-                          value={newAlertWebhookUrl}
-                          onChange={(e) => setNewAlertWebhookUrl(e.target.value)}
-                          placeholder="https://..."
-                          className="spacex-input"
-                          required
-                        />
-                      </div>
+                      {/* Telegram Dedicated Fields */}
+                      {newAlertChannel === 'telegram' ? (
+                        <>
+                          <div style={{ marginBottom: '12px' }}>
+                            <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
+                              TELEGRAM BOT TOKEN (来自 @BotFather)
+                            </span>
+                            <input
+                              value={newAlertBotToken}
+                              onChange={(e) => setNewAlertBotToken(e.target.value)}
+                              placeholder="如 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                              className="spacex-input"
+                              required
+                            />
+                          </div>
 
-                      {newAlertChannel === 'custom' && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                            <div>
+                              <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
+                                CHAT ID (用户/群组/频道 ID)
+                              </span>
+                              <input
+                                value={newAlertChatId}
+                                onChange={(e) => setNewAlertChatId(e.target.value)}
+                                placeholder="如 -100123456789 或 @my_channel"
+                                className="spacex-input"
+                                required
+                              />
+                            </div>
+                            <div>
+                              <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
+                                API 域名 (可选，反代/加速)
+                              </span>
+                              <input
+                                value={newAlertApiHost}
+                                onChange={(e) => setNewAlertApiHost(e.target.value)}
+                                placeholder="https://api.telegram.org"
+                                className="spacex-input"
+                              />
+                            </div>
+                          </div>
+                        </>
+                      ) : newAlertChannel === 'bark' ? (
                         <div style={{ marginBottom: '16px' }}>
-                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>
-                            自定义请求头 / HEADERS (JSON, 可选)
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
+                            BARK 服务器地址或设备 KEY
                           </span>
                           <input
-                            value={newAlertHeaders}
-                            onChange={(e) => setNewAlertHeaders(e.target.value)}
-                            placeholder='{"Authorization": "Bearer your-token"}'
+                            value={newAlertWebhookUrl}
+                            onChange={(e) => setNewAlertWebhookUrl(e.target.value)}
+                            placeholder="如 https://api.day.app/your_device_key 或自建 Bark 地址"
                             className="spacex-input"
+                            required
+                          />
+                        </div>
+                      ) : newAlertChannel === 'serverchan' ? (
+                        <div style={{ marginBottom: '16px' }}>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
+                            SERVER酱 SENDKEY 或完整 WEBHOOK URL
+                          </span>
+                          <input
+                            value={newAlertWebhookUrl}
+                            onChange={(e) => {
+                              const val = e.target.value.trim();
+                              if (val.startsWith('SCT') && !val.includes('/')) {
+                                setNewAlertWebhookUrl(`https://sctapi.ftqq.com/${val}.send`);
+                              } else {
+                                setNewAlertWebhookUrl(val);
+                              }
+                            }}
+                            placeholder="如 SCTxxxxxxxxxxxxxxxxxxxx 或 https://sctapi.ftqq.com/xxx.send"
+                            className="spacex-input"
+                            required
+                          />
+                        </div>
+                      ) : newAlertChannel === 'pushdeer' ? (
+                        <div style={{ marginBottom: '16px' }}>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
+                            PUSHDEER PUSHKEY 或完整 WEBHOOK URL
+                          </span>
+                          <input
+                            value={newAlertWebhookUrl}
+                            onChange={(e) => {
+                              const val = e.target.value.trim();
+                              if (val.startsWith('PDU') && !val.includes('/')) {
+                                setNewAlertWebhookUrl(`https://api2.pushdeer.com/message/push?pushkey=${val}`);
+                              } else {
+                                setNewAlertWebhookUrl(val);
+                              }
+                            }}
+                            placeholder="如 PDUxxxxxxxxxxxxxxxxxxxx 或完整 URL"
+                            className="spacex-input"
+                            required
+                          />
+                        </div>
+                      ) : newAlertChannel === 'custom' ? (
+                        <>
+                          <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '12px', marginBottom: '12px' }}>
+                            <div>
+                              <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>请求方式</span>
+                              <select
+                                value={newAlertMethod}
+                                onChange={(e) => setNewAlertMethod(e.target.value as any)}
+                                className="spacex-input"
+                                style={{ background: '#000000', color: '#ffffff' }}
+                              >
+                                <option value="POST">POST</option>
+                                <option value="GET">GET</option>
+                              </select>
+                            </div>
+                            <div>
+                              <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
+                                请求 URL (支持模板变量，如 &#123;&#123;node_name&#125;&#125;)
+                              </span>
+                              <input
+                                value={newAlertWebhookUrl}
+                                onChange={(e) => setNewAlertWebhookUrl(e.target.value)}
+                                placeholder="https://api.example.com/notify?msg={{title}}"
+                                className="spacex-input"
+                                required
+                              />
+                            </div>
+                          </div>
+
+                          {newAlertMethod === 'POST' && (
+                            <>
+                              <div style={{ marginBottom: '12px' }}>
+                                <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
+                                  BODY 数据格式 (CONTENT-TYPE)
+                                </span>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  {(['json', 'form', 'text'] as const).map((ct) => (
+                                    <button
+                                      key={ct}
+                                      type="button"
+                                      className={`range-capsule-btn ${newAlertContentType === ct ? 'active' : ''}`}
+                                      style={{ height: '28px', fontSize: '10px', textTransform: 'uppercase' }}
+                                      onClick={() => setNewAlertContentType(ct)}
+                                    >
+                                      {ct}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div style={{ marginBottom: '12px' }}>
+                                <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
+                                  自定义 POST 请求体模板 (可选，留空使用标准 JSON)
+                                </span>
+                                <textarea
+                                  value={newAlertBodyTemplate}
+                                  onChange={(e) => setNewAlertBodyTemplate(e.target.value)}
+                                  placeholder='如 {"title":"{{title}}", "msg":"{{message}}", "node":"{{node_name}}"}'
+                                  className="spacex-input"
+                                  style={{ height: '70px', resize: 'vertical', fontSize: '11px', fontFamily: 'monospace' }}
+                                />
+                              </div>
+                            </>
+                          )}
+
+                          <div style={{ marginBottom: '12px' }}>
+                            <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
+                              自定义请求头 / HEADERS (JSON 格式，可选)
+                            </span>
+                            <input
+                              value={newAlertHeaders}
+                              onChange={(e) => setNewAlertHeaders(e.target.value)}
+                              placeholder='{"Authorization": "Bearer your_token"}'
+                              className="spacex-input"
+                            />
+                          </div>
+
+                          <div style={{ padding: '8px 12px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--colors-hairline-on-dark)', borderRadius: '4px', marginBottom: '16px', fontSize: '10px', color: 'var(--colors-muted)' }}>
+                            💡 可用模板变量：<code>&#123;&#123;node_name&#125;&#125;</code>, <code>&#123;&#123;event&#125;&#125;</code>, <code>&#123;&#123;title&#125;&#125;</code>, <code>&#123;&#123;message&#125;&#125;</code>, <code>&#123;&#123;emoji&#125;&#125;</code>, <code>&#123;&#123;time&#125;&#125;</code>
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ marginBottom: '16px' }}>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>
+                            {newAlertChannel.toUpperCase()} WEBHOOK URL
+                          </span>
+                          <input
+                            value={newAlertWebhookUrl}
+                            onChange={(e) => setNewAlertWebhookUrl(e.target.value)}
+                            placeholder={
+                              newAlertChannel === 'discord'
+                                ? 'https://discord.com/api/webhooks/...'
+                                : newAlertChannel === 'feishu'
+                                ? 'https://open.feishu.cn/open-apis/bot/v2/hook/...'
+                                : newAlertChannel === 'dingtalk'
+                                ? 'https://oapi.dingtalk.com/robot/send?access_token=...'
+                                : newAlertChannel === 'wecom'
+                                ? 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...'
+                                : 'https://hooks.slack.com/services/...'
+                            }
+                            className="spacex-input"
+                            required
                           />
                         </div>
                       )}
 
-                      <div style={{ padding: '10px 14px', background: 'rgba(0, 230, 118, 0.06)', border: '1px solid rgba(0, 230, 118, 0.2)', borderRadius: '4px', marginBottom: '20px', fontSize: '11px', color: '#00e676' }}>
-                        🔒 凭据保护：Webhook 地址与请求头将使用 AES-GCM 256 位高强度加密落盘，防范任何数据泄漏。
+                      {/* Live Test Feedback Banner */}
+                      {testFeedback && (
+                        <div style={{
+                          padding: '10px 14px',
+                          borderRadius: '4px',
+                          marginBottom: '16px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          backgroundColor: testFeedback.success ? 'rgba(0, 230, 118, 0.1)' : 'rgba(226, 39, 24, 0.1)',
+                          border: `1px solid ${testFeedback.success ? '#00e676' : '#e22718'}`,
+                          color: testFeedback.success ? '#00e676' : '#e22718',
+                        }}>
+                          {testFeedback.message}
+                        </div>
+                      )}
+
+                      <div style={{ padding: '8px 12px', background: 'rgba(0, 230, 118, 0.05)', border: '1px solid rgba(0, 230, 118, 0.2)', borderRadius: '4px', marginBottom: '20px', fontSize: '11px', color: '#00e676' }}>
+                        🔒 凭据保护：所有 Bot Token、Key 与 Webhook 地址均使用 AES-GCM 256 位高强度加密落盘，数据库零明文残留。
                       </div>
                     </>
                   ) : newAlertType === 'offline' ? (
@@ -1564,22 +1846,36 @@ WantedBy=multi-user.target`;
                     </div>
                   )}
 
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                    <button
-                      type="button"
-                      className="button-ghost-on-dark button-ghost-sm"
-                      onClick={() => setShowAddAlertModal(false)}
-                    >
-                      {t('cancel_btn')}
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={creatingAlert}
-                      className="button-ghost-on-dark button-ghost-sm"
-                      style={{ backgroundColor: '#ffffff', color: '#000000', fontWeight: 700 }}
-                    >
-                      {creatingAlert ? '正在保存并加密...' : '保存策略 ➔'}
-                    </button>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                    {newAlertType === 'webhook' ? (
+                      <button
+                        type="button"
+                        disabled={testingAlert}
+                        className="button-ghost-on-dark button-ghost-sm"
+                        style={{ borderColor: '#38bdf8', color: '#38bdf8' }}
+                        onClick={handleTestAlert}
+                      >
+                        {testingAlert ? '正在测试发送...' : '📢 发送测试通知'}
+                      </button>
+                    ) : <div></div>}
+
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                      <button
+                        type="button"
+                        className="button-ghost-on-dark button-ghost-sm"
+                        onClick={() => setShowAddAlertModal(false)}
+                      >
+                        {t('cancel_btn')}
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={creatingAlert}
+                        className="button-ghost-on-dark button-ghost-sm"
+                        style={{ backgroundColor: '#ffffff', color: '#000000', fontWeight: 700 }}
+                      >
+                        {creatingAlert ? '正在保存并加密...' : '保存策略 ➔'}
+                      </button>
+                    </div>
                   </div>
                 </form>
               </div>

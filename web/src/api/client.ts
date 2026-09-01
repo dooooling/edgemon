@@ -321,3 +321,24 @@ export async function fetchSystemEvents(): Promise<{ events: SystemEvent[] }> {
   return await res.json();
 }
 
+export async function testAlertWebhook(payload: {
+  channel?: string;
+  webhook_url?: string;
+  bot_token?: string;
+  chat_id?: string;
+  api_host?: string;
+  method?: string;
+  headers?: Record<string, string>;
+  url_template?: string;
+  body_template?: string;
+  content_type?: 'json' | 'form' | 'text';
+}): Promise<{ success: boolean; status?: number; error?: string }> {
+  const res = await fetch('/api/admin/alerts/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({ success: false, error: `HTTP ${res.status}` }));
+  return data;
+}
+

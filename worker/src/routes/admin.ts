@@ -333,8 +333,8 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
   let configJson = JSON.stringify(config);
   const statements = [];
 
-  // If webhook contains sensitive URL or headers, require DATA_ENCRYPTION_KEY and encrypt into secret_settings
-  if (config.webhook_url) {
+  // If webhook contains sensitive URL, tokens or headers, require DATA_ENCRYPTION_KEY and encrypt into secret_settings
+  if (config.webhook_url || (config.bot_token && config.chat_id) || config.url_template) {
     if (!encryptionKey) {
       return c.json(
         { error: 'Server misconfiguration: DATA_ENCRYPTION_KEY secret is required to safely store Webhook credentials' },
@@ -344,8 +344,20 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
 
     const ruleKey = `alert_webhook:${crypto.randomUUID()}`;
     const { encryptSecret } = await import('../services/crypto');
+    const sensitivePayload = {
+      webhook_url: config.webhook_url,
+      bot_token: config.bot_token,
+      chat_id: config.chat_id,
+      api_host: config.api_host,
+      headers: config.headers,
+      url_template: config.url_template,
+      body_template: config.body_template,
+      content_type: config.content_type,
+      method: config.method,
+    };
+
     const { nonceB64, cipherB64 } = await encryptSecret(
-      JSON.stringify({ webhook_url: config.webhook_url, headers: config.headers }),
+      JSON.stringify(sensitivePayload),
       encryptionKey
     );
 
@@ -393,6 +405,39 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
   const ruleResult = results[results.length - 1];
 
   return c.json({ success: true, id: ruleResult?.meta?.last_row_id }, 201);
+});
+
+// POST /api/admin/alerts/test (Live on-demand webhook testing)
+adminRoutes.post('/api/admin/alerts/test', async (c) => {
+  const body = await c.req.json<{
+    channel?: string;
+    webhook_url?: string;
+    bot_token?: string;
+    chat_id?: string;
+    api_host?: string;
+    method?: string;
+    headers?: Record<string, string>;
+    url_template?: string;
+    body_template?: string;
+    content_type?: 'json' | 'form' | 'text';
+  }>();
+
+  const { testWebhookNotification } = await import('../services/notifications');
+  const result = await testWebhookNotification({
+    url: body.webhook_url || '',
+    channel: body.channel as any,
+    botToken: body.bot_token,
+    chatId: body.chat_id,
+    apiHost: body.api_host,
+    method: body.method,
+    headers: body.headers,
+    urlTemplate: body.url_template,
+    bodyTemplate: body.body_template,
+    contentType: body.content_type,
+    allowHttp: false,
+  });
+
+  return c.json(result, result.success ? 200 : 400);
 });
 
 // DELETE /api/admin/alerts/rules/:id (Atomically cascades deletion to secret_settings via D1 batch)

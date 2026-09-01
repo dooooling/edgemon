@@ -112,12 +112,18 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
           }
         }
 
-        if (parsed.webhook_url && typeof parsed.webhook_url === 'string') {
+        if (parsed.webhook_url || (parsed.bot_token && parsed.chat_id) || parsed.url_template) {
           webhookConfigs.push({
-            url: parsed.webhook_url.trim(),
+            url: parsed.webhook_url ? parsed.webhook_url.trim() : '',
             method: parsed.method || 'POST',
             headers: parsed.headers,
             channel: parsed.channel,
+            botToken: parsed.bot_token,
+            chatId: parsed.chat_id,
+            apiHost: parsed.api_host,
+            contentType: parsed.content_type,
+            urlTemplate: parsed.url_template,
+            bodyTemplate: parsed.body_template,
             allowHttp,
           });
         }

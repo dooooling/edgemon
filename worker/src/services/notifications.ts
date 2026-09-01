@@ -1,4 +1,5 @@
 export interface WebhookConfig {
+  id?: number;
   url: string;
   method?: string;
   headers?: Record<string, string>;

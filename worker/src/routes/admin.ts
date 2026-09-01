@@ -240,6 +240,7 @@ adminRoutes.get('/api/admin/nodes/:id/config', async (c) => {
     probe_interval_sec: rawConfig.probe_interval_sec ?? 60,
     network_interface: rawConfig.network_interface ?? 'auto',
     probes: Array.isArray(rawConfig.probes) ? rawConfig.probes : [],
+    alert_policy: rawConfig.alert_policy ?? { mode: 'global' },
   };
 
   return c.json({
@@ -260,6 +261,7 @@ adminRoutes.patch('/api/admin/nodes/:id/config', async (c) => {
     probe_interval_sec: body.probe_interval_sec ?? 60,
     network_interface: body.network_interface ?? 'auto',
     probes: Array.isArray(body.probes) ? body.probes : [],
+    alert_policy: body.alert_policy ?? { mode: 'global' },
   };
 
   const validation = validateServerConfig(normalizedBody);
@@ -314,18 +316,14 @@ adminRoutes.get('/api/admin/alerts/rules', async (c) => {
 adminRoutes.post('/api/admin/alerts/rules', async (c) => {
   const body = await c.req.json<{
     node_id?: string | null;
-    type: 'offline' | 'cpu' | 'memory' | 'disk' | 'expiry' | 'webhook';
+    type: 'channel' | 'webhook' | 'offline' | 'cpu' | 'memory' | 'disk' | 'expiry';
     threshold?: number | null;
     duration_sec?: number | null;
     enabled?: number | boolean;
     config?: Record<string, any>;
   }>();
 
-  if (!body.type) {
-    return c.json({ error: 'Alert rule type is required' }, 400);
-  }
-
-  const enabledNum = body.enabled !== undefined ? (body.enabled ? 1 : 0) : 1;
+  const enabledNum = body.enabled === false || body.enabled === 0 ? 0 : 1;
   const config = body.config || {};
   const encryptionKey = c.env.DATA_ENCRYPTION_KEY;
   const now = Date.now();
@@ -333,8 +331,8 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
   let configJson = JSON.stringify(config);
   const statements = [];
 
-  // If webhook contains sensitive URL, tokens or headers, require DATA_ENCRYPTION_KEY and encrypt into secret_settings
-  if (config.webhook_url || (config.bot_token && config.chat_id) || config.url_template) {
+  // If this is a channel or contains sensitive URL, tokens or headers, require DATA_ENCRYPTION_KEY and encrypt into secret_settings
+  if (body.type === 'channel' || body.type === 'webhook' || config.webhook_url || (config.bot_token && config.chat_id) || config.url_template) {
     if (!encryptionKey) {
       return c.json(
         { error: 'Server misconfiguration: DATA_ENCRYPTION_KEY secret is required to safely store Webhook credentials' },
@@ -345,6 +343,7 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
     const ruleKey = `alert_webhook:${crypto.randomUUID()}`;
     const { encryptSecret } = await import('../services/crypto');
     const sensitivePayload = {
+      name: config.name || '推送渠道',
       webhook_url: config.webhook_url,
       bot_token: config.bot_token,
       chat_id: config.chat_id,
@@ -377,9 +376,17 @@ adminRoutes.post('/api/admin/alerts/rules', async (c) => {
 
     // In alert_rules table, only store metadata + reference key (zero plaintext secret)
     configJson = JSON.stringify({
+      name: config.name || '推送渠道',
       channel: config.channel,
       secret_key: ruleKey,
       is_encrypted: true,
+    });
+  } else {
+    // Standard alert policy (offline, cpu, memory, disk, expiry)
+    configJson = JSON.stringify({
+      name: config.name || `${body.type.toUpperCase()} 告警策略`,
+      channel_ids: config.channel_ids || [],
+      is_global: body.node_id ? false : true,
     });
   }
 

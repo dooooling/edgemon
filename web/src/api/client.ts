@@ -223,6 +223,10 @@ export interface NodeServerConfig {
   probe_interval_sec?: number;
   network_interface?: string;
   probes?: ProbeConfig[];
+  alert_policy?: {
+    mode: 'global' | 'custom' | 'none';
+    rule_ids?: number[];
+  };
 }
 
 export const PROBE_PRESETS = {
@@ -266,7 +270,7 @@ export async function updateNodeConfig(id: string, config: NodeServerConfig): Pr
 export interface AlertRule {
   id: number;
   node_id: string | null;
-  type: 'offline' | 'cpu' | 'memory' | 'disk' | 'expiry' | 'webhook';
+  type: 'channel' | 'webhook' | 'offline' | 'cpu' | 'memory' | 'disk' | 'expiry';
   threshold: number | null;
   duration_sec: number;
   enabled: number;

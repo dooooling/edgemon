@@ -302,18 +302,21 @@ describe('Alert Engine & State Machine', () => {
     expect(barkPayload.url).toContain('group=EdgeMon');
   });
 
-  it('retries resolved notifications until delivered', async () => {
+  it('respects node alert_policy mode: none to completely mute all alerts', async () => {
     const node = {
-      id: 'node-1',
-      name: 'Tokyo-01',
+      id: 'node-muted',
+      name: 'Tokyo-Muted',
       hidden: 0,
       expires_at_ms: null,
       memory_limit_bytes: 1000,
       rootfs_limit_bytes: 1000,
-      last_seen_at_ms: Date.now(),
-      cpu_usage_pct: 10,
-      memory_used_bytes: 100,
-      rootfs_used_bytes: 100,
+      last_seen_at_ms: Date.now() - 200 * 1000, // Offline > 90s
+      cpu_usage_pct: 99.0, // High CPU
+      memory_used_bytes: 900,
+      rootfs_used_bytes: 900,
+      node_config_json: JSON.stringify({
+        alert_policy: { mode: 'none' },
+      }),
     };
     const mockDb = {
       prepare(sql: string) {
@@ -321,24 +324,61 @@ describe('Alert Engine & State Machine', () => {
           bind(...args: any[]) { return this; },
           async all() {
             if (sql.includes('FROM nodes')) return { results: [node] };
-            if (sql.includes('FROM alert_rules')) return { results: [] };
+            if (sql.includes('FROM alert_rules')) {
+              return { results: [{ id: 101, node_id: null, type: 'cpu', threshold: 80, duration_sec: 0, enabled: 1 }] };
+            }
             return { results: [] };
           },
-          async first() {
-            if (sql.includes('FROM alert_states')) {
-              return { state_key: 'builtin:offline:node-1', active: 0, last_notified_at_ms: null, updated_at_ms: Date.now() - 120_000 };
-            }
-            return null;
-          },
+          async first() { return null; },
           async run() { return { success: true }; },
         };
       },
     } as any;
 
     const transitions = await evaluateAlerts(mockDb, 90);
-    const offlineTrans = transitions.filter((t) => t.type === 'offline');
-    expect(offlineTrans.length).toBe(1);
-    expect(offlineTrans[0].status).toBe('resolved');
+    expect(transitions.length).toBe(0); // Fully muted!
+  });
+
+  it('respects node alert_policy mode: custom to only evaluate selected rules', async () => {
+    const node = {
+      id: 'node-custom',
+      name: 'Tokyo-Custom',
+      hidden: 0,
+      expires_at_ms: null,
+      memory_limit_bytes: 1000,
+      rootfs_limit_bytes: 1000,
+      last_seen_at_ms: Date.now(),
+      cpu_usage_pct: 99.0, // High CPU
+      memory_used_bytes: 900, // High RAM
+      rootfs_used_bytes: 100,
+      node_config_json: JSON.stringify({
+        alert_policy: { mode: 'custom', rule_ids: [202] }, // Only rule 202 (memory)
+      }),
+    };
+    const rules = [
+      { id: 201, node_id: null, type: 'cpu', threshold: 80, duration_sec: 0, enabled: 1, config_json: JSON.stringify({ name: 'CPU Rule', channel_ids: [10] }) },
+      { id: 202, node_id: null, type: 'memory', threshold: 80, duration_sec: 0, enabled: 1, config_json: JSON.stringify({ name: 'Memory Rule', channel_ids: [20] }) },
+    ];
+
+    const mockDb = {
+      prepare(sql: string) {
+        return {
+          bind(...args: any[]) { return this; },
+          async all() {
+            if (sql.includes('FROM nodes')) return { results: [node] };
+            if (sql.includes('FROM alert_rules')) return { results: rules };
+            return { results: [] };
+          },
+          async first() { return null; },
+          async run() { return { success: true }; },
+        };
+      },
+    } as any;
+
+    const transitions = await evaluateAlerts(mockDb, 90);
+    expect(transitions.length).toBe(1);
+    expect(transitions[0].type).toBe('memory');
+    expect(transitions[0].channelIds).toEqual([20]);
   });
 });
 

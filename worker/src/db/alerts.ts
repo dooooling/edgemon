@@ -29,6 +29,25 @@ export interface AlertTransition {
   message: string;
   value?: number | null;
   threshold?: number | null;
+  channelIds?: number[];
+}
+
+export interface NodeAlertPolicy {
+  mode?: 'global' | 'custom' | 'none';
+  rule_ids?: number[];
+}
+
+export function getNodeAlertPolicy(nodeConfigJson: string | null): NodeAlertPolicy {
+  if (!nodeConfigJson) return { mode: 'global' };
+  try {
+    const parsed = JSON.parse(nodeConfigJson);
+    if (parsed.alert_policy) {
+      return parsed.alert_policy;
+    }
+  } catch {
+    // ignore
+  }
+  return { mode: 'global' };
 }
 
 export async function markAlertDelivered(
@@ -50,15 +69,17 @@ export async function evaluateAlerts(
   const offlineCutoff = now - offlineThresholdSec * 1000;
   const transitions: AlertTransition[] = [];
 
-  // Query all active nodes directly with state & limits (no non-existent node_resources join!)
+  // Query all active nodes directly with state, limits and node_config
   const nodesResult = await db
     .prepare(
       `SELECT
         n.id, n.name, n.hidden, n.expires_at_ms,
         n.memory_limit_bytes, n.rootfs_limit_bytes,
-        s.last_seen_at_ms, s.cpu_usage_pct, s.memory_used_bytes, s.rootfs_used_bytes
+        s.last_seen_at_ms, s.cpu_usage_pct, s.memory_used_bytes, s.rootfs_used_bytes,
+        c.config_json AS node_config_json
        FROM nodes n
-       LEFT JOIN node_state s ON n.id = s.node_id`
+       LEFT JOIN node_state s ON n.id = s.node_id
+       LEFT JOIN node_config c ON n.id = c.node_id`
     )
     .all<{
       id: string;
@@ -71,18 +92,19 @@ export async function evaluateAlerts(
       cpu_usage_pct: number | null;
       memory_used_bytes: number | null;
       rootfs_used_bytes: number | null;
+      node_config_json: string | null;
     }>();
 
   const nodes = nodesResult.results || [];
 
-  // Load custom metric threshold rules (excluding notification webhook rules)
+  // Load custom metric threshold rules (excluding notification channel rules)
   const customRulesResult = await db
-    .prepare("SELECT * FROM alert_rules WHERE enabled = 1 AND type != 'webhook'")
+    .prepare("SELECT * FROM alert_rules WHERE enabled = 1 AND type NOT IN ('channel', 'webhook')")
     .all<AlertRuleRow>();
 
   const customRules = customRulesResult.results || [];
 
-  // Helper to transition state and emit events only on state changes (with duration_sec pending support)
+  // Helper to transition state and emit events only on state changes
   async function checkTransition(
     stateKey: string,
     ruleId: number | null,
@@ -96,7 +118,8 @@ export async function evaluateAlerts(
     resolvedMessage: string,
     value: number | null = null,
     threshold: number | null = null,
-    durationSec = 0
+    durationSec = 0,
+    channelIds?: number[]
   ) {
     const existingState = await db
       .prepare('SELECT * FROM alert_states WHERE state_key = ?')
@@ -123,12 +146,11 @@ export async function evaluateAlerts(
               )
               .bind(stateKey, ruleId, nodeId, now, now)
               .run();
-            return;
+            return; // Still pending, no notification yet
           }
 
           if (now - pendingSince < durationMs) {
-            // Still in PENDING window
-            return;
+            return; // Condition met, but duration threshold not reached yet
           }
         }
 
@@ -157,15 +179,13 @@ export async function evaluateAlerts(
           message: firingMessage,
           value,
           threshold,
+          channelIds,
         });
       } else {
-        // Already active: Check if previous notification failed (last_notified_at_ms === null) or 4h renotification
-        const lastNotified = existingState?.last_notified_at_ms;
-        const lastUpdated = existingState?.updated_at_ms || 0;
-        const renotifyIntervalMs = 4 * 3600 * 1000;
-
-        if (lastNotified === null || lastNotified === undefined) {
-          // Delivery previously failed: retry once per minute
+        // Was already active:
+        if (existingState && existingState.last_notified_at_ms === null) {
+          // Previous FIRING notification failed delivery! Retry once per minute until delivered.
+          const lastUpdated = existingState.updated_at_ms || 0;
           if (now - lastUpdated >= 60_000) {
             await db
               .prepare('UPDATE alert_states SET updated_at_ms = ? WHERE state_key = ?')
@@ -182,21 +202,32 @@ export async function evaluateAlerts(
               message: firingMessage,
               value,
               threshold,
+              channelIds,
             });
           }
-        } else if (now - lastNotified >= renotifyIntervalMs) {
-          // 4-hour periodic reminder
-          transitions.push({
-            stateKey,
-            nodeId,
-            nodeName,
-            type,
-            status: 'firing',
-            title: `[Reminder] ${firingTitle}`,
-            message: firingMessage,
-            value,
-            threshold,
-          });
+        } else {
+          // Check 4-hour reminder for long-standing firing alerts (P2-4)
+          const lastNotified = existingState?.last_notified_at_ms || existingState?.active_since_ms || 0;
+          const fourHoursMs = 4 * 3600 * 1000;
+          if (now - lastNotified >= fourHoursMs) {
+            await db
+              .prepare('UPDATE alert_states SET last_notified_at_ms = NULL, updated_at_ms = ? WHERE state_key = ?')
+              .bind(now, stateKey)
+              .run();
+
+            transitions.push({
+              stateKey,
+              nodeId,
+              nodeName,
+              type,
+              status: 'firing',
+              title: `[REMINDER] ${firingTitle}`,
+              message: `${firingMessage} (Alert has been firing for >4h)`,
+              value,
+              threshold,
+              channelIds,
+            });
+          }
         }
       }
     } else {
@@ -225,6 +256,7 @@ export async function evaluateAlerts(
           message: resolvedMessage,
           value,
           threshold,
+          channelIds,
         });
       } else if (existingState && existingState.active === 0 && existingState.last_notified_at_ms === null) {
         // Condition is normal, but previous RESOLVED notification failed delivery! Retry once per minute until delivered.
@@ -245,6 +277,7 @@ export async function evaluateAlerts(
             message: resolvedMessage,
             value,
             threshold,
+            channelIds,
           });
         }
       }
@@ -253,6 +286,9 @@ export async function evaluateAlerts(
 
   // 1. Built-in: Offline Detection (last_seen_at_ms > 90s)
   for (const node of nodes) {
+    const policy = getNodeAlertPolicy(node.node_config_json);
+    if (policy.mode === 'none') continue; // Muted: skip all alerts for this node
+
     const isOffline = !node.last_seen_at_ms || node.last_seen_at_ms < offlineCutoff;
     const stateKey = `builtin:offline:${node.id}`;
 
@@ -277,6 +313,9 @@ export async function evaluateAlerts(
   const threeDaysMs = 3 * 86400 * 1000;
   for (const node of nodes) {
     if (!node.expires_at_ms) continue;
+    const policy = getNodeAlertPolicy(node.node_config_json);
+    if (policy.mode === 'none') continue; // Muted: skip
+
     const isExpiringSoon = node.expires_at_ms - now <= threeDaysMs;
     const stateKey = `builtin:expiry:${node.id}`;
 
@@ -299,11 +338,31 @@ export async function evaluateAlerts(
 
   // 3. Custom Alert Rules (CPU, Memory, Disk)
   for (const rule of customRules) {
+    let ruleChannelIds: number[] | undefined = undefined;
+    if (rule.config_json) {
+      try {
+        const parsed = JSON.parse(rule.config_json);
+        if (Array.isArray(parsed.channel_ids) && parsed.channel_ids.length > 0) {
+          ruleChannelIds = parsed.channel_ids;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const targetNodes = rule.node_id
       ? nodes.filter((n) => n.id === rule.node_id)
       : nodes;
 
     for (const node of targetNodes) {
+      const policy = getNodeAlertPolicy(node.node_config_json);
+      if (policy.mode === 'none') continue; // Muted: skip
+
+      // If node is in custom mode, it only applies rules explicitly selected
+      if (policy.mode === 'custom' && (!policy.rule_ids || !policy.rule_ids.includes(rule.id))) {
+        continue;
+      }
+
       const stateKey = `rule:${rule.id}:${node.id}`;
       let conditionMet = false;
       let curVal: number | null = null;
@@ -349,7 +408,8 @@ export async function evaluateAlerts(
         resolvedMsg,
         curVal,
         threshold,
-        rule.duration_sec ?? 0
+        rule.duration_sec ?? 0,
+        ruleChannelIds
       );
     }
   }

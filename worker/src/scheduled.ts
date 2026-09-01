@@ -90,7 +90,7 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
   // B. Database configured notification rules (supporting AES-GCM encrypted secret_settings)
   try {
     const customRulesResult = await env.DB
-      .prepare("SELECT id, config_json FROM alert_rules WHERE enabled = 1 AND (type = 'webhook' OR config_json LIKE '%webhook_url%')")
+      .prepare("SELECT id, config_json FROM alert_rules WHERE enabled = 1 AND (type IN ('channel', 'webhook') OR config_json LIKE '%secret_key%')")
       .all<{ id: number; config_json: string | null }>();
 
     const customRules = customRulesResult.results || [];
@@ -114,6 +114,7 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
 
         if (parsed.webhook_url || (parsed.bot_token && parsed.chat_id) || parsed.url_template) {
           webhookConfigs.push({
+            id: r.id,
             url: parsed.webhook_url ? parsed.webhook_url.trim() : '',
             method: parsed.method || 'POST',
             headers: parsed.headers,
@@ -155,7 +156,12 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
 
   const jobs: DeliveryJob[] = [];
   for (const t of transitions) {
-    for (const cfg of webhookConfigs) {
+    const targetConfigs = t.channelIds && t.channelIds.length > 0
+      ? webhookConfigs.filter((cfg) => cfg.id && t.channelIds!.includes(cfg.id))
+      : webhookConfigs;
+    const configsToUse = targetConfigs.length > 0 ? targetConfigs : webhookConfigs;
+
+    for (const cfg of configsToUse) {
       jobs.push({ transition: t, config: cfg });
     }
   }

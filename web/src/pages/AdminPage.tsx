@@ -99,7 +99,7 @@ export const AdminPage: React.FC = () => {
     warning?: string;
   } | null>(null);
   const [adminBannerWarning, setAdminBannerWarning] = useState<string | null>(null);
-  const [cmdTab, setCmdTab] = useState<'install' | 'binary' | 'docker' | 'systemd' | 'raw'>('install');
+  const [cmdTab, setCmdTab] = useState<'linux_install' | 'linux_binary' | 'windows_ps' | 'windows_cmd' | 'docker' | 'systemd' | 'raw'>('linux_install');
   const [copyFeedback, setCopyFeedback] = useState(false);
 
   const [editingConfig, setEditingConfig] = useState<NodeServerConfig | null>(null);
@@ -787,6 +787,19 @@ export const AdminPage: React.FC = () => {
                             onClick={() => openEditModal(n)}
                           >
                             ⚙️ {t('btn_edit')}
+                          </button>
+                          <button
+                            className="button-ghost-on-dark button-ghost-sm"
+                            style={{ borderColor: '#a78bfa', color: '#a78bfa' }}
+                            onClick={() => {
+                              setCmdTab('linux_install');
+                              setOneTimeTokenModal({
+                                nodeId: n.id,
+                                rawToken: '<YOUR_NODE_TOKEN>',
+                              });
+                            }}
+                          >
+                            📋 {t('btn_commands')}
                           </button>
                           <button
                             className="button-ghost-on-dark button-ghost-sm"
@@ -1693,49 +1706,102 @@ export const AdminPage: React.FC = () => {
             </div>
           )}
 
-          {/* Token Modal with Multi-Command Generator */}
+          {/* Token Modal with Multi-OS Command Generator */}
           {oneTimeTokenModal && (() => {
             const serverUrl = window.location.origin;
             const nodeId = oneTimeTokenModal.nodeId;
             const token = oneTimeTokenModal.rawToken;
+            const isPlaceholder = token === '<YOUR_NODE_TOKEN>';
 
-            const installCmd = `curl -fsSL https://raw.githubusercontent.com/dooooling/edgemon/main/scripts/install.sh | EDGEMON_SERVER="${serverUrl}" EDGEMON_NODE_ID="${nodeId}" EDGEMON_TOKEN="${token}" bash`;
+            const installCmd = `curl -fsSL https://raw.githubusercontent.com/dooooling/edgemon/main/scripts/install.sh | sudo bash -s -- --server "${serverUrl}" --id "${nodeId}" --token "${token}"`;
             const binaryCmd = `EDGEMON_SERVER="${serverUrl}" EDGEMON_NODE_ID="${nodeId}" EDGEMON_TOKEN="${token}" ./edgemon-agent`;
+            const windowsPsCmd = `$env:EDGEMON_SERVER="${serverUrl}"; $env:EDGEMON_NODE_ID="${nodeId}"; $env:EDGEMON_TOKEN="${token}"; .\\edgemon-agent.exe`;
+            const windowsCmd = `set EDGEMON_SERVER=${serverUrl}&& set EDGEMON_NODE_ID=${nodeId}&& set EDGEMON_TOKEN=${token}&& edgemon-agent.exe`;
             const dockerCmd = `docker run -d --name edgemon --restart always --net=host -v /proc:/host/proc:ro -v /sys:/host/sys:ro -e EDGEMON_SERVER="${serverUrl}" -e EDGEMON_NODE_ID="${nodeId}" -e EDGEMON_TOKEN="${token}" dooooling/edgemon-agent:latest`;
-            const systemdUnit = `[Unit]
-Description=EdgeMon Telemetry Agent Daemon
+            const systemdUnit = `# 1. 创建环境配置文件 /etc/edgemon/agent.env (权限 0600)
+mkdir -p /etc/edgemon
+cat > /etc/edgemon/agent.env <<EOF
+EDGEMON_SERVER=${serverUrl}
+EDGEMON_NODE_ID=${nodeId}
+EDGEMON_TOKEN=${token}
+EOF
+chmod 600 /etc/edgemon/agent.env
+
+# 2. 创建 Systemd 服务文件 /etc/systemd/system/edgemon.service
+cat > /etc/systemd/system/edgemon.service <<EOF
+[Unit]
+Description=EdgeMon Telemetry Agent
 Documentation=https://github.com/dooooling/edgemon
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-Environment="EDGEMON_SERVER=${serverUrl}"
-Environment="EDGEMON_NODE_ID=${nodeId}"
-Environment="EDGEMON_TOKEN=${token}"
+EnvironmentFile=/etc/edgemon/agent.env
 ExecStart=/usr/local/bin/edgemon-agent
 Restart=always
 RestartSec=5s
 LimitNOFILE=65535
-StandardOutput=journal
-StandardError=journal
-
-ProtectSystem=full
-ProtectHome=true
-NoNewPrivileges=true
+MemoryMax=64M
 
 [Install]
-WantedBy=multi-user.target`;
+WantedBy=multi-user.target
+EOF
+
+# 3. 启动并启用开机自启
+systemctl daemon-reload && systemctl enable --now edgemon`;
+
+            let currentCmd = installCmd;
+            if (cmdTab === 'linux_binary') currentCmd = binaryCmd;
+            else if (cmdTab === 'windows_ps') currentCmd = windowsPsCmd;
+            else if (cmdTab === 'windows_cmd') currentCmd = windowsCmd;
+            else if (cmdTab === 'docker') currentCmd = dockerCmd;
+            else if (cmdTab === 'systemd') currentCmd = systemdUnit;
+            else if (cmdTab === 'raw') currentCmd = token;
 
             return (
               <div className="modal-backdrop-dark">
-                <div className="modal-box-dark" style={{ maxWidth: '640px' }}>
-                  <h3 className="display-lg" style={{ fontSize: '18px', margin: '0 0 8px 0', color: 'var(--colors-status-live)' }}>
-                    🔑 {t('token_modal_title')}
-                  </h3>
-                  <p className="caption" style={{ color: 'var(--colors-status-alert)' }}>
-                    {t('token_notice')}
+                <div className="modal-box-dark" style={{ maxWidth: '720px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 className="display-lg" style={{ fontSize: '18px', margin: '0 0 8px 0', color: 'var(--colors-status-live)' }}>
+                      🚀 {isPlaceholder ? t('btn_commands') : t('token_modal_title')}
+                    </h3>
+                    <button
+                      style={{ background: 'none', border: 'none', color: '#ffffff', fontSize: '18px', cursor: 'pointer' }}
+                      onClick={() => setOneTimeTokenModal(null)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <p className="caption" style={{ color: isPlaceholder ? 'var(--colors-muted)' : 'var(--colors-status-alert)', margin: '0 0 12px 0' }}>
+                    {isPlaceholder ? t('token_placeholder_notice') : t('token_notice')}
                   </p>
+
+                  {isPlaceholder && (
+                    <div style={{
+                      padding: '8px 12px',
+                      backgroundColor: 'rgba(167, 139, 250, 0.1)',
+                      border: '1px solid #a78bfa',
+                      borderRadius: '4px',
+                      marginBottom: '16px',
+                      fontSize: '11px',
+                      color: '#c4b5fd',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: '8px',
+                      flexWrap: 'wrap',
+                    }}>
+                      <span>ℹ️ {t('token_placeholder_notice')}</span>
+                      <button
+                        className="button-ghost-on-dark button-ghost-sm"
+                        style={{ borderColor: '#a78bfa', color: '#ffffff', fontSize: '10px', padding: '3px 8px' }}
+                        onClick={() => handleRotateToken(nodeId)}
+                      >
+                        {t('btn_rotate_and_show')}
+                      </button>
+                    </div>
+                  )}
 
                   {oneTimeTokenModal.warning && (
                     <div style={{
@@ -1743,7 +1809,7 @@ WantedBy=multi-user.target`;
                       backgroundColor: 'rgba(255, 170, 0, 0.1)',
                       border: '1px solid #ffaa00',
                       borderRadius: '4px',
-                      margin: '12px 0',
+                      marginBottom: '16px',
                       fontSize: '11px',
                       color: '#ffaa00'
                     }}>
@@ -1751,92 +1817,81 @@ WantedBy=multi-user.target`;
                     </div>
                   )}
 
-                  {/* Command Tab Selector */}
-                  <div className="range-capsules" style={{ margin: '16px 0 12px 0' }}>
+                  {/* OS / Platform Command Tab Selector */}
+                  <div className="range-capsules" style={{ margin: '0 0 14px 0', flexWrap: 'wrap', gap: '6px' }}>
                     <button
-                      className={`range-capsule-btn ${cmdTab === 'install' ? 'active' : ''}`}
-                      onClick={() => setCmdTab('install')}
+                      className={`range-capsule-btn ${cmdTab === 'linux_install' ? 'active' : ''}`}
+                      onClick={() => setCmdTab('linux_install')}
                     >
-                      {t('cmd_linux_systemd')}
+                      🐧 {t('cmd_linux_install')}
                     </button>
                     <button
-                      className={`range-capsule-btn ${cmdTab === 'binary' ? 'active' : ''}`}
-                      onClick={() => setCmdTab('binary')}
+                      className={`range-capsule-btn ${cmdTab === 'linux_binary' ? 'active' : ''}`}
+                      onClick={() => setCmdTab('linux_binary')}
                     >
-                      {t('cmd_binary')}
+                      🐧 {t('cmd_linux_binary')}
+                    </button>
+                    <button
+                      className={`range-capsule-btn ${cmdTab === 'windows_ps' ? 'active' : ''}`}
+                      onClick={() => setCmdTab('windows_ps')}
+                    >
+                      🪟 {t('cmd_windows_ps')}
+                    </button>
+                    <button
+                      className={`range-capsule-btn ${cmdTab === 'windows_cmd' ? 'active' : ''}`}
+                      onClick={() => setCmdTab('windows_cmd')}
+                    >
+                      🪟 {t('cmd_windows_cmd')}
                     </button>
                     <button
                       className={`range-capsule-btn ${cmdTab === 'docker' ? 'active' : ''}`}
                       onClick={() => setCmdTab('docker')}
                     >
-                      {t('cmd_docker')}
+                      🐳 {t('cmd_docker')}
                     </button>
                     <button
                       className={`range-capsule-btn ${cmdTab === 'systemd' ? 'active' : ''}`}
                       onClick={() => setCmdTab('systemd')}
                     >
-                      {t('cmd_systemd_unit')}
+                      ⚙️ {t('cmd_systemd_unit')}
                     </button>
                     <button
                       className={`range-capsule-btn ${cmdTab === 'raw' ? 'active' : ''}`}
                       onClick={() => setCmdTab('raw')}
                     >
-                      Raw Token
+                      🔑 {t('token_raw')}
                     </button>
                   </div>
 
                   {/* Command Content Box */}
                   <div style={{ position: 'relative' }}>
-                    {cmdTab === 'install' && (
-                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px', wordBreak: 'break-all' }}>
-                        {installCmd}
-                      </div>
-                    )}
-                    {cmdTab === 'binary' && (
-                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px', wordBreak: 'break-all' }}>
-                        {binaryCmd}
-                      </div>
-                    )}
-                    {cmdTab === 'docker' && (
-                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px', wordBreak: 'break-all' }}>
-                        {dockerCmd}
-                      </div>
-                    )}
-                    {cmdTab === 'systemd' && (
-                      <pre className="token-view-chassis" style={{ margin: 0, paddingRight: '90px', whiteSpace: 'pre-wrap', fontSize: '12px' }}>
-                        {systemdUnit}
-                      </pre>
-                    )}
-                    {cmdTab === 'raw' && (
-                      <div className="token-view-chassis" style={{ margin: 0, paddingRight: '90px', wordBreak: 'break-all' }}>
-                        {token}
-                      </div>
-                    )}
+                    <pre className="token-view-chassis" style={{
+                      margin: 0,
+                      padding: '14px 100px 14px 14px',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-all',
+                      fontSize: '12px',
+                      lineHeight: '1.5',
+                      maxHeight: '260px',
+                      overflowY: 'auto',
+                    }}>
+                      {currentCmd}
+                    </pre>
 
                     {/* Copy Button */}
                     <button
                       className="button-ghost-on-dark button-ghost-sm"
                       style={{
                         position: 'absolute',
-                        top: '12px',
-                        right: '12px',
+                        top: '10px',
+                        right: '10px',
                         padding: '4px 12px',
                         backgroundColor: copyFeedback ? 'var(--colors-status-live)' : 'rgba(255, 255, 255, 0.1)',
                         color: copyFeedback ? '#000000' : '#ffffff',
                         fontWeight: 700,
                       }}
                       onClick={() => {
-                        const contentToCopy =
-                          cmdTab === 'install'
-                            ? installCmd
-                            : cmdTab === 'binary'
-                            ? binaryCmd
-                            : cmdTab === 'docker'
-                            ? dockerCmd
-                            : cmdTab === 'systemd'
-                            ? systemdUnit
-                            : token;
-                        navigator.clipboard.writeText(contentToCopy);
+                        navigator.clipboard.writeText(currentCmd);
                         setCopyFeedback(true);
                         setTimeout(() => setCopyFeedback(false), 2000);
                       }}
@@ -1845,26 +1900,26 @@ WantedBy=multi-user.target`;
                     </button>
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
-                    <span className="eyebrow-cap" style={{ fontSize: '10px' }}>
-                      NODE UUID: {nodeId}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                    <span className="eyebrow-cap" style={{ fontSize: '11px', color: 'var(--colors-muted)' }}>
+                      NODE UUID: <strong style={{ color: '#ffffff', fontFamily: 'monospace' }}>{nodeId}</strong>
                     </span>
-                    <button
-                      style={{ background: 'none', border: 'none', color: 'var(--colors-muted)', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
-                      onClick={() => {
-                        navigator.clipboard.writeText(nodeId);
-                        setCopyFeedback(true);
-                        setTimeout(() => setCopyFeedback(false), 2000);
-                      }}
-                    >
-                      Copy UUID
-                    </button>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
-                    <button className="button-ghost-on-dark" onClick={() => setOneTimeTokenModal(null)}>
-                      {t('save_node_btn')}
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        className="button-ghost-on-dark button-ghost-sm"
+                        style={{ fontSize: '11px', padding: '3px 10px' }}
+                        onClick={() => {
+                          navigator.clipboard.writeText(nodeId);
+                          setCopyFeedback(true);
+                          setTimeout(() => setCopyFeedback(false), 2000);
+                        }}
+                      >
+                        📋 Copy UUID
+                      </button>
+                      <button className="button-ghost-on-dark button-ghost-sm" onClick={() => setOneTimeTokenModal(null)}>
+                        {t('cancel_btn')}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

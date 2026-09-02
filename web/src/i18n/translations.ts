@@ -114,12 +114,18 @@ export const translations = {
     th_actions: '操作',
 
     // Quick Command Modal Tabs
-    cmd_linux_systemd: 'Systemd 一键安装',
-    cmd_binary: '二进制命令',
-    cmd_docker: 'Docker 命令',
-    cmd_systemd_unit: '服务配置文件',
+    btn_commands: '命令',
+    cmd_linux_install: 'Linux (一键安装)',
+    cmd_linux_binary: 'Linux (二进制)',
+    cmd_windows_ps: 'Windows (PowerShell)',
+    cmd_windows_cmd: 'Windows (CMD)',
+    cmd_docker: 'Docker',
+    cmd_systemd_unit: 'Systemd 服务',
+    token_raw: '明文 Token',
     btn_copy_cmd: '复制命令',
     btn_copied: '已复制！',
+    token_placeholder_notice: '当前为脱敏模板。如需包含真实密钥的直接执行命令，可点击下方「轮转密钥」生成。',
+    btn_rotate_and_show: '🔄 轮转密钥并获取新命令',
 
     // Probe Presets
     probe_presets: '快速加载测速预设',
@@ -334,12 +340,18 @@ export const translations = {
     th_actions: 'ACTIONS',
 
     // Quick Command Modal Tabs
-    cmd_linux_systemd: 'Systemd One-Click',
-    cmd_binary: 'Binary Run',
-    cmd_docker: 'Docker Run',
-    cmd_systemd_unit: 'Systemd Service',
+    btn_commands: 'CMD',
+    cmd_linux_install: 'Linux (1-Click)',
+    cmd_linux_binary: 'Linux (Binary)',
+    cmd_windows_ps: 'Windows (PowerShell)',
+    cmd_windows_cmd: 'Windows (CMD)',
+    cmd_docker: 'Docker',
+    cmd_systemd_unit: 'Systemd Unit',
+    token_raw: 'Raw Token',
     btn_copy_cmd: 'COPY',
     btn_copied: 'COPIED!',
+    token_placeholder_notice: 'Showing template commands. To copy commands with a live token, click "Rotate Token" below.',
+    btn_rotate_and_show: '🔄 Rotate Token & Get Live Commands',
 
     // Probe Presets
     probe_presets: 'LOAD PRESETS',

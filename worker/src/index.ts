@@ -31,10 +31,10 @@ app.get('/api/ready', async (c) => {
     if (c.env.DB) {
       const res = await c.env.DB.prepare('SELECT 1').first();
       dbOk = Boolean(res);
-      const tables = await c.env.DB.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('nodes', 'node_state', 'alert_rules', 'events')"
+      const schemaObjects = await c.env.DB.prepare(
+        "SELECT name FROM sqlite_master WHERE (type='table' AND name IN ('nodes', 'node_state', 'alert_rules', 'events')) OR (type='index' AND name = 'idx_metrics_raw_bucket_start')"
       ).all();
-      tablesOk = (tables.results || []).length >= 4;
+      tablesOk = (schemaObjects.results || []).length >= 5;
     }
   } catch {
     dbOk = false;

@@ -99,7 +99,7 @@ export const AdminPage: React.FC = () => {
     warning?: string;
   } | null>(null);
   const [adminBannerWarning, setAdminBannerWarning] = useState<string | null>(null);
-  const [cmdTab, setCmdTab] = useState<'linux_install' | 'linux_binary' | 'windows_ps' | 'windows_cmd' | 'docker' | 'systemd' | 'raw'>('linux_install');
+  const [cmdTab, setCmdTab] = useState<'linux_install' | 'linux_binary' | 'windows_ps' | 'windows_cmd' | 'systemd' | 'raw'>('linux_install');
   const [copyFeedback, setCopyFeedback] = useState(false);
 
   const [editingConfig, setEditingConfig] = useState<NodeServerConfig | null>(null);
@@ -1718,7 +1718,6 @@ export const AdminPage: React.FC = () => {
             const binaryCmd = `# 1. 下载解压静态二进制 (${APP_VERSION})\ncurl -fsSL -O "https://github.com/dooooling/edgemon/releases/download/${APP_VERSION}/edgemon-agent-x86_64-unknown-linux-musl.tar.gz" && tar -xzf edgemon-agent-x86_64-unknown-linux-musl.tar.gz\n\n# 2. 启动 Agent\nEDGEMON_SERVER="${serverUrl}" EDGEMON_NODE_ID="${nodeId}" EDGEMON_TOKEN="${token}" ./edgemon-agent`;
             const windowsPsCmd = `# 1. 下载解压 Windows Agent (${APP_VERSION})\nInvoke-WebRequest -Uri "https://github.com/dooooling/edgemon/releases/download/${APP_VERSION}/edgemon-agent-x86_64-pc-windows-msvc.tar.gz" -OutFile "edgemon-agent.tar.gz"; tar -xzf edgemon-agent.tar.gz\n\n# 2. 启动 Agent\n$env:EDGEMON_SERVER="${serverUrl}"; $env:EDGEMON_NODE_ID="${nodeId}"; $env:EDGEMON_TOKEN="${token}"; .\\edgemon-agent.exe`;
             const windowsCmd = `curl -fsSL -o edgemon-agent.tar.gz https://github.com/dooooling/edgemon/releases/download/${APP_VERSION}/edgemon-agent-x86_64-pc-windows-msvc.tar.gz && tar -xzf edgemon-agent.tar.gz && set EDGEMON_SERVER=${serverUrl}&& set EDGEMON_NODE_ID=${nodeId}&& set EDGEMON_TOKEN=${token}&& edgemon-agent.exe`;
-            const dockerCmd = `docker run -d --name edgemon --restart always --net=host -v /proc:/host/proc:ro -v /sys:/host/sys:ro -e EDGEMON_SERVER="${serverUrl}" -e EDGEMON_NODE_ID="${nodeId}" -e EDGEMON_TOKEN="${token}" ghcr.io/dooooling/edgemon-agent:${APP_VERSION}`;
             const systemdUnit = `# 1. 创建环境配置文件 /etc/edgemon/agent.env (权限 0600)
 mkdir -p /etc/edgemon
 cat > /etc/edgemon/agent.env <<EOF
@@ -1756,7 +1755,6 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
             if (cmdTab === 'linux_binary') currentCmd = binaryCmd;
             else if (cmdTab === 'windows_ps') currentCmd = windowsPsCmd;
             else if (cmdTab === 'windows_cmd') currentCmd = windowsCmd;
-            else if (cmdTab === 'docker') currentCmd = dockerCmd;
             else if (cmdTab === 'systemd') currentCmd = systemdUnit;
             else if (cmdTab === 'raw') currentCmd = token;
 
@@ -1857,12 +1855,6 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                       onClick={() => setCmdTab('windows_cmd')}
                     >
                       🪟 {t('cmd_windows_cmd')}
-                    </button>
-                    <button
-                      className={`range-capsule-btn ${cmdTab === 'docker' ? 'active' : ''}`}
-                      onClick={() => setCmdTab('docker')}
-                    >
-                      🐳 {t('cmd_docker')}
                     </button>
                     <button
                       className={`range-capsule-btn ${cmdTab === 'systemd' ? 'active' : ''}`}

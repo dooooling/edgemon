@@ -23,6 +23,9 @@ jobs:
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             use_cross: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_cross: false
 
     steps:
       - name: Checkout repository
@@ -45,19 +48,25 @@ jobs:
         with:
           tool: cross
 
-      - name: Build musl binary (Native)
+      - name: Build binary (Native)
         if: "!matrix.use_cross"
         run: cargo build --release --target ${{ matrix.target }} -p edgemon-agent
 
-      - name: Build musl binary (Cross)
+      - name: Build binary (Cross)
         if: matrix.use_cross
         run: cross build --release --target ${{ matrix.target }} -p edgemon-agent
 
       - name: Package Binary & Calculate Checksum
+        shell: bash
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/edgemon-agent dist/
-          (cd dist && tar -czf ../edgemon-agent-${{ matrix.target }}.tar.gz edgemon-agent)
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            cp target/${{ matrix.target }}/release/edgemon-agent.exe dist/
+            (cd dist && tar -czf ../edgemon-agent-${{ matrix.target }}.tar.gz edgemon-agent.exe)
+          else
+            cp target/${{ matrix.target }}/release/edgemon-agent dist/
+            (cd dist && tar -czf ../edgemon-agent-${{ matrix.target }}.tar.gz edgemon-agent)
+          fi
           sha256sum edgemon-agent-${{ matrix.target }}.tar.gz > edgemon-agent-${{ matrix.target }}.tar.gz.sha256
 
       - name: Upload Artifact

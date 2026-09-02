@@ -126,6 +126,7 @@ export const translations = {
     btn_copied: '已复制！',
     token_placeholder_notice: '当前为脱敏模板。如需包含真实密钥的直接执行命令，可点击下方「轮转密钥」生成。',
     btn_rotate_and_show: '🔄 轮转密钥并获取新命令',
+    cmd_security_notice: '🛡️ 安全提示：命令包含节点认证 Token。建议执行后清理终端历史（如 history -c），生产环境凭据已由服务以 0600 权限受保护保存。',
 
     // Probe Presets
     probe_presets: '快速加载测速预设',
@@ -352,6 +353,7 @@ export const translations = {
     btn_copied: 'COPIED!',
     token_placeholder_notice: 'Showing template commands. To copy commands with a live token, click "Rotate Token" below.',
     btn_rotate_and_show: '🔄 Rotate Token & Get Live Commands',
+    cmd_security_notice: '🛡️ Security Note: Command contains live Node Token. It is recommended to clear shell history after execution (e.g. history -c).',
 
     // Probe Presets
     probe_presets: 'LOAD PRESETS',

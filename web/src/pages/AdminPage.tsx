@@ -1712,12 +1712,13 @@ export const AdminPage: React.FC = () => {
             const nodeId = oneTimeTokenModal.nodeId;
             const token = oneTimeTokenModal.rawToken;
             const isPlaceholder = token === '<YOUR_NODE_TOKEN>';
+            const APP_VERSION = 'v0.1.0';
 
-            const installCmd = `curl -fsSL https://raw.githubusercontent.com/dooooling/edgemon/main/scripts/install.sh | sudo bash -s -- --server "${serverUrl}" --id "${nodeId}" --token "${token}"`;
-            const binaryCmd = `EDGEMON_SERVER="${serverUrl}" EDGEMON_NODE_ID="${nodeId}" EDGEMON_TOKEN="${token}" ./edgemon-agent`;
-            const windowsPsCmd = `$env:EDGEMON_SERVER="${serverUrl}"; $env:EDGEMON_NODE_ID="${nodeId}"; $env:EDGEMON_TOKEN="${token}"; .\\edgemon-agent.exe`;
-            const windowsCmd = `set EDGEMON_SERVER=${serverUrl}&& set EDGEMON_NODE_ID=${nodeId}&& set EDGEMON_TOKEN=${token}&& edgemon-agent.exe`;
-            const dockerCmd = `docker run -d --name edgemon --restart always --net=host -v /proc:/host/proc:ro -v /sys:/host/sys:ro -e EDGEMON_SERVER="${serverUrl}" -e EDGEMON_NODE_ID="${nodeId}" -e EDGEMON_TOKEN="${token}" dooooling/edgemon-agent:latest`;
+            const installCmd = `curl -fsSL https://raw.githubusercontent.com/dooooling/edgemon/${APP_VERSION}/scripts/install.sh | sudo bash -s -- --server "${serverUrl}" --id "${nodeId}" --token "${token}" --version ${APP_VERSION}`;
+            const binaryCmd = `# 1. 下载解压静态二进制 (${APP_VERSION})\ncurl -fsSL -O "https://github.com/dooooling/edgemon/releases/download/${APP_VERSION}/edgemon-agent-x86_64-unknown-linux-musl.tar.gz" && tar -xzf edgemon-agent-x86_64-unknown-linux-musl.tar.gz\n\n# 2. 启动 Agent\nEDGEMON_SERVER="${serverUrl}" EDGEMON_NODE_ID="${nodeId}" EDGEMON_TOKEN="${token}" ./edgemon-agent`;
+            const windowsPsCmd = `# 1. 下载解压 Windows Agent (${APP_VERSION})\nInvoke-WebRequest -Uri "https://github.com/dooooling/edgemon/releases/download/${APP_VERSION}/edgemon-agent-x86_64-pc-windows-msvc.tar.gz" -OutFile "edgemon-agent.tar.gz"; tar -xzf edgemon-agent.tar.gz\n\n# 2. 启动 Agent\n$env:EDGEMON_SERVER="${serverUrl}"; $env:EDGEMON_NODE_ID="${nodeId}"; $env:EDGEMON_TOKEN="${token}"; .\\edgemon-agent.exe`;
+            const windowsCmd = `curl -fsSL -o edgemon-agent.tar.gz https://github.com/dooooling/edgemon/releases/download/${APP_VERSION}/edgemon-agent-x86_64-pc-windows-msvc.tar.gz && tar -xzf edgemon-agent.tar.gz && set EDGEMON_SERVER=${serverUrl}&& set EDGEMON_NODE_ID=${nodeId}&& set EDGEMON_TOKEN=${token}&& edgemon-agent.exe`;
+            const dockerCmd = `docker run -d --name edgemon --restart always --net=host -v /proc:/host/proc:ro -v /sys:/host/sys:ro -e EDGEMON_SERVER="${serverUrl}" -e EDGEMON_NODE_ID="${nodeId}" -e EDGEMON_TOKEN="${token}" ghcr.io/dooooling/edgemon-agent:${APP_VERSION}`;
             const systemdUnit = `# 1. 创建环境配置文件 /etc/edgemon/agent.env (权限 0600)
 mkdir -p /etc/edgemon
 cat > /etc/edgemon/agent.env <<EOF
@@ -1814,6 +1815,20 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                       color: '#ffaa00'
                     }}>
                       ⚠️ WARNING: {oneTimeTokenModal.warning} — Active agent socket disconnect RPC timed out. Existing stream will be evicted on next verification.
+                    </div>
+                  )}
+
+                  {!isPlaceholder && (
+                    <div style={{
+                      padding: '8px 12px',
+                      backgroundColor: 'rgba(255, 170, 0, 0.08)',
+                      border: '1px solid rgba(255, 170, 0, 0.3)',
+                      borderRadius: '4px',
+                      marginBottom: '16px',
+                      fontSize: '11px',
+                      color: '#ffaa00'
+                    }}>
+                      {t('cmd_security_notice')}
                     </div>
                   )}
 

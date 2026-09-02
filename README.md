@@ -75,10 +75,11 @@ npx wrangler deploy
 
 直接在目标 VPS 上执行一键安装脚本（自动识别架构、下载静态 musl 二进制并配置 Systemd 开机自启守护进程）：
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dooooling/edgemon/main/scripts/install.sh | sudo bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/dooooling/edgemon/v0.1.0/scripts/install.sh | sudo bash -s -- \
   --server https://<你的_WORKER_DOMAIN> \
   --id <NODE_ID> \
-  --token <NODE_TOKEN>
+  --token <NODE_TOKEN> \
+  --version v0.1.0
 ```
 
 ### 2. 手动构建与部署

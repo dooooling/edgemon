@@ -284,13 +284,24 @@ adminRoutes.patch('/api/admin/nodes/:id/config', async (c) => {
 
   const existingConfig = configRow ? JSON.parse(configRow.config_json) : {};
 
+  // Boundary checks (P1): reject malformed types rather than silently clearing configs
+  if (body.probes !== undefined && !Array.isArray(body.probes)) {
+    return c.json({ error: 'probes must be an array' }, 400);
+  }
+  if (
+    body.alert_policy !== undefined &&
+    (typeof body.alert_policy !== 'object' || body.alert_policy === null || Array.isArray(body.alert_policy))
+  ) {
+    return c.json({ error: 'alert_policy must be an object' }, 400);
+  }
+
   // True PATCH: merge existing config with incoming body updates
   const mergedBody = {
     sample_interval_sec: body.sample_interval_sec !== undefined ? body.sample_interval_sec : (existingConfig.sample_interval_sec ?? 2),
     stream_interval_sec: body.stream_interval_sec !== undefined ? body.stream_interval_sec : (existingConfig.stream_interval_sec ?? 2),
     probe_interval_sec: body.probe_interval_sec !== undefined ? body.probe_interval_sec : (existingConfig.probe_interval_sec ?? 60),
     network_interface: body.network_interface !== undefined ? body.network_interface : (existingConfig.network_interface ?? 'auto'),
-    probes: body.probes !== undefined ? (Array.isArray(body.probes) ? body.probes : []) : (Array.isArray(existingConfig.probes) ? existingConfig.probes : []),
+    probes: body.probes !== undefined ? body.probes : (Array.isArray(existingConfig.probes) ? existingConfig.probes : []),
     alert_policy: body.alert_policy !== undefined ? body.alert_policy : (existingConfig.alert_policy ?? { mode: 'global' }),
   };
 

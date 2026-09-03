@@ -524,4 +524,110 @@ describe('RealtimeHub & Route Revocation State Machine (P0-2, P1-4)', () => {
     expect(batchCalls[0].sql).toContain('DELETE FROM alert_rules');
     expect(batchCalls[1].sql).toContain('DELETE FROM secret_settings');
   });
+
+  it('rejects malformed probes and alert_policy with 400 instead of clearing existing configs in PATCH /api/admin/nodes/:id/config', async () => {
+    const { adminRoutes } = await import('../src/routes/admin');
+    const { signSession } = await import('../src/services/crypto');
+    const sessionSecret = 'test-secret-at-least-32-chars-long!!';
+    const sessionToken = await signSession(
+      JSON.stringify({ role: 'admin', expires_at_ms: Date.now() + 3600000 }),
+      sessionSecret
+    );
+
+    const mockDb = {
+      prepare(sql: string) {
+        return {
+          bind(...args: any[]) {
+            return {
+              async first() {
+                if (sql.includes('FROM nodes WHERE id = ?')) {
+                  return { id: 'node-1', name: 'Test Node' };
+                }
+                if (sql.includes('FROM node_config WHERE node_id = ?')) {
+                  return {
+                    revision: 1,
+                    config_json: JSON.stringify({
+                      sample_interval_sec: 30,
+                      stream_interval_sec: 30,
+                      probe_interval_sec: 60,
+                      network_interface: 'eth0',
+                      probes: [{ id: 'cf', target: '1.1.1.1', protocol: 'icmp' }],
+                    }),
+                  };
+                }
+                return null;
+              },
+              async run() {
+                return { success: true };
+              },
+            };
+          },
+        };
+      },
+    };
+
+    // 1. Non-array probes must return 400
+    const resProbes = await adminRoutes.request('http://localhost/api/admin/nodes/node-1/config', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `edgemon_session=${sessionToken}`,
+      },
+      body: JSON.stringify({ probes: 'invalid-string' }),
+    }, {
+      DB: mockDb as any,
+      SESSION_SECRET: sessionSecret,
+      REALTIME: {
+        idFromName: () => ({}),
+        get: () => ({ pushConfig: vi.fn() }),
+      } as any,
+    });
+    expect(resProbes.status).toBe(400);
+    const bodyProbes = await resProbes.json() as any;
+    expect(bodyProbes.error).toBe('probes must be an array');
+
+    // 2. Non-object alert_policy must return 400
+    const resAlert = await adminRoutes.request('http://localhost/api/admin/nodes/node-1/config', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `edgemon_session=${sessionToken}`,
+      },
+      body: JSON.stringify({ alert_policy: 'invalid-string' }),
+    }, {
+      DB: mockDb as any,
+      SESSION_SECRET: sessionSecret,
+      REALTIME: {
+        idFromName: () => ({}),
+        get: () => ({ pushConfig: vi.fn() }),
+      } as any,
+    });
+    expect(resAlert.status).toBe(400);
+    const bodyAlert = await resAlert.json() as any;
+    expect(bodyAlert.error).toBe('alert_policy must be an object');
+
+    // 3. True merge PATCH: sending only stream_interval_sec preserves existing probes
+    const resMerge = await adminRoutes.request('http://localhost/api/admin/nodes/node-1/config', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `edgemon_session=${sessionToken}`,
+      },
+      body: JSON.stringify({ stream_interval_sec: 2 }),
+    }, {
+      DB: mockDb as any,
+      SESSION_SECRET: sessionSecret,
+      REALTIME: {
+        idFromName: () => ({}),
+        get: () => ({ pushConfig: vi.fn() }),
+      } as any,
+    });
+    expect(resMerge.status).toBe(200);
+    const bodyMerge = await resMerge.json() as any;
+    expect(bodyMerge.config.stream_interval_sec).toBe(2);
+    expect(bodyMerge.config.sample_interval_sec).toBe(30); // preserved existing
+    expect(bodyMerge.config.network_interface).toBe('eth0'); // preserved existing
+    expect(bodyMerge.config.probes.length).toBe(1); // preserved existing probes
+    expect(bodyMerge.config.probes[0].id).toBe('cf');
+  });
 });

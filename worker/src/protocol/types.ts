@@ -278,11 +278,11 @@ export function validateServerConfig(cfg: any): { valid: boolean; error?: string
   if (!cfg || typeof cfg !== 'object') {
     return { valid: false, error: 'Config must be an object' };
   }
-  const sampleInterval = cfg.sample_interval_sec ?? 30;
+  const sampleInterval = cfg.sample_interval_sec ?? 2;
   if (!Number.isInteger(sampleInterval) || sampleInterval < 1 || sampleInterval > 60) {
     return { valid: false, error: 'sample_interval_sec must be an integer between 1 and 60' };
   }
-  const streamInterval = cfg.stream_interval_sec ?? 30;
+  const streamInterval = cfg.stream_interval_sec ?? 2;
   if (!Number.isInteger(streamInterval) || streamInterval < 1 || streamInterval > 60) {
     return { valid: false, error: 'stream_interval_sec must be an integer between 1 and 60' };
   }

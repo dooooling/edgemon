@@ -107,6 +107,8 @@ export const AdminPage: React.FC = () => {
   const [copyFeedback, setCopyFeedback] = useState(false);
 
   const [editingConfig, setEditingConfig] = useState<NodeServerConfig | null>(null);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [configLoadError, setConfigLoadError] = useState<string | null>(null);
   const [newProbeId, setNewProbeId] = useState('');
   const [newProbeTarget, setNewProbeTarget] = useState('');
   const [newProbeProtocol, setNewProbeProtocol] = useState<'icmp' | 'tcp'>('icmp');
@@ -526,6 +528,8 @@ export const AdminPage: React.FC = () => {
       auto_renewal: Boolean(n.auto_renewal ?? 1),
     });
 
+    setConfigLoading(true);
+    setConfigLoadError(null);
     try {
       const res = await fetchNodeConfig(n.id);
       setEditingConfig({
@@ -533,24 +537,25 @@ export const AdminPage: React.FC = () => {
         stream_interval_sec: res.config?.stream_interval_sec ?? 2,
         probe_interval_sec: res.config?.probe_interval_sec ?? 60,
         network_interface: res.config?.network_interface ?? 'auto',
-        probes: Array.isArray(res.config?.probes) && res.config.probes.length > 0 ? res.config.probes : PROBE_PRESETS.china_3net,
+        probes: Array.isArray(res.config?.probes) ? res.config.probes : [],
         alert_policy: res.config?.alert_policy ?? { mode: 'global' },
       });
-    } catch {
-      setEditingConfig({
-        sample_interval_sec: 2,
-        stream_interval_sec: 2,
-        probe_interval_sec: 60,
-        network_interface: 'auto',
-        probes: PROBE_PRESETS.china_3net,
-        alert_policy: { mode: 'global' },
-      });
+    } catch (err: any) {
+      console.error('Failed to load node config:', err);
+      setEditingConfig(null);
+      setConfigLoadError('⚠️ 节点运行与探测配置加载失败，请关闭弹窗后重试或检查网络');
+    } finally {
+      setConfigLoading(false);
     }
   }
 
   async function handleUpdateNode(e: React.FormEvent) {
     e.preventDefault();
     if (!editingNode) return;
+    if (configLoadError) {
+      alert('节点运行配置未成功加载，无法提交，请关闭后重新打开以防覆盖探测与告警规则！');
+      return;
+    }
     setUpdatingNode(true);
     try {
       const quotaBytes = editingNode.traffic_quota_gb
@@ -582,6 +587,7 @@ export const AdminPage: React.FC = () => {
 
       setEditingNode(null);
       setEditingConfig(null);
+      setConfigLoadError(null);
       refetchNodes();
     } catch (err: any) {
       alert(`更新失败: ${err.message}`);
@@ -1356,6 +1362,7 @@ export const AdminPage: React.FC = () => {
                     onClick={() => {
                       setEditingNode(null);
                       setEditingConfig(null);
+                      setConfigLoadError(null);
                     }}
                   >
                     ✕
@@ -1364,6 +1371,25 @@ export const AdminPage: React.FC = () => {
 
                 {/* Scrollable Form Body */}
                 <form onSubmit={handleUpdateNode} style={{ flex: 1, overflowY: 'auto', paddingRight: '4px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {configLoading && (
+                    <div style={{ padding: '10px 14px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid #38bdf8', borderRadius: '4px', color: '#38bdf8', fontSize: '12px' }}>
+                      ⏳ 正在载入节点运行与探测配置...
+                    </div>
+                  )}
+                  {configLoadError && (
+                    <div style={{ padding: '12px 14px', background: 'rgba(226, 39, 24, 0.15)', border: '1px solid #e22718', borderRadius: '4px', color: '#ff6b6b', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>{configLoadError}</span>
+                      <button
+                        type="button"
+                        className="button-ghost-on-dark button-ghost-sm"
+                        style={{ borderColor: '#ff6b6b', color: '#ff6b6b', fontSize: '10px', padding: '2px 8px' }}
+                        onClick={() => openEditModal(editingNode)}
+                      >
+                        重试
+                      </button>
+                    </div>
+                  )}
+
                   {/* SECTION 1: 📋 基础信息与财务账单 */}
                   <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)' }}>
                     <span className="eyebrow-cap" style={{ fontSize: '11px', display: 'block', marginBottom: '14px', color: '#ffffff' }}>
@@ -1828,15 +1854,21 @@ export const AdminPage: React.FC = () => {
                       onClick={() => {
                         setEditingNode(null);
                         setEditingConfig(null);
+                        setConfigLoadError(null);
                       }}
                     >
                       {t('cancel_btn')}
                     </button>
                     <button
                       type="submit"
-                      disabled={updatingNode}
+                      disabled={updatingNode || configLoading || Boolean(configLoadError)}
                       className="button-ghost-on-dark button-ghost-sm"
-                      style={{ backgroundColor: '#ffffff', color: '#000000', fontWeight: 700 }}
+                      style={{
+                        backgroundColor: (updatingNode || configLoading || Boolean(configLoadError)) ? 'rgba(255, 255, 255, 0.2)' : '#ffffff',
+                        color: (updatingNode || configLoading || Boolean(configLoadError)) ? '#888888' : '#000000',
+                        fontWeight: 700,
+                        cursor: (updatingNode || configLoading || Boolean(configLoadError)) ? 'not-allowed' : 'pointer'
+                      }}
                     >
                       {updatingNode ? '正在保存...' : '保存所有配置 ➔'}
                     </button>

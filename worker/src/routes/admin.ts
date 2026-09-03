@@ -55,6 +55,18 @@ adminRoutes.post('/api/admin/nodes', async (c) => {
         : Number(body.auto_renewal)
       : 1;
 
+  const customConfig = {
+    sample_interval_sec: body.sample_interval_sec ?? 2,
+    stream_interval_sec: body.stream_interval_sec ?? 2,
+    probe_interval_sec: body.probe_interval_sec ?? 60,
+    network_interface: body.network_interface ?? 'auto',
+  };
+
+  const validation = validateServerConfig(customConfig);
+  if (!validation.valid) {
+    return c.json({ error: validation.error || 'Invalid telemetry configuration' }, 400);
+  }
+
   const { node, rawToken } = await createNode(
     c.env.DB,
     body.name,
@@ -67,12 +79,7 @@ adminRoutes.post('/api/admin/nodes', async (c) => {
     body.billing_cycle || 'monthly',
     autoRenewalNum,
     body.probe_preset || 'cn',
-    {
-      sample_interval_sec: body.sample_interval_sec,
-      stream_interval_sec: body.stream_interval_sec,
-      probe_interval_sec: body.probe_interval_sec,
-      network_interface: body.network_interface,
-    }
+    customConfig
   );
 
   return c.json({ node, rawToken }, 201);
@@ -265,32 +272,35 @@ adminRoutes.patch('/api/admin/nodes/:id/config', async (c) => {
   const body = await c.req.json();
   const now = Date.now();
 
-  const normalizedBody = {
-    sample_interval_sec: body.sample_interval_sec ?? 2,
-    stream_interval_sec: body.stream_interval_sec ?? 2,
-    probe_interval_sec: body.probe_interval_sec ?? 60,
-    network_interface: body.network_interface ?? 'auto',
-    probes: Array.isArray(body.probes) ? body.probes : [],
-    alert_policy: body.alert_policy ?? { mode: 'global' },
-  };
-
-  const validation = validateServerConfig(normalizedBody);
-  if (!validation.valid) {
-    return c.json({ error: validation.error || 'Invalid configuration' }, 400);
-  }
-
   const existingNode = await getNodeById(c.env.DB, id);
   if (!existingNode) {
     return c.json({ error: 'Node not found' }, 404);
   }
 
   const configRow = await c.env.DB
-    .prepare('SELECT revision FROM node_config WHERE node_id = ?')
+    .prepare('SELECT revision, config_json FROM node_config WHERE node_id = ?')
     .bind(id)
-    .first<{ revision: number }>();
+    .first<{ revision: number; config_json: string }>();
+
+  const existingConfig = configRow ? JSON.parse(configRow.config_json) : {};
+
+  // True PATCH: merge existing config with incoming body updates
+  const mergedBody = {
+    sample_interval_sec: body.sample_interval_sec !== undefined ? body.sample_interval_sec : (existingConfig.sample_interval_sec ?? 2),
+    stream_interval_sec: body.stream_interval_sec !== undefined ? body.stream_interval_sec : (existingConfig.stream_interval_sec ?? 2),
+    probe_interval_sec: body.probe_interval_sec !== undefined ? body.probe_interval_sec : (existingConfig.probe_interval_sec ?? 60),
+    network_interface: body.network_interface !== undefined ? body.network_interface : (existingConfig.network_interface ?? 'auto'),
+    probes: body.probes !== undefined ? (Array.isArray(body.probes) ? body.probes : []) : (Array.isArray(existingConfig.probes) ? existingConfig.probes : []),
+    alert_policy: body.alert_policy !== undefined ? body.alert_policy : (existingConfig.alert_policy ?? { mode: 'global' }),
+  };
+
+  const validation = validateServerConfig(mergedBody);
+  if (!validation.valid) {
+    return c.json({ error: validation.error || 'Invalid configuration' }, 400);
+  }
 
   const newRevision = (configRow?.revision || 0) + 1;
-  const configJson = JSON.stringify(normalizedBody);
+  const configJson = JSON.stringify(mergedBody);
 
   await c.env.DB
     .prepare(
@@ -308,12 +318,12 @@ adminRoutes.patch('/api/admin/nodes/:id/config', async (c) => {
   const hubId = c.env.REALTIME.idFromName('main');
   const hubStub = c.env.REALTIME.get(hubId);
   try {
-    await (hubStub as any).pushConfig(id, normalizedBody, newRevision);
+    await (hubStub as any).pushConfig(id, mergedBody, newRevision);
   } catch {
     // best-effort
   }
 
-  return c.json({ revision: newRevision, config: normalizedBody });
+  return c.json({ revision: newRevision, config: mergedBody });
 });
 
 // GET /api/admin/alerts/rules

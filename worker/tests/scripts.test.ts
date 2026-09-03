@@ -11,7 +11,7 @@ describe('Package.json Scripts & Deployment Integrity', () => {
     expect(scripts['build:web']).toBe('pnpm --filter edgemon-web build');
     expect(scripts['build']).toBe('pnpm build:web');
     expect(scripts['db:migrate:remote']).toBe('wrangler d1 migrations apply DB --remote');
-    expect(scripts['deploy']).toBe('pnpm db:migrate:remote && wrangler deploy');
+    expect(scripts['deploy']).toBe('wrangler deploy && pnpm db:migrate:remote');
   });
 
   it('wrangler.jsonc should have DB binding and required secrets', () => {

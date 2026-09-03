@@ -16,7 +16,7 @@
     "test:all": "pnpm test:worker && pnpm test:agent && pnpm test:web",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
-    "deploy": "pnpm db:migrate:remote && wrangler deploy"
+    "deploy": "wrangler deploy && pnpm db:migrate:remote"
   },
   "devDependencies": {
     "typescript": "^5.7.3",

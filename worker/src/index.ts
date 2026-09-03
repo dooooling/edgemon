@@ -18,7 +18,7 @@ app.route('/', adminRoutes);
 
 // Health check (Liveness)
 app.get('/api/health', (c) => {
-  return c.json({ status: 'ok', version: '0.1.0', time: Date.now() });
+  return c.json({ status: 'ok', version: '0.1.1', time: Date.now() });
 });
 
 // Readiness check: verifies D1 database connectivity, schema tables, DO binding, and security secrets

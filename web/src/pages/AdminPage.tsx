@@ -1712,7 +1712,7 @@ export const AdminPage: React.FC = () => {
             const nodeId = oneTimeTokenModal.nodeId;
             const token = oneTimeTokenModal.rawToken;
             const isPlaceholder = token === '<YOUR_NODE_TOKEN>';
-            const APP_VERSION = 'v0.1.0';
+            const APP_VERSION = 'v0.1.1';
 
             const installCmd = `curl -fsSL https://raw.githubusercontent.com/dooooling/edgemon/${APP_VERSION}/scripts/install.sh | sudo bash -s -- --server "${serverUrl}" --id "${nodeId}" --token "${token}" --version ${APP_VERSION}`;
             const binaryCmd = `# 1. 下载解压静态二进制 (${APP_VERSION})\ncurl -fsSL -O "https://github.com/dooooling/edgemon/releases/download/${APP_VERSION}/edgemon-agent-x86_64-unknown-linux-musl.tar.gz" && tar -xzf edgemon-agent-x86_64-unknown-linux-musl.tar.gz\n\n# 2. 启动 Agent\nEDGEMON_SERVER="${serverUrl}" EDGEMON_NODE_ID="${nodeId}" EDGEMON_TOKEN="${token}" ./edgemon-agent`;

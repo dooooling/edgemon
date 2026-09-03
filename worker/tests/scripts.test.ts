@@ -8,19 +8,10 @@ describe('Package.json Scripts & Deployment Integrity', () => {
 
   it('root package.json scripts should define all referenced pnpm scripts', () => {
     const scripts: Record<string, string> = rootPkg.scripts || {};
-    expect(scripts['db:migrate:remote']).toBeDefined();
-    expect(scripts['deploy:first']).toBeDefined();
-    expect(scripts['deploy']).toBeDefined();
-
-    // Check deploy:first references
-    if (scripts['deploy:first'].includes('pnpm db:migrate:remote')) {
-      expect(scripts['db:migrate:remote']).toBe('wrangler d1 migrations apply DB --remote');
-    }
-
-    // Check deploy references
-    if (scripts['deploy'].includes('pnpm db:migrate:remote')) {
-      expect(scripts['db:migrate:remote']).toBe('wrangler d1 migrations apply DB --remote');
-    }
+    expect(scripts['build:web']).toBe('pnpm --filter edgemon-web build');
+    expect(scripts['build']).toBe('pnpm build:web');
+    expect(scripts['db:migrate:remote']).toBe('wrangler d1 migrations apply DB --remote');
+    expect(scripts['deploy']).toBe('pnpm db:migrate:remote && wrangler deploy');
   });
 
   it('wrangler.jsonc should have DB binding and required secrets', () => {

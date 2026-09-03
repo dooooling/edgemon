@@ -18,72 +18,71 @@ EdgeMon 无需任何中心物理服务器，所有后端服务、实时 WebSocke
 
 ## 2. 部署详细步骤（Step-by-Step）
 
-### 步骤 1：安装依赖与登录 Cloudflare
+### 方案 A：Cloudflare Workers Builds 自动化部署（官方原生推荐，最省心）
+
+通过 Cloudflare Workers Builds 直接连接你的 GitHub 仓库，之后每次 `git push main` 都将自动触发构建、D1 迁移与部署更新。
+
+#### 1. 导入 Git 仓库设置
+在 Cloudflare 控制台（**Compute (Workers) $\rightarrow$ Create Application $\rightarrow$ Import from Git**）：
+- **Repository**：选择你的 `edgemon` 仓库
+- **Production branch**：`main`
+- **Root directory**：`/`
+- **Build command**：`pnpm build`
+- **Deploy command**：`pnpm deploy`
+
+#### 2. 配置 Worker 运行时 Secrets（仅需配置一次）
+首次连接创建后，进入该 Worker 的 **Settings $\rightarrow$ Variables and Secrets**（变量与机密），添加以下 3 个必选密钥：
+- **`ADMIN_KEY`**：管理员登录后台的主密钥（例如使用 `openssl rand -base64 32` 生成）
+- **`SESSION_SECRET`**：Cookie 会话签名密钥（至少 32 字符，例如 `openssl rand -base64 48`）
+- **`DATA_ENCRYPTION_KEY`**：敏感数据库字段加密密钥（64 位 Hex，例如 `openssl rand -hex 32`）
+
+> 💡 **永久保留**：Cloudflare 会永久安全托管这些 Secrets，以后的代码更新与 GitHub push 均无需再次输入或重复传递密钥！
+
+#### 3. 触发构建与自动就绪
+触发首次构建，Cloudflare 将自动串联：
+```text
+git push main ➔ Workers Builds ➔ pnpm build ➔ pnpm deploy (D1 自动建库 & 迁移 0001~0005) ➔ 部署就绪
+```
+
+---
+
+### 方案 B：本地 CLI 命令行直接部署
+
+如果你更习惯在本地终端通过命令行发布：
+
+#### 1. 安装依赖并登录 Cloudflare
 ```bash
-# 克隆仓库并进入根目录
 cd edgemon
-
-# 安装 Node 工作区依赖
 pnpm install
-
-# 登录 Cloudflare 账号
 npx wrangler login
 ```
 
----
-
-### 步骤 2：生成生产环境 Secrets 配置
-在项目根目录下创建 `.env.production` 文件（已被 `.gitignore` 保护，绝对不会提交至 Git）：
-
+#### 2. 一次性设置 Worker Secrets
 ```bash
-# 生成高强度随机生产密钥
-cat > .env.production <<EOF
-ADMIN_KEY=$(openssl rand -base64 32)
-SESSION_SECRET=$(openssl rand -base64 48)
-DATA_ENCRYPTION_KEY=$(openssl rand -hex 32)
-EOF
-
-chmod 600 .env.production
+npx wrangler secret put ADMIN_KEY
+npx wrangler secret put SESSION_SECRET
+npx wrangler secret put DATA_ENCRYPTION_KEY
 ```
 
-> 💡 **特别提醒**：请在此时记录下生成的 `ADMIN_KEY`，它将作为访问管理控制台（`/admin`）的私密登录凭证。
-
----
-
-### 步骤 3：首次一键部署（Wrangler 自动 Provisioning）
-```bash
-# 执行首次部署：自动创建 D1/DO、上传前端、同步 Secrets、部署 Worker 并初始化数据库
-pnpm deploy:first
-```
-
-终端将全自动串联执行以下操作：
-1. **自动构建前端**：触发 `pnpm build:web` 编译 React 19 SPA 单页应用；
-2. **自动创建并绑定 D1**：Wrangler Automatic Provisioning 自动在当前 Cloudflare 账号创建并绑定生产 D1 数据库；
-3. **自动配置 Durable Objects**：绑定 `RealtimeHub` 实时推送中心与 SQLite 存储；
-4. **自动同步 Secrets**：将 `.env.production` 中的 3 个关键密钥一次性上传至 Worker；
-5. **部署 Worker 与静态资源**：上传编译产物至 Cloudflare 边缘网络；
-6. **执行 D1 迁移**：交互式终端提示确认（输入 `y`）后，依次应用 `0001`~`0005` 核心表与时序二级索引。
-
----
-
-### 步骤 4：后续升级部署
-未来拉取新代码或调整配置后，只需执行：
+#### 3. 执行一键部署
 ```bash
 pnpm deploy
 ```
-系统将自动先应用最新的 D1 增量迁移，然后构建前端并部署新版 Worker。
+系统将全自动完成：
+1. **自动创建并绑定 D1**：Wrangler 自动检测并 provision 生产数据库；
+2. **自动执行 D1 迁移**：交互式确认后应用 `0001`~`0005` 核心表与二级索引；
+3. **自动构建前端 SPA**：触发 `pnpm build:web`；
+4. **部署 Worker 与 Durable Objects 实时推流中心**。
 
 ---
 
-### 步骤 5：健康检查与初次登录
-1. 部署成功后，终端将输出你的 Worker 访问域名，例如：
-   `https://edgemon.<你的_SUBDOMAIN>.workers.dev`
-2. 浏览器打开 `https://edgemon.<你的_SUBDOMAIN>.workers.dev/api/ready`，应返回：
+### 健康检查与初次登录
+1. 访问部署生成的域名 `https://edgemon.<你的_SUBDOMAIN>.workers.dev/api/ready`，检查返回：
    ```json
    { "status": "ready", "db": true, "realtime": true }
    ```
-3. 打开 `https://edgemon.<你的_SUBDOMAIN>.workers.dev/admin`，输入步骤 2 中生成的 `ADMIN_KEY` 即可登录管理后台。
-4. 点击 **+ PROVISION NODE** 添加节点，并在弹窗中一键复制对应操作系统（Linux / Windows）的 Agent 启动命令。
+2. 浏览器打开 `https://edgemon.<你的_SUBDOMAIN>.workers.dev/admin`，输入配置的 `ADMIN_KEY` 登录管理控制台。
+3. 点击 **+ PROVISION NODE** 添加节点，复制启动命令即可上线监控节点。
 
 ---
 

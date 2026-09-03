@@ -39,27 +39,25 @@ edgemon/
 
 详细步骤请参阅 **[生产部署完整指南](docs/deployment.md)**。简明流程如下：
 
-### 1. 安装依赖并配置密钥
+### 方案 A：Cloudflare Workers Builds 自动部署（推荐）
+在 Cloudflare 控制台连接本 GitHub 仓库，配置：
+- **Build command**：`pnpm build`
+- **Deploy command**：`pnpm deploy`
+- **Secrets**：在 Worker 设置中的 **Variables and Secrets** 填入 `ADMIN_KEY`、`SESSION_SECRET`、`DATA_ENCRYPTION_KEY` 一次。
+之后每次 `git push main` 即可全自动构建、迁移数据库并发布更新！
+
+### 方案 B：本地 CLI 快速部署
 ```bash
-# 安装依赖并登录
+# 1. 安装依赖并配置密钥
 pnpm install
 npx wrangler login
+npx wrangler secret put ADMIN_KEY
+npx wrangler secret put SESSION_SECRET
+npx wrangler secret put DATA_ENCRYPTION_KEY
 
-# 生成生产密钥文件 .env.production (自动受 .gitignore 保护)
-cat > .env.production <<EOF
-ADMIN_KEY=$(openssl rand -base64 32)
-SESSION_SECRET=$(openssl rand -base64 48)
-DATA_ENCRYPTION_KEY=$(openssl rand -hex 32)
-EOF
-chmod 600 .env.production
+# 2. 一键执行部署 (自动创建 D1、应用迁移、构建前端并发布)
+pnpm deploy
 ```
-
-### 2. 首次一键部署
-```bash
-# 自动构建前端 -> 自动创建并绑定 D1/DO -> 同步 Secrets -> 部署 Worker -> 提示确认并应用 D1 迁移
-pnpm deploy:first
-```
-> 💡 后续升级新版本代码只需直接运行 `pnpm deploy`。
 
 ---
 

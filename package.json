@@ -14,8 +14,8 @@
     "typecheck:all": "pnpm typecheck:worker && pnpm typecheck:web",
     "test:all": "pnpm test:worker && pnpm test:agent && pnpm test:web",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
-    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
-    "deploy": "pnpm build:web && wrangler deploy"
+    "deploy:first": "wrangler deploy --secrets-file .env.production && pnpm db:migrate:remote",
+    "deploy": "pnpm db:migrate:remote && wrangler deploy --secrets-file .env.production"
   },
   "devDependencies": {
     "typescript": "^5.7.3",

@@ -39,33 +39,27 @@ edgemon/
 
 详细步骤请参阅 **[生产部署完整指南](docs/deployment.md)**。简明流程如下：
 
-### 1. 初始化 D1 与配置密钥
+### 1. 安装依赖并配置密钥
 ```bash
-# 安装依赖
+# 安装依赖并登录
 pnpm install
-
-# 登录 Cloudflare 账号
 npx wrangler login
 
-# 创建 D1 数据库并将其 ID 写入 wrangler.jsonc
-npx wrangler d1 create edgemon
-
-# 配置生产环境变量 Secrets
-npx wrangler secret put ADMIN_KEY              # 管理员登录主密钥
-npx wrangler secret put SESSION_SECRET          # 会话签名密钥 (openssl rand -base64 32)
-npx wrangler secret put DATA_ENCRYPTION_KEY     # 数据加密密钥 (openssl rand -hex 32)
-npx wrangler secret put WEBHOOK_URL             # 可选：全局告警 Webhook
+# 生成生产密钥文件 .env.production (自动受 .gitignore 保护)
+cat > .env.production <<EOF
+ADMIN_KEY=$(openssl rand -base64 32)
+SESSION_SECRET=$(openssl rand -base64 48)
+DATA_ENCRYPTION_KEY=$(openssl rand -hex 32)
+EOF
+chmod 600 .env.production
 ```
 
-### 2. 执行数据库迁移并部署
+### 2. 首次一键全自动部署
 ```bash
-# 应用 D1 迁移
-pnpm db:migrate:remote
-
-# 构建前端并部署 Worker
-pnpm --filter edgemon-web build
-npx wrangler deploy
+# 自动构建前端 -> 自动创建并绑定 D1/DO -> 同步 Secrets -> 部署 Worker -> 应用 D1 迁移
+pnpm deploy:first
 ```
+> 💡 后续升级新版本代码只需直接运行 `pnpm deploy`。
 
 ---
 

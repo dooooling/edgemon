@@ -7,6 +7,11 @@
     "nodejs_compat"
   ],
 
+  // 直接执行 wrangler deploy 时自动先构建 React 前端
+  "build": {
+    "command": "pnpm build:web"
+  },
+
   "assets": {
     "directory": "./web/dist",
     "binding": "ASSETS",
@@ -14,11 +19,10 @@
     "run_worker_first": ["/api/*"]
   },
 
+  // 依赖 Wrangler automatic provisioning 自动创建并绑定 D1
   "d1_databases": [
     {
-      "binding": "DB",
-      "database_name": "edgemon",
-      "database_id": "local-d1-placeholder" // Replace with your production D1 database_id from `npx wrangler d1 create edgemon`
+      "binding": "DB"
     }
   ],
 
@@ -46,5 +50,18 @@
       "5 * * * *",
       "30 3 * * *"
     ]
+  },
+
+  // 声明生产部署必需的 Secrets，缺失时拒绝部署
+  "secrets": {
+    "required": [
+      "ADMIN_KEY",
+      "SESSION_SECRET",
+      "DATA_ENCRYPTION_KEY"
+    ]
+  },
+
+  "observability": {
+    "enabled": true
   }
 }

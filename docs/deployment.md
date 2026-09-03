@@ -32,107 +32,58 @@ npx wrangler login
 
 ---
 
-### 步骤 2：创建生产 D1 数据库
+### 步骤 2：生成生产环境 Secrets 配置
+在项目根目录下创建 `.env.production` 文件（已被 `.gitignore` 保护，绝对不会提交至 Git）：
+
 ```bash
-# 创建名为 edgemon 的 D1 数据库
-npx wrangler d1 create edgemon
-```
-执行后终端会输出类似如下信息：
-```text
-✅ Successfully created DB 'edgemon'!
-add the following to your wrangler.jsonc file:
-"d1_databases": [
-  {
-    "binding": "DB",
-    "database_name": "edgemon",
-    "database_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-  }
-]
+# 生成高强度随机生产密钥
+cat > .env.production <<EOF
+ADMIN_KEY=$(openssl rand -base64 32)
+SESSION_SECRET=$(openssl rand -base64 48)
+DATA_ENCRYPTION_KEY=$(openssl rand -hex 32)
+EOF
+
+chmod 600 .env.production
 ```
 
-将上面输出的 `database_id` 复制并替换到根目录的 `wrangler.jsonc` 中：
-```jsonc
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "edgemon",
-      "database_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" // 填入你的真实 D1 ID
-    }
-  ],
-```
+> 💡 **特别提醒**：请在此时记录下生成的 `ADMIN_KEY`，它将作为访问管理控制台（`/admin`）的私密登录凭证。
 
 ---
 
-### 步骤 3：初始化配置生产 Secrets
-
-EdgeMon 生产环境需要配置三个关键密钥：
-
-1. **`ADMIN_KEY`**：管理员登录控制台的私密主密钥（请使用高强度随机字符串）。
-2. **`SESSION_SECRET`**：用于签发管理员 HttpOnly Cookie 会话的 HMAC-SHA-256 密钥（至少 32 字符）。
-3. **`DATA_ENCRYPTION_KEY`**：用于加密数据库敏感凭据（如 Webhook Token）的 256 位 AES-GCM 密钥（64 位 Hex 字符串）。
-4. **`WEBHOOK_URL`**（可选）：默认全局告警 Webhook 地址（支持 Discord / Telegram / Slack / 自定义 Webhook）。
-
-执行以下命令依次配置：
-
+### 步骤 3：首次一键部署（全自动 Provisioning）
 ```bash
-# 1. 设置管理员主密钥
-npx wrangler secret put ADMIN_KEY
-
-# 2. 设置会话签名密钥
-npx wrangler secret put SESSION_SECRET
-
-# 3. 设置数据加密密钥 (建议使用 openssl rand -hex 32 生成)
-npx wrangler secret put DATA_ENCRYPTION_KEY
-
-# 4. 可选：配置全局告警通知 Webhook
-npx wrangler secret put WEBHOOK_URL
+# 执行首次部署：自动创建 D1/DO、上传前端、同步 Secrets、部署 Worker 并初始化数据库
+pnpm deploy:first
 ```
 
-> 💡 **生成安全密钥示例**：
-> ```bash
-> # 生成 32 字节随机 Hex（适用于 DATA_ENCRYPTION_KEY）
-> openssl rand -hex 32
->
-> # 生成随机会话密钥（适用于 SESSION_SECRET）
-> openssl rand -base64 32
-> ```
+终端将全自动串联执行以下操作：
+1. **自动构建前端**：触发 `pnpm build:web` 编译 React 19 SPA 单页应用；
+2. **自动创建并绑定 D1**：Wrangler Automatic Provisioning 自动在当前 Cloudflare 账号创建并绑定生产 D1 数据库；
+3. **自动配置 Durable Objects**：绑定 `RealtimeHub` 实时推送中心与 SQLite 存储；
+4. **自动同步 Secrets**：将 `.env.production` 中的 3 个关键密钥一次性上传至 Worker；
+5. **部署 Worker 与静态资源**：上传编译产物至 Cloudflare 边缘网络；
+6. **自动执行 D1 迁移**：依次执行 `0001`~`0005` 迁移文件，建立 11 张核心数据表与时序二级索引。
 
 ---
 
-### 步骤 4：执行 D1 数据库迁移
+### 步骤 4：后续升级部署
+未来拉取新代码或调整配置后，只需执行：
 ```bash
-# 将 5 个版本迁移应用到生产 D1 数据库
-pnpm db:migrate:remote
+pnpm deploy
 ```
-终端将依次执行：
-- `0001_init.sql`（11 张核心数据表与索引）
-- `0002_data_integrity.sql`（数据完整性校验与持久化状态字段）
-- `0003_wss_active_instance.sql`（Active Instance 追踪）
-- `0004_node_finance.sql`（服务器财务管理）
-- `0005_time_indexes.sql`（时序与留存清理二次时间索引）
+系统将自动先应用最新的 D1 增量迁移，然后构建前端并部署新版 Worker。
 
 ---
 
-### 步骤 5：构建前端产物并部署至 Cloudflare
-```bash
-# 构建 React 19 前端生产包 (输出至 web/dist)
-pnpm --filter edgemon-web build
-
-# 部署 Worker 与前端静态资产
-npx wrangler deploy
-```
-部署成功后，终端将输出你的 Worker 访问域名，例如：
-`https://edgemon.<你的_SUBDOMAIN>.workers.dev`
-
----
-
-### 步骤 6：健康检查与初次登录
-1. 浏览器打开 `https://edgemon.<你的_SUBDOMAIN>.workers.dev/api/health`，应返回：
+### 步骤 5：健康检查与初次登录
+1. 部署成功后，终端将输出你的 Worker 访问域名，例如：
+   `https://edgemon.<你的_SUBDOMAIN>.workers.dev`
+2. 浏览器打开 `https://edgemon.<你的_SUBDOMAIN>.workers.dev/api/ready`，应返回：
    ```json
-   { "status": "ok", "version": "0.1.0" }
+   { "status": "ready", "db": true, "realtime": true }
    ```
-2. 打开 `https://edgemon.<你的_SUBDOMAIN>.workers.dev/admin`，输入配置的 `ADMIN_KEY` 登录管理后台。
-3. 点击 **+ PROVISION NODE** 新建节点，复制生成的 `Node ID` 与 `Token`（明文仅显示一次）。
+3. 打开 `https://edgemon.<你的_SUBDOMAIN>.workers.dev/admin`，输入步骤 2 中生成的 `ADMIN_KEY` 即可登录管理后台。
+4. 点击 **+ PROVISION NODE** 添加节点，并在弹窗中一键复制对应操作系统（Linux / Windows）的 Agent 启动命令。
 
 ---
 

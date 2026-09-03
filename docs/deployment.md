@@ -50,7 +50,7 @@ chmod 600 .env.production
 
 ---
 
-### 步骤 3：首次一键部署（全自动 Provisioning）
+### 步骤 3：首次一键部署（Wrangler 自动 Provisioning）
 ```bash
 # 执行首次部署：自动创建 D1/DO、上传前端、同步 Secrets、部署 Worker 并初始化数据库
 pnpm deploy:first
@@ -62,7 +62,7 @@ pnpm deploy:first
 3. **自动配置 Durable Objects**：绑定 `RealtimeHub` 实时推送中心与 SQLite 存储；
 4. **自动同步 Secrets**：将 `.env.production` 中的 3 个关键密钥一次性上传至 Worker；
 5. **部署 Worker 与静态资源**：上传编译产物至 Cloudflare 边缘网络；
-6. **自动执行 D1 迁移**：依次执行 `0001`~`0005` 迁移文件，建立 11 张核心数据表与时序二级索引。
+6. **执行 D1 迁移**：交互式终端提示确认（输入 `y`）后，依次应用 `0001`~`0005` 核心表与时序二级索引。
 
 ---
 

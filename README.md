@@ -54,9 +54,9 @@ EOF
 chmod 600 .env.production
 ```
 
-### 2. 首次一键全自动部署
+### 2. 首次一键部署
 ```bash
-# 自动构建前端 -> 自动创建并绑定 D1/DO -> 同步 Secrets -> 部署 Worker -> 应用 D1 迁移
+# 自动构建前端 -> 自动创建并绑定 D1/DO -> 同步 Secrets -> 部署 Worker -> 提示确认并应用 D1 迁移
 pnpm deploy:first
 ```
 > 💡 后续升级新版本代码只需直接运行 `pnpm deploy`。

@@ -118,8 +118,8 @@ export const NodeDetailPage: React.FC = () => {
               <h1 className="display-xl" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                 <CountryFlag countryCode={node.geo?.country} width={26} />
                 <span>{node.name}</span>
-                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--colors-body)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={14} />
+                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--colors-body)', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                  <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={18} />
                   <span>{node.system?.os_version || (node.environment?.type || 'INSTANCE').toUpperCase()} · {node.resources?.cpu_capacity_cores || 1}C</span>
                 </span>
               </h1>
@@ -213,7 +213,7 @@ export const NodeDetailPage: React.FC = () => {
             <div className="spec-entry">
               <span className="spec-entry-label">{t('system_kernel')}</span>
               <span className="spec-entry-val" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={15} />
+                <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={20} />
                 <span>
                   {(() => {
                     const osVer = node.system?.os_version;

@@ -964,8 +964,8 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
             </div>
 
             {/* System & Geo Subtext */}
-            <div style={{ fontSize: '11px', color: 'var(--colors-on-primary-mute)', display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={12} />
+            <div style={{ fontSize: '11px', color: 'var(--colors-on-primary-mute)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={16} />
               <span>{node.system?.os || 'Linux'} · {node.geo?.city || node.geo?.country || 'COLO'} ({node.geo?.colo || 'CF'})</span>
             </div>
 

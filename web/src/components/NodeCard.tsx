@@ -133,8 +133,8 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: 'var(--colors-on-primary-mute)' }}>
-              <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={13} />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--colors-on-primary-mute)' }}>
+              <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={18} />
               <span>{node.resources?.cpu_capacity_cores || 1}C</span>
             </span>
             <div className="status-indicator-beacon">

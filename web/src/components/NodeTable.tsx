@@ -225,8 +225,8 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
                         <span>{node.name}</span>
                         {expBadge}
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--colors-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px', flexWrap: 'wrap' }}>
-                        <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={11} />
+                      <div style={{ fontSize: '11px', color: 'var(--colors-muted)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', flexWrap: 'wrap' }}>
+                        <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={16} />
                         <span>{node.system?.os_version || node.environment?.type || 'LINUX'} · {cpuCores}C</span>
                         {isOnline && tcpEstab != null && (
                           <span style={{ color: '#38bdf8' }}>· {tcpEstab} TCP</span>

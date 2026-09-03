@@ -157,6 +157,10 @@ export async function createAdminNode(payload: {
   plan_currency?: string;
   billing_cycle?: string;
   auto_renewal?: boolean | number;
+  sample_interval_sec?: number;
+  stream_interval_sec?: number;
+  probe_interval_sec?: number;
+  network_interface?: string;
 }) {
   const res = await fetch('/api/admin/nodes', {
     method: 'POST',

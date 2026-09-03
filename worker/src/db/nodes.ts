@@ -87,7 +87,13 @@ export async function createNode(
   planCurrency = 'USD',
   billingCycle = 'monthly',
   autoRenewal = 1,
-  probePreset: 'cn' | 'global' | 'minimal' = 'cn'
+  probePreset: 'cn' | 'global' | 'minimal' = 'cn',
+  customConfig?: {
+    sample_interval_sec?: number;
+    stream_interval_sec?: number;
+    probe_interval_sec?: number;
+    network_interface?: string;
+  }
 ): Promise<{ node: NodeRow; rawToken: string }> {
   const id = crypto.randomUUID();
   const rawToken = generateRandomToken(32);
@@ -141,10 +147,10 @@ export async function createNode(
   }
 
   const initialConfig = JSON.stringify({
-    sample_interval_sec: 30,
-    stream_interval_sec: 30,
-    probe_interval_sec: 60,
-    network_interface: 'auto',
+    sample_interval_sec: customConfig?.sample_interval_sec ?? 2,
+    stream_interval_sec: customConfig?.stream_interval_sec ?? 2,
+    probe_interval_sec: customConfig?.probe_interval_sec ?? 60,
+    network_interface: customConfig?.network_interface || 'auto',
     probes,
   });
 

@@ -92,9 +92,9 @@ impl AgentConfig {
             allow_private_probes: cli.allow_private_probes,
             mock: cli.mock,
 
-            // Default baseline values (AGENTS.md specification: 30s regular reporting)
-            sample_interval_sec: 30,
-            stream_interval_sec: 30,
+            // Default baseline values (2s real-time streaming)
+            sample_interval_sec: 2,
+            stream_interval_sec: 2,
             probe_interval_sec: 60,
             network_interface: "auto".to_string(),
             probes: Vec::new(),

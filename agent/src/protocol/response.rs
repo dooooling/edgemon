@@ -30,8 +30,8 @@ fn default_network_interface() -> String {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            sample_interval_sec: 30,
-            stream_interval_sec: 30,
+            sample_interval_sec: 2,
+            stream_interval_sec: 2,
             probe_interval_sec: 60,
             network_interface: "auto".to_string(),
             probes: Vec::new(),

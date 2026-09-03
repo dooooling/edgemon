@@ -90,6 +90,10 @@ export const AdminPage: React.FC = () => {
   const [newNodeAutoRenewal, setNewNodeAutoRenewal] = useState(false);
   const [newNodeExpiresAt, setNewNodeExpiresAt] = useState('');
   const [newNodeNote, setNewNodeNote] = useState('');
+  const [newNodeSampleInterval, setNewNodeSampleInterval] = useState(2);
+  const [newNodeStreamInterval, setNewNodeStreamInterval] = useState(2);
+  const [newNodeProbeInterval, setNewNodeProbeInterval] = useState(60);
+  const [newNodeNetIface, setNewNodeNetIface] = useState('auto');
 
   const [editingNode, setEditingNode] = useState<any | null>(null);
   const [updatingNode, setUpdatingNode] = useState(false);
@@ -470,6 +474,10 @@ export const AdminPage: React.FC = () => {
         plan_currency: newNodeCurrency,
         billing_cycle: newNodeCycle,
         auto_renewal: newNodeAutoRenewal,
+        sample_interval_sec: newNodeSampleInterval || 2,
+        stream_interval_sec: newNodeStreamInterval || 2,
+        probe_interval_sec: newNodeProbeInterval || 60,
+        network_interface: newNodeNetIface.trim() || 'auto',
       });
       setShowAddModal(false);
       setNewNodeName('');
@@ -480,6 +488,10 @@ export const AdminPage: React.FC = () => {
       setNewNodeCurrency('USD');
       setNewNodeCycle('monthly');
       setNewNodeAutoRenewal(true);
+      setNewNodeSampleInterval(2);
+      setNewNodeStreamInterval(2);
+      setNewNodeProbeInterval(60);
+      setNewNodeNetIface('auto');
       setOneTimeTokenModal({
         nodeId: res.node.id,
         rawToken: res.rawToken,
@@ -517,8 +529,8 @@ export const AdminPage: React.FC = () => {
     try {
       const res = await fetchNodeConfig(n.id);
       setEditingConfig({
-        sample_interval_sec: res.config?.sample_interval_sec ?? 30,
-        stream_interval_sec: res.config?.stream_interval_sec ?? 30,
+        sample_interval_sec: res.config?.sample_interval_sec ?? 2,
+        stream_interval_sec: res.config?.stream_interval_sec ?? 2,
         probe_interval_sec: res.config?.probe_interval_sec ?? 60,
         network_interface: res.config?.network_interface ?? 'auto',
         probes: Array.isArray(res.config?.probes) && res.config.probes.length > 0 ? res.config.probes : PROBE_PRESETS.china_3net,
@@ -526,8 +538,8 @@ export const AdminPage: React.FC = () => {
       });
     } catch {
       setEditingConfig({
-        sample_interval_sec: 30,
-        stream_interval_sec: 30,
+        sample_interval_sec: 2,
+        stream_interval_sec: 2,
         probe_interval_sec: 60,
         network_interface: 'auto',
         probes: PROBE_PRESETS.china_3net,
@@ -1249,7 +1261,7 @@ export const AdminPage: React.FC = () => {
                     />
                   </div>
 
-                  <div style={{ marginBottom: '24px' }}>
+                  <div style={{ marginBottom: '20px' }}>
                     <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>Note / 备注 (Optional)</span>
                     <input
                       value={newNodeNote}
@@ -1257,6 +1269,63 @@ export const AdminPage: React.FC = () => {
                       placeholder="e.g. Racknerd 2C2G US-West"
                       className="spacex-input"
                     />
+                  </div>
+
+                  {/* Telemetry Frequency & Reporting Settings */}
+                  <div style={{ padding: '14px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)', marginBottom: '24px' }}>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '12px', color: '#ffffff' }}>
+                      ⚙️ 采集与推流频率 / TELEMETRY FREQUENCY
+                    </span>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '12px' }}>
+                      <div>
+                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>本地采样间隔 / Sample (秒, 1~60)</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={60}
+                          value={newNodeSampleInterval}
+                          onChange={(e) => setNewNodeSampleInterval(Math.max(1, Math.min(60, parseInt(e.target.value) || 2)))}
+                          className="spacex-input"
+                        />
+                      </div>
+                      <div>
+                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>推流上报间隔 / Stream (秒, 1~60)</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={60}
+                          value={newNodeStreamInterval}
+                          onChange={(e) => setNewNodeStreamInterval(Math.max(1, Math.min(60, parseInt(e.target.value) || 2)))}
+                          className="spacex-input"
+                        />
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                      <div>
+                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>网络探测间隔 / Probe (秒, 10~3600)</span>
+                        <input
+                          type="number"
+                          min={10}
+                          max={3600}
+                          value={newNodeProbeInterval}
+                          onChange={(e) => setNewNodeProbeInterval(Math.max(10, Math.min(3600, parseInt(e.target.value) || 60)))}
+                          className="spacex-input"
+                        />
+                      </div>
+                      <div>
+                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>绑定网卡 / Interface (默认 auto)</span>
+                        <input
+                          type="text"
+                          value={newNodeNetIface}
+                          onChange={(e) => setNewNodeNetIface(e.target.value)}
+                          placeholder="auto"
+                          className="spacex-input"
+                        />
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--colors-muted)', marginTop: '8px' }}>
+                      💡 默认 2 秒超高频实时推流。数据库 D1 严格按 60 秒时间窗口合并归档，两者独立解耦无干涉。
+                    </div>
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
@@ -1437,7 +1506,78 @@ export const AdminPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* SECTION 2: 📡 网络连通性雷达探针 */}
+                  {/* SECTION 2: ⚙️ 采集与推流频率设置 */}
+                  {editingConfig && (
+                    <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+                      <span className="eyebrow-cap" style={{ fontSize: '11px', display: 'block', marginBottom: '14px', color: '#ffffff' }}>
+                        ⚙️ 采集与推流频率设置 / TELEMETRY FREQUENCY
+                      </span>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '12px' }}>
+                        <div>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>本地采样间隔 / Sample (秒, 1~60)</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={60}
+                            value={editingConfig.sample_interval_sec ?? 2}
+                            onChange={(e) => setEditingConfig({
+                              ...editingConfig,
+                              sample_interval_sec: Math.max(1, Math.min(60, parseInt(e.target.value) || 2))
+                            })}
+                            className="spacex-input"
+                          />
+                        </div>
+                        <div>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>推流上报间隔 / Stream (秒, 1~60)</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={60}
+                            value={editingConfig.stream_interval_sec ?? 2}
+                            onChange={(e) => setEditingConfig({
+                              ...editingConfig,
+                              stream_interval_sec: Math.max(1, Math.min(60, parseInt(e.target.value) || 2))
+                            })}
+                            className="spacex-input"
+                          />
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                        <div>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>网络探测间隔 / Probe (秒, 10~3600)</span>
+                          <input
+                            type="number"
+                            min={10}
+                            max={3600}
+                            value={editingConfig.probe_interval_sec ?? 60}
+                            onChange={(e) => setEditingConfig({
+                              ...editingConfig,
+                              probe_interval_sec: Math.max(10, Math.min(3600, parseInt(e.target.value) || 60))
+                            })}
+                            className="spacex-input"
+                          />
+                        </div>
+                        <div>
+                          <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>绑定网卡 / Interface (默认 auto)</span>
+                          <input
+                            type="text"
+                            value={editingConfig.network_interface ?? 'auto'}
+                            onChange={(e) => setEditingConfig({
+                              ...editingConfig,
+                              network_interface: e.target.value
+                            })}
+                            placeholder="auto"
+                            className="spacex-input"
+                          />
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--colors-muted)', marginTop: '8px' }}>
+                        💡 保存后通过 WebSocket 即时下发并热生效至在线 Agent，无需重启。D1 数据库每 60 秒合流归档，两者独立运行无干涉。
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SECTION 3: 📡 网络连通性雷达探针 */}
                   <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
                       <span className="eyebrow-cap" style={{ fontSize: '11px', color: '#ffffff' }}>
@@ -1578,7 +1718,7 @@ export const AdminPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* SECTION 3: 🚨 告警与通知推送策略 */}
+                  {/* SECTION 4: 🚨 告警与通知推送策略 */}
                   {editingConfig && (
                     <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)' }}>
                       <span className="eyebrow-cap" style={{ fontSize: '11px', display: 'block', marginBottom: '12px', color: '#ffffff' }}>

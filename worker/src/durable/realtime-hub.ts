@@ -273,8 +273,8 @@ export class RealtimeHub extends DurableObject<Env> {
       const serverConfig: ServerConfig = configRow
         ? JSON.parse(configRow.config_json)
         : {
-            sample_interval_sec: 30,
-            stream_interval_sec: 30,
+            sample_interval_sec: 2,
+            stream_interval_sec: 2,
             probe_interval_sec: 60,
             network_interface: 'auto',
             probes: [],

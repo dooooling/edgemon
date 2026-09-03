@@ -38,6 +38,10 @@ adminRoutes.post('/api/admin/nodes', async (c) => {
     billing_cycle?: string;
     auto_renewal?: number | boolean;
     probe_preset?: 'cn' | 'global' | 'minimal';
+    sample_interval_sec?: number;
+    stream_interval_sec?: number;
+    probe_interval_sec?: number;
+    network_interface?: string;
   }>();
 
   if (!body.name) {
@@ -62,7 +66,13 @@ adminRoutes.post('/api/admin/nodes', async (c) => {
     body.plan_currency || 'USD',
     body.billing_cycle || 'monthly',
     autoRenewalNum,
-    body.probe_preset || 'cn'
+    body.probe_preset || 'cn',
+    {
+      sample_interval_sec: body.sample_interval_sec,
+      stream_interval_sec: body.stream_interval_sec,
+      probe_interval_sec: body.probe_interval_sec,
+      network_interface: body.network_interface,
+    }
   );
 
   return c.json({ node, rawToken }, 201);
@@ -235,8 +245,8 @@ adminRoutes.get('/api/admin/nodes/:id/config', async (c) => {
 
   const rawConfig = configRow ? JSON.parse(configRow.config_json) : {};
   const normalizedConfig = {
-    sample_interval_sec: rawConfig.sample_interval_sec ?? 30,
-    stream_interval_sec: rawConfig.stream_interval_sec ?? 30,
+    sample_interval_sec: rawConfig.sample_interval_sec ?? 2,
+    stream_interval_sec: rawConfig.stream_interval_sec ?? 2,
     probe_interval_sec: rawConfig.probe_interval_sec ?? 60,
     network_interface: rawConfig.network_interface ?? 'auto',
     probes: Array.isArray(rawConfig.probes) ? rawConfig.probes : [],
@@ -256,8 +266,8 @@ adminRoutes.patch('/api/admin/nodes/:id/config', async (c) => {
   const now = Date.now();
 
   const normalizedBody = {
-    sample_interval_sec: body.sample_interval_sec ?? 30,
-    stream_interval_sec: body.stream_interval_sec ?? 30,
+    sample_interval_sec: body.sample_interval_sec ?? 2,
+    stream_interval_sec: body.stream_interval_sec ?? 2,
     probe_interval_sec: body.probe_interval_sec ?? 60,
     network_interface: body.network_interface ?? 'auto',
     probes: Array.isArray(body.probes) ? body.probes : [],

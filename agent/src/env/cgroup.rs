@@ -253,7 +253,8 @@ pub fn min_v1_mem_limit_along(root: &Path, target: &Path) -> Option<u64> {
     best
 }
 
-fn get_cgroup_v2_path(is_container: bool) -> Option<String> {    let path_file = if is_container {
+fn get_cgroup_v2_path(is_container: bool) -> Option<String> {
+    let path_file = if is_container {
         "/proc/1/cgroup"
     } else {
         "/proc/self/cgroup"

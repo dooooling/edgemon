@@ -326,8 +326,7 @@ fn main() -> Result<()> {
     let cpu_topology = read_cpu_topology();
     info!(
         "CPU topology: {} logical, {:?} physical",
-        cpu_topology.logical_cores,
-        cpu_topology.physical_cores
+        cpu_topology.logical_cores, cpu_topology.physical_cores
     );
     let true_mem_limit = init_mem.effective_limit_bytes();
     let true_swap_limit = init_mem.effective_swap_limit_bytes();

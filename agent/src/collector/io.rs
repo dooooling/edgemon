@@ -53,7 +53,8 @@ impl IoCollector {
                     let w_bps = rate_delta(prev.write_bytes, curr.write_bytes, elapsed_sec);
                     let r_iops = rate_delta(prev.read_ios, curr.read_ios, elapsed_sec);
                     let w_iops = rate_delta(prev.write_ios, curr.write_ios, elapsed_sec);
-                    let util_pct = match rate_delta(prev.io_ticks_ms, curr.io_ticks_ms, elapsed_sec) {
+                    let util_pct = match rate_delta(prev.io_ticks_ms, curr.io_ticks_ms, elapsed_sec)
+                    {
                         Some(ticks_delta) => {
                             let u = ((ticks_delta as f64 / (elapsed_sec * 1000.0)) * 100.0)
                                 .clamp(0.0, 100.0);

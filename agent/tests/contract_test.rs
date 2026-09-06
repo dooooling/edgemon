@@ -152,7 +152,10 @@ fn test_parse_replay_fixture() {
     assert_eq!(envelope.data.dropped_samples, 2);
 
     let reset = &envelope.data.samples[1];
-    assert_eq!(reset.metrics.network.counter_id.as_deref(), Some("b71c0ad3e55f02c9"));
+    assert_eq!(
+        reset.metrics.network.counter_id.as_deref(),
+        Some("b71c0ad3e55f02c9")
+    );
     assert_eq!(reset.metrics.network.rx_bps, None);
     assert_eq!(reset.metrics.network.tx_bps, None);
     assert_eq!(reset.metrics.cpu.usage_pct, None);

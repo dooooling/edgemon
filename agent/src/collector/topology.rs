@@ -40,11 +40,7 @@ fn read_windows_topology() -> Option<CpuTopology> {
     unsafe {
         let mut len: u32 = 0;
         // First call with a null buffer returns the required size.
-        GetLogicalProcessorInformationEx(
-            RelationProcessorCore,
-            std::ptr::null_mut(),
-            &mut len,
-        );
+        GetLogicalProcessorInformationEx(RelationProcessorCore, std::ptr::null_mut(), &mut len);
         if len == 0 {
             return None;
         }
@@ -66,7 +62,8 @@ fn read_windows_topology() -> Option<CpuTopology> {
         // size_of::<ENTRY>() as the loop guard — the Rust union is sized
         // by its largest variant and would truncate the trailing entry.
         while offset + 8 <= buf.len() {
-            let entry = &*(buf.as_ptr().add(offset) as *const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX);
+            let entry =
+                &*(buf.as_ptr().add(offset) as *const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX);
             let size = entry.Size as usize;
             if size < 8 || offset + size > buf.len() {
                 break;
@@ -146,6 +143,10 @@ pub fn read_linux_topology(base: &Path) -> CpuTopology {
     }
     CpuTopology {
         logical_cores: logical,
-        physical_cores: if complete { Some(pairs.len() as u64) } else { None },
+        physical_cores: if complete {
+            Some(pairs.len() as u64)
+        } else {
+            None
+        },
     }
 }

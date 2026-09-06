@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { NodeItem } from '../api/client';
 import { useRealtimeStore } from '../realtime/store';
 import { useTranslation } from '../i18n/I18nContext';
+import { ONLINE_CUTOFF_MS } from '../utils/time';
 import { OsIcon } from './OsIcon';
 import { CountryFlag } from './CountryFlag';
 
@@ -15,7 +16,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
   const { t } = useTranslation();
 
   const lastSeenAtMs = overlay?.last_seen_at_ms ?? node.state?.last_seen_at_ms;
-  const isOnline = lastSeenAtMs ? Date.now() - lastSeenAtMs < 90 * 1000 : false;
+  const isOnline = lastSeenAtMs ? Date.now() - lastSeenAtMs < ONLINE_CUTOFF_MS : false;
 
   const cpuUsagePct = overlay?.cpu_usage_pct ?? node.state?.cpu_usage_pct;
   const memoryUsedBytes = overlay?.memory_used_bytes ?? node.state?.memory_used_bytes;
@@ -88,7 +89,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: 'var(--colors-on-primary-mute)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: 'var(--colors-muted)' }}>
               <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={13} />
               <span>{node.resources?.cpu_capacity_cores || 1}C</span>
             </span>
@@ -104,11 +105,11 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           {/* CPU */}
           <div className="telemetry-row">
             <div className="telemetry-header-row">
-              <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('cpu_usage')}</span>
+              <span style={{ color: 'var(--colors-muted)' }}>{t('cpu_usage')}</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span>{cpuText}</span>
                 {isOnline && cpuTemp != null && (
-                  <span style={{ fontSize: '10px', color: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f59e0b' : '#00e676' }}>
+                  <span style={{ fontSize: '10px', color: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f4b400' : '#0fa336' }}>
                     {cpuTemp}°C
                   </span>
                 )}
@@ -122,7 +123,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           {/* Memory */}
           <div className="telemetry-row">
             <div className="telemetry-header-row">
-              <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('memory_allocation')}</span>
+              <span style={{ color: 'var(--colors-muted)' }}>{t('memory_allocation')}</span>
               <span>{memoryText}</span>
             </div>
             <div className="telemetry-bar-track">
@@ -133,7 +134,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           {/* Storage */}
           <div className="telemetry-row">
             <div className="telemetry-header-row">
-              <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('root_storage')}</span>
+              <span style={{ color: 'var(--colors-muted)' }}>{t('root_storage')}</span>
               <span>{diskText}</span>
             </div>
           </div>
@@ -142,7 +143,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           {traffic && (
             <div className="telemetry-row">
               <div className="telemetry-header-row">
-                <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('cycle_traffic')} (DAY {traffic.reset_day})</span>
+                <span style={{ color: 'var(--colors-muted)' }}>{t('cycle_traffic')} (DAY {traffic.reset_day})</span>
                 <span>
                   {formatBytes(trafficUsed)}
                   {trafficQuota ? ` / ${formatBytes(trafficQuota)}` : ''}
@@ -170,7 +171,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
               </span>
             )}
             {isOnline && tcpEstab != null && (
-              <span className="spacex-chip" style={{ color: '#38bdf8' }}>
+              <span className="spacex-chip" style={{ color: '#1c69d4' }}>
                 {tcpEstab} TCP
               </span>
             )}
@@ -187,17 +188,17 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
                 return (
                   <>
                     {ct?.latency_ms != null && (
-                      <span className="spacex-chip" style={{ color: '#38bdf8', borderColor: '#38bdf8' }}>
+                      <span className="spacex-chip" style={{ color: '#1c69d4', borderColor: '#1c69d4' }}>
                         电信 {ct.latency_ms}MS
                       </span>
                     )}
                     {cu?.latency_ms != null && (
-                      <span className="spacex-chip" style={{ color: '#f87171', borderColor: '#f87171' }}>
+                      <span className="spacex-chip" style={{ color: '#e22718', borderColor: '#e22718' }}>
                         联通 {cu.latency_ms}MS
                       </span>
                     )}
                     {cm?.latency_ms != null && (
-                      <span className="spacex-chip" style={{ color: '#4ade80', borderColor: '#4ade80' }}>
+                      <span className="spacex-chip" style={{ color: '#0fa336', borderColor: '#0fa336' }}>
                         移动 {cm.latency_ms}MS
                       </span>
                     )}

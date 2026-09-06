@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { NodeItem } from '../api/client';
 import { useRealtimeStore } from '../realtime/store';
 import { useTranslation } from '../i18n/I18nContext';
+import { ONLINE_CUTOFF_MS } from '../utils/time';
 import { CountryFlag } from './CountryFlag';
 import { OsIcon } from './OsIcon';
 
@@ -37,7 +38,7 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
   const now = Date.now();
-  const onlineCutoffMs = 90 * 1000;
+  const onlineCutoffMs = ONLINE_CUTOFF_MS;
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -229,7 +230,7 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
                         <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={11} />
                         <span>{node.system?.os_version || node.environment?.type || 'LINUX'} · {cpuCores}C</span>
                         {isOnline && tcpEstab != null && (
-                          <span style={{ color: '#38bdf8' }}>· {tcpEstab} TCP</span>
+                          <span style={{ color: '#1c69d4' }}>· {tcpEstab} TCP</span>
                         )}
                       </div>
                     </div>
@@ -241,7 +242,7 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 600 }}>
                     <span>{isOnline && cpuPct != null ? `${cpuPct}%` : 'N/A'}</span>
                     {isOnline && cpuTemp != null && (
-                      <span style={{ fontSize: '10px', color: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f59e0b' : '#00e676', fontWeight: 500 }}>
+                      <span style={{ fontSize: '10px', color: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f4b400' : '#0fa336', fontWeight: 500 }}>
                         {cpuTemp}°C
                       </span>
                     )}
@@ -329,13 +330,13 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
                         return (
                           <div style={{ display: 'flex', gap: '5px', fontSize: '10px', fontWeight: 600, marginTop: '2px' }}>
                             {ct?.latency_ms != null && (
-                              <span style={{ color: '#38bdf8' }} title="中国电信骨干延迟">电:{ct.latency_ms}m</span>
+                              <span style={{ color: '#1c69d4' }} title="中国电信骨干延迟">电:{ct.latency_ms}m</span>
                             )}
                             {cu?.latency_ms != null && (
-                              <span style={{ color: '#f87171' }} title="中国联通骨干延迟">联:{cu.latency_ms}m</span>
+                              <span style={{ color: '#e22718' }} title="中国联通骨干延迟">联:{cu.latency_ms}m</span>
                             )}
                             {cm?.latency_ms != null && (
-                              <span style={{ color: '#4ade80' }} title="中国移动骨干延迟">移:{cm.latency_ms}m</span>
+                              <span style={{ color: '#0fa336' }} title="中国移动骨干延迟">移:{cm.latency_ms}m</span>
                             )}
                           </div>
                         );

@@ -6,6 +6,7 @@ import { WorldMap } from '../components/WorldMap';
 import { NodeCard } from '../components/NodeCard';
 import { NodeTable } from '../components/NodeTable';
 import { useTranslation } from '../i18n/I18nContext';
+import { ONLINE_CUTOFF_MS } from '../utils/time';
 
 export const OverviewPage: React.FC = () => {
   const { data, isLoading, isFetching, refetch } = usePublicNodesQuery();
@@ -20,7 +21,7 @@ export const OverviewPage: React.FC = () => {
 
   const nodes = data?.nodes || [];
   const now = Date.now();
-  const onlineCutoffMs = 90 * 1000;
+  const onlineCutoffMs = ONLINE_CUTOFF_MS;
 
   const onlineNodes = nodes.filter((n) => {
     const lastSeen = overlays[n.id]?.last_seen_at_ms ?? n.state?.last_seen_at_ms;

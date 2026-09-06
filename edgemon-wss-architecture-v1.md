@@ -130,7 +130,7 @@ EdgeMon 自己必须设置远低于平台上限的协议限制：
 
 ```text
 Hello/config frame      <= 16 KiB
-Report frame             <= 8 KiB
+Report frame             <= 8 KiB (nominal; hard guard 256KB, nominal WSS 48/frame, HTTP 300/batch — see PROTOCOL_V1.md and RealtimeHub implementation)
 Browser control frame    <= 4 KiB
 Attachment target        <= 2 KiB
 ```

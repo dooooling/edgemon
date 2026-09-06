@@ -13,13 +13,13 @@ export function compactReportMetrics(metrics: ReportMetrics): ReportMetrics {
     memory: {
       used_bytes: metrics.memory?.used_bytes,
     },
-    rootfs: metrics.rootfs?.used_bytes !== undefined ? {
-      used_bytes: metrics.rootfs?.used_bytes,
-    } : undefined,
-    io: (metrics.io?.read_bps !== undefined || metrics.io?.write_bps !== undefined) ? {
-      read_bps: metrics.io?.read_bps,
-      write_bps: metrics.io?.write_bps,
-    } : undefined,
+    rootfs: {
+      used_bytes: metrics.rootfs?.used_bytes ?? null,
+    },
+    io: {
+      read_bps: metrics.io?.read_bps ?? null,
+      write_bps: metrics.io?.write_bps ?? null,
+    },
     network: {
       interface: metrics.network?.interface || 'eth0',
       rx_bps: metrics.network?.rx_bps,

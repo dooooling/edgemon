@@ -662,7 +662,7 @@ fn main() -> Result<()> {
                             let stream_interval =
                                 { shared_config.read().unwrap().stream_interval_sec };
 
-                            // Send Report samples batch (up to 16 samples per report)
+                            // Send Report samples batch (up to 48 samples per WS frame, up to 300 per HTTP batch)
                             if last_report_time.elapsed() >= Duration::from_secs(stream_interval) {
                                 last_report_time = Instant::now();
 

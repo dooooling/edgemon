@@ -1,6 +1,8 @@
 /* ==========================================================================
    EdgeMon Design System — BMW M Motorsport & Performance Engineering Architecture
    Strictly aligned with DESIGN.md (Pure Black / 0px Radius / M-Stripe / Heavy-Light Contrast)
+   NOTE: legacy `.spacex-*` class names below are implementation aliases only;
+   their tokens and visuals follow DESIGN.md (BMW M baseline), not SpaceX.
    ========================================================================== */
 
 :root {
@@ -28,8 +30,8 @@
   --colors-body: #bbbbbb;
   --colors-muted: #7e7e7e;
 
-  /* Semantic Status */
-  --colors-status-live: #00e676;
+  /* Semantic Status (DESIGN.md §Colors/Semantic — strict, no off-palette greens) */
+  --colors-status-live: #0fa336;
   --colors-status-alert: #e22718;
   --colors-status-warning: #f4b400;
 
@@ -72,12 +74,12 @@ html {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
-  border-radius: 4px;
+  background: #262626;
+  border-radius: 0px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: #3c3c3c;
 }
 
 body {
@@ -265,8 +267,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 44px;
-  padding: 0 24px;
+  height: 48px;
+  padding: 0 32px;
   background-color: transparent;
   color: var(--colors-on-dark);
   border: 1px solid var(--colors-on-dark);
@@ -593,7 +595,6 @@ body {
 
 .beacon-live {
   background-color: var(--colors-status-live);
-  box-shadow: 0 0 8px var(--colors-status-live);
 }
 
 .beacon-idle {
@@ -716,7 +717,7 @@ body {
   padding: 8px 14px !important;
   background: rgba(255, 255, 255, 0.02) !important;
   border: 1px solid var(--colors-hairline-subtle) !important;
-  border-radius: 4px !important;
+  border-radius: 0px !important;
   margin-top: 10px !important;
   text-align: left !important;
   justify-content: flex-start !important;
@@ -737,7 +738,7 @@ body {
 .uplot .u-legend .u-marker {
   width: 8px !important;
   height: 8px !important;
-  border-radius: 2px !important;
+  border-radius: 0px !important;
 }
 
 .uplot .u-legend .u-label {

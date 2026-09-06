@@ -127,12 +127,12 @@ edgemon/
    - TanStack Query：管理 D1/Worker REST API 返回的持久化快照与管理数据。
    - Zustand：管理 WebSocket 实时推送的短生命周期 Realtime Overlay 与连接状态。
    - React Local State：管理组件局部交互状态。
-3. **视觉规范（严格遵守 DESIGN.md）**：
-   - 采用 SpaceX 航天机能工业风设计语言（SpaceX Aerospace & Mission Control Aesthetic）。
-   - 纯粹暗黑底盘：Pure Black (`#000000`) 与 Canvas Night Soft (`#0a0a0a`)，发丝边框 (`#3a3a3f`)。
-   - 工业级排版：D-DIN 紧凑全大写字阶（All-Caps Display 80px/60px/48px，正向 1.6px 字距），无衬线工业工程质感。
-   - 幽灵胶囊按钮：Ghost Outlined Pill CTAs（`rounded: 32px`，1px 白色描边，全大写字母，高对比度悬浮交互）。
-   - 暗黑轨道雷达地图与高对比度时序图表：零杂乱渐变与阴影，全暗黑深度呈现。
+3. **视觉规范（严格遵守 DESIGN.md，以 DESIGN.md 为准）**：
+   - 采用 BMW M 赛车与性能工程设计语言（BMW M Motorsport & Performance Engineering Architecture，详见 `DESIGN.md` 与 `web/src/styles/design-tokens.css`）。
+   - 纯粹暗黑底盘：Canvas (`#000000`)、Surface Soft (`#0d0d0d`)、Surface Card (`#1a1a1a`)、Surface Elevated (`#262626`)，发丝边框 (`#3c3c3c`)。
+   - 品牌标识：M 三色条纹 (`#0066b1` → `#1c69d4` → `#e22718`，另有 Electric Blue `#0653b6`)，仅用作 4px 分割线与品牌点缀，绝不用作按钮填充。
+   - 工业级排版：BMW Type Next Latin（缺失时用 Inter 代替），Display 700 全大写字阶（80px/56px/40px/32px），Body 300 Light，正文 1.5px 字距的机加工质感标签。
+   - 矩形工业轮廓：按钮与卡片一律 `rounded: 0px` 直角，仅圆形图标按钮用 `rounded: full`；世界地图与时序图表保持全暗黑、无渐变阴影呈现。
 4. **世界地图组件**：使用轻量 Equirectangular SVG 矢量地图，运行时不依赖第三方在线地图瓦片服务。
 5. **真实性与优雅降级**：当内存配额、磁盘容量或地理位置为 `null` 时，UI 必须优雅展示为 `N/A` 或禁用进度条，禁止渲染 `NaN`、`undefined` 或假数据。
 

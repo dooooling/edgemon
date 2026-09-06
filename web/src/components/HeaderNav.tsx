@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { usePublicNodesQuery } from '../queries/nodes';
 import { useRealtimeStore } from '../realtime/store';
 import { useTranslation } from '../i18n/I18nContext';
+import { ONLINE_CUTOFF_MS } from '../utils/time';
 
 export const HeaderNav: React.FC = () => {
   const location = useLocation();
@@ -13,7 +14,7 @@ export const HeaderNav: React.FC = () => {
 
   const nodes = data?.nodes || [];
   const now = Date.now();
-  const onlineCutoffMs = 90 * 1000;
+  const onlineCutoffMs = ONLINE_CUTOFF_MS;
 
   const onlineNodes = nodes.filter((n) => {
     const lastSeen = overlays[n.id]?.last_seen_at_ms ?? n.state?.last_seen_at_ms;

@@ -1,4 +1,4 @@
-// High-Precision Geodesic Vector Polygons and Point Cloud for SpaceX / Mission Control Aesthetic
+// High-Precision Geodesic Vector Polygons and Point Cloud for BMW M Motorsport baseline (DESIGN.md)
 
 export interface GeoPolygon {
   name: string;

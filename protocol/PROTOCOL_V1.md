@@ -84,7 +84,8 @@ All Agent $\leftrightarrow$ Worker messages are wrapped in standard JSON envelop
    - Agent initializes `last_sent_sample_seq = persisted_sample_seq`.
 
 3. **Streaming & Replay**:
-   - Agent streams unsent samples (`sample_seq > last_sent_sample_seq`, up to 16 per report).
+   - Agent streams unsent samples (`sample_seq > last_sent_sample_seq`).
+   - Nominal framing: up to 48 samples per WSS frame, up to 300 samples per HTTP fallback batch.
    - Samples remain in buffer until durable ACK is received.
 
 4. **Durable Watermark ACK**:
@@ -117,7 +118,7 @@ All Agent $\leftrightarrow$ Worker messages are wrapped in standard JSON envelop
 - `1000`: Normal Closure
 - `1002`: Protocol Error
 - `1008`: Policy Violation (e.g. Hello required before report)
-- `1009`: Message Too Big (Frame > 16KB)
+- `1009`: Message Too Big (Frame > 256KB; nominal WSS 48/frame, HTTP 300/batch)
 - `4001`: Server Reconnect
 - `4002`: Replaced by New Instance
 - `4003`: Token Revoked

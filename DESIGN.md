@@ -257,3 +257,13 @@ Hero photography fills full-width with no rounding. Photo cards inside grids ret
 - Form validation states beyond `{component.text-input}` defaults are not extracted — error / success input variants would need a configurator or order flow to confirm.
 - The configurator surface (vehicle build pages with color / wheel / interior pickers) was not in the analyzed URL set; its swatch grid, comparison panels, and price-summary card are not documented here.
 - The cookie consent overlay obscured part of the homepage hero in the captured screenshot; secondary hero treatments (different car models cycling through the hero band) may carry variations not captured.
+
+## EdgeMon Implementation Appendix (Sanctioned Extensions)
+
+The following are the ONLY sanctioned deviations/extensions for the EdgeMon monitoring dashboard. Anything not listed here must follow the base system above (0px radius, no shadows, M-tricolor-as-accent-only).
+
+- **Status semantics**: live/healthy → `{colors.success}` (`#0fa336`); alert → `{colors.m-red}` (`#e22718`); warning → `{colors.warning}` (`#f4b400`). No other greens/ambers/oranges (no `#00e676`, `#4ade80`, `#f59e0b`, `#ffaa00`, `#f87171`).
+- **Chart series**: primary series white (`#ffffff`); secondary series heritage blue (`{colors.m-blue-dark}` `#1c69d4`); grid/axis `{colors.muted}` (`#7e7e7e`). No sky-blue `#38bdf8` or orange `#ff9100` strokes.
+- **Third-party brand colors as data**: ISP/probe tag colors (e.g. telecom/DNS/CDN brand hues) and national flags are DATA, equivalent to photography — exempt from the brand-color ban, same as `{component.motorsport-photo-card}` content.
+- **Circular indicators**: 7–8px status dots may stay circular (`{rounded.full}`); all panels, buttons, inputs, tooltips, legends stay `{rounded.none}` (0px).
+- **Legacy class aliases**: `.spacex-*` class names in `web/src/styles/design-tokens.css` are implementation aliases only; their tokens follow this document (BMW M baseline).

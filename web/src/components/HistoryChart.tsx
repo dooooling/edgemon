@@ -127,7 +127,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
         },
         axes: [
           {
-            stroke: '#a0a0a8',
+            stroke: '#7e7e7e',
             grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
             ticks: { stroke: 'transparent' },
             font: '10px monospace',
@@ -136,7 +136,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
             values: (_u, splits) => (Array.isArray(splits) ? splits.map((ts) => formatBeijingAxis(Number(ts), range)) : []),
           },
           {
-            stroke: '#a0a0a8',
+            stroke: '#7e7e7e',
             grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
             ticks: { stroke: 'transparent' },
             font: '10px monospace',
@@ -224,7 +224,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
           {title}
         </span>
         {range === '10m' && (
-          <span className="spacex-chip" style={{ color: '#00e676', borderColor: '#00e676' }}>
+          <span className="spacex-chip" style={{ color: '#0fa336', borderColor: '#0fa336' }}>
             2-SEC LIVE STREAM
           </span>
         )}
@@ -257,7 +257,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
           marginTop: '10px',
           backgroundColor: 'rgba(255, 255, 255, 0.02)',
           border: '1px solid var(--colors-hairline-subtle)',
-          borderRadius: '4px',
+          borderRadius: '0px',
           fontFamily: 'monospace',
           fontSize: '11px',
         }}
@@ -272,7 +272,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
 
         {/* Column 2: Metric Value */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>
-          <span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: strokeColor, borderRadius: '2px', flexShrink: 0 }}></span>
+          <span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: strokeColor, borderRadius: '0px', flexShrink: 0 }}></span>
           <span style={{ color: 'var(--colors-muted)', textTransform: 'uppercase' }}>{title}:</span>
           <span ref={metricValRef} style={{ fontWeight: 700, color: 'var(--colors-on-dark)', fontVariantNumeric: 'tabular-nums' }}>
             --

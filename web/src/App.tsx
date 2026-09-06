@@ -13,7 +13,7 @@ export const App: React.FC = () => {
         <AppRoutes />
       </main>
 
-      {/* SpaceX Dark Minimalist Mission Footer */}
+      {/* BMW M Dark Minimalist Mission Footer (DESIGN.md baseline) */}
       <footer className="global-footer-dark">
         <div className="footer-inner-dark">
           <span className="eyebrow-cap" style={{ fontSize: '11px' }}>

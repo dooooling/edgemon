@@ -4,7 +4,7 @@ import { usePublicNodesQuery } from '../queries/nodes';
 import { useRealtimeStore } from '../realtime/store';
 import { HistoryChart } from '../components/HistoryChart';
 import { useTranslation } from '../i18n/I18nContext';
-import { formatBeijingDate } from '../utils/time';
+import { formatBeijingDate, ONLINE_CUTOFF_MS } from '../utils/time';
 import { OsIcon } from '../components/OsIcon';
 import { CountryFlag } from '../components/CountryFlag';
 
@@ -65,7 +65,7 @@ export const NodeDetailPage: React.FC = () => {
   }
 
   const lastSeen = overlay?.last_seen_at_ms ?? node.state?.last_seen_at_ms;
-  const isOnline = lastSeen ? Date.now() - lastSeen < 90 * 1000 : false;
+  const isOnline = lastSeen ? Date.now() - lastSeen < ONLINE_CUTOFF_MS : false;
   const probes = overlay?.probes ?? node.state?.probes ?? [];
 
   const cpuUsagePct = overlay?.cpu_usage_pct ?? node.state?.cpu_usage_pct;
@@ -133,7 +133,7 @@ export const NodeDetailPage: React.FC = () => {
         <Link to="/" className="button-ghost-on-dark button-ghost-sm">
           {t('back_to_fleet')}
         </Link>
-        <div className="status-indicator-beacon" style={{ border: '1px solid var(--colors-hairline-on-dark)', padding: '6px 14px', borderRadius: '32px' }}>
+        <div className="status-indicator-beacon" style={{ border: '1px solid var(--colors-hairline)', padding: '6px 14px', borderRadius: '0px' }}>
           <span className="beacon-dot beacon-live"></span>
           <span>{t('live_stream_badge')}</span>
         </div>
@@ -167,8 +167,8 @@ export const NodeDetailPage: React.FC = () => {
                 <span
                   className="spacex-chip"
                   style={{
-                    color: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f59e0b' : '#00e676',
-                    borderColor: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f59e0b' : '#00e676',
+                    color: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f4b400' : '#0fa336',
+                    borderColor: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f4b400' : '#0fa336',
                   }}
                 >
                   {cpuTemp >= 80 ? '🔥' : '🌡️'} {cpuTemp}°C
@@ -182,11 +182,11 @@ export const NodeDetailPage: React.FC = () => {
           </div>
 
           {/* Live Telemetry Stack on Detail Page */}
-          <div className="telemetry-stack" style={{ marginTop: '24px', padding: '20px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+          <div className="telemetry-stack" style={{ marginTop: '24px', padding: '20px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '0px', border: '1px solid var(--colors-hairline)' }}>
             {/* CPU & Load */}
             <div className="telemetry-row">
               <div className="telemetry-header-row">
-                <span style={{ color: 'var(--colors-on-primary-mute)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ color: 'var(--colors-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span>{t('cpu_usage')}</span>
                   {load1 != null && (
                     <span style={{ fontSize: '11px', color: 'var(--colors-muted)' }}>
@@ -209,7 +209,7 @@ export const NodeDetailPage: React.FC = () => {
             {/* Memory */}
             <div className="telemetry-row">
               <div className="telemetry-header-row">
-                <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('memory_allocation')}</span>
+                <span style={{ color: 'var(--colors-muted)' }}>{t('memory_allocation')}</span>
                 <span style={{ fontWeight: 600 }}>{memoryText}</span>
               </div>
               <div className="telemetry-bar-track">
@@ -220,14 +220,14 @@ export const NodeDetailPage: React.FC = () => {
             {/* Storage */}
             <div className="telemetry-row">
               <div className="telemetry-header-row">
-                <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('root_storage')}</span>
+                <span style={{ color: 'var(--colors-muted)' }}>{t('root_storage')}</span>
                 <span style={{ fontWeight: 600 }}>{diskText}</span>
               </div>
             </div>
 
             {/* Multi Mounts Breakdown if available */}
             {mounts.length > 1 && (
-              <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--colors-hairline-on-dark)' }}>
+              <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--colors-hairline)' }}>
                 <span className="eyebrow-cap" style={{ fontSize: '10px', marginBottom: '8px', display: 'block' }}>
                   {t('mounts_title')}
                 </span>
@@ -237,7 +237,7 @@ export const NodeDetailPage: React.FC = () => {
                     const mUsed = m.used_bytes || 0;
                     const mPct = Math.min(100, Math.round((mUsed / mTotal) * 100));
                     return (
-                      <div key={m.mount_point} style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '8px', borderRadius: '4px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+                      <div key={m.mount_point} style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '8px', borderRadius: '0px', border: '1px solid var(--colors-hairline)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600 }}>
                           <span>{m.mount_point} ({m.fs_type || 'EXT4'})</span>
                           <span>{mPct}%</span>
@@ -259,7 +259,7 @@ export const NodeDetailPage: React.FC = () => {
             {traffic && (
               <div className="telemetry-row">
                 <div className="telemetry-header-row">
-                  <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('cycle_traffic')} (DAY {traffic.reset_day})</span>
+                  <span style={{ color: 'var(--colors-muted)' }}>{t('cycle_traffic')} (DAY {traffic.reset_day})</span>
                   <span style={{ fontWeight: 600 }}>
                     {formatBytes(trafficUsed)}
                     {trafficQuota ? ` / ${formatBytes(trafficQuota)}` : ''}
@@ -286,7 +286,7 @@ export const NodeDetailPage: React.FC = () => {
                   </span>
                 )}
                 {tcpEstab != null && (
-                  <span className="spacex-chip" style={{ color: '#38bdf8', borderColor: '#38bdf8' }}>
+                  <span className="spacex-chip" style={{ color: '#1c69d4', borderColor: '#1c69d4' }}>
                     {tcpEstab} TCP ESTAB {tcpTw != null ? `· ${tcpTw} TW` : ''}
                   </span>
                 )}
@@ -441,7 +441,7 @@ export const NodeDetailPage: React.FC = () => {
                         <span>{p.status.toUpperCase()}</span>
                       </span>
                     </td>
-                    <td style={{ fontWeight: 600, color: p.latency_ms ? '#00e676' : 'var(--colors-muted)' }}>
+                    <td style={{ fontWeight: 600, color: p.latency_ms ? '#0fa336' : 'var(--colors-muted)' }}>
                       {p.latency_ms != null ? `${p.latency_ms} MS` : 'N/A'}
                     </td>
                     <td>{Math.round(p.loss_ratio * 100)}%</td>
@@ -484,7 +484,7 @@ export const NodeDetailPage: React.FC = () => {
             title={t('chart_temp_title')}
             metricKey="cpu_temp_celsius"
             unit="°C"
-            strokeColor="#ff9100"
+            strokeColor="#1c69d4"
           />
         )}
         <HistoryChart
@@ -496,7 +496,7 @@ export const NodeDetailPage: React.FC = () => {
           limitBytes={node.resources?.memory_limit_bytes}
           strokeColor="#ffffff"
         />
-        <HistoryChart nodeId={node.id} range={range} title={t('chart_rx_title')} metricKey="rx_bps" unit="B/S" strokeColor="#00e676" />
+        <HistoryChart nodeId={node.id} range={range} title={t('chart_rx_title')} metricKey="rx_bps" unit="B/S" strokeColor="#0fa336" />
         <HistoryChart nodeId={node.id} range={range} title={t('chart_rtt_title')} metricKey="edge_rtt_ms" unit="MS" strokeColor="#ffffff" />
       </div>
     </div>

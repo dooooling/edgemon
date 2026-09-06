@@ -307,10 +307,10 @@ export const AdminPage: React.FC = () => {
             <div style={{
               margin: '0 0 16px 0',
               padding: '12px 16px',
-              backgroundColor: 'rgba(255, 170, 0, 0.08)',
-              border: '1px solid #ffaa00',
-              borderRadius: '4px',
-              color: '#ffaa00',
+              backgroundColor: 'rgba(244, 180, 0, 0.08)',
+              border: '1px solid #f4b400',
+              borderRadius: '0px',
+              color: '#f4b400',
               fontSize: '12px',
               display: 'flex',
               justifyContent: 'space-between',
@@ -319,7 +319,7 @@ export const AdminPage: React.FC = () => {
               <span>⚠️ {adminBannerWarning}</span>
               <button
                 className="button-ghost-on-dark button-ghost-sm"
-                style={{ borderColor: '#ffaa00', color: '#ffaa00', padding: '2px 8px', minHeight: 'auto' }}
+                style={{ borderColor: '#f4b400', color: '#f4b400', padding: '2px 8px', minHeight: 'auto' }}
                 onClick={() => setAdminBannerWarning(null)}
               >
                 DISMISS
@@ -346,7 +346,7 @@ export const AdminPage: React.FC = () => {
                       <strong>{n.name.toUpperCase()}</strong>
                     </td>
                     <td>
-                      <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--colors-on-primary-mute)' }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--colors-muted)' }}>
                         {n.id}
                       </span>
                     </td>
@@ -498,12 +498,12 @@ WantedBy=multi-user.target`;
                   {oneTimeTokenModal.warning && (
                     <div style={{
                       padding: '8px 12px',
-                      backgroundColor: 'rgba(255, 170, 0, 0.1)',
-                      border: '1px solid #ffaa00',
-                      borderRadius: '4px',
+                      backgroundColor: 'rgba(244, 180, 0, 0.1)',
+                      border: '1px solid #f4b400',
+                      borderRadius: '0px',
                       margin: '12px 0',
                       fontSize: '11px',
-                      color: '#ffaa00'
+                      color: '#f4b400'
                     }}>
                       ⚠️ WARNING: {oneTimeTokenModal.warning} — Active agent socket disconnect RPC timed out. Existing stream will be evicted on next verification.
                     </div>
@@ -637,7 +637,7 @@ WantedBy=multi-user.target`;
                 </div>
 
                 {/* Quick Presets Bar */}
-                <div style={{ marginBottom: '20px', padding: '12px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+                <div style={{ marginBottom: '20px', padding: '12px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '0px', border: '1px solid var(--colors-hairline)' }}>
                   <span className="eyebrow-cap" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>
                     {t('probe_presets')}
                   </span>
@@ -645,7 +645,7 @@ WantedBy=multi-user.target`;
                     <button
                       type="button"
                       className="button-ghost-on-dark button-ghost-sm"
-                      style={{ borderColor: '#38bdf8', color: '#38bdf8' }}
+                      style={{ borderColor: '#1c69d4', color: '#1c69d4' }}
                       onClick={() => handleApplyPreset('china_3net')}
                     >
                       🇨🇳 {t('preset_china_3net')}
@@ -673,7 +673,7 @@ WantedBy=multi-user.target`;
                     已配置探测目标 ({(editingConfig.probes || []).length})
                   </span>
                   {(!editingConfig.probes || editingConfig.probes.length === 0) ? (
-                    <div style={{ padding: '16px', textAlign: 'center', color: 'var(--colors-muted)', fontSize: '12px', border: '1px dashed var(--colors-hairline-on-dark)', borderRadius: '4px' }}>
+                    <div style={{ padding: '16px', textAlign: 'center', color: 'var(--colors-muted)', fontSize: '12px', border: '1px dashed var(--colors-hairline)', borderRadius: '0px' }}>
                       暂未配置探测目标，请点击上方预设或手动添加。
                     </div>
                   ) : (
@@ -687,8 +687,8 @@ WantedBy=multi-user.target`;
                             alignItems: 'center',
                             padding: '8px 12px',
                             background: 'rgba(255, 255, 255, 0.03)',
-                            borderRadius: '4px',
-                            border: '1px solid var(--colors-hairline-on-dark)',
+                            borderRadius: '0px',
+                            border: '1px solid var(--colors-hairline)',
                           }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -713,7 +713,7 @@ WantedBy=multi-user.target`;
                 </div>
 
                 {/* Add Custom Probe Form */}
-                <div style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)', marginBottom: '20px' }}>
+                <div style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '0px', border: '1px solid var(--colors-hairline)', marginBottom: '20px' }}>
                   <span className="eyebrow-cap" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>
                     + 添加自定义探测目标
                   </span>

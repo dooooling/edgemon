@@ -21,7 +21,7 @@
 
 - `agent/`：Rust 客户端（双线程架构：Thread 1 指标采样与探测，Thread 2 WSS 主长连与 HTTP 故障降级）。
 - `worker/`：Cloudflare Worker API 与 RealtimeHub Durable Object（Hibernation WebSocket 管理与 60s Checkpoint 事务落盘）。
-- `web/`：React 19 + TypeScript + Vite 前端控制中心（SpaceX 航天机能全暗黑工业风设计）。
+- `web/`：React 19 + TypeScript + Vite 前端控制中心（BMW M 赛车与性能工程全暗黑设计，规范见 `DESIGN.md`）。
 - `migrations/`：D1 数据库 SQL 迁移文件。
 - `protocol/`：Protocol V1.1 协议契约与测试用例。
 

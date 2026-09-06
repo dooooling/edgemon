@@ -5,7 +5,8 @@ import { useRealtimeStore } from '../realtime/store';
 import { useTranslation } from '../i18n/I18nContext';
 import { CountryFlag } from './CountryFlag';
 import { OsIcon } from './OsIcon';
-import { WORLD_POLYGONS, MAJOR_REGIONS, LAND_POINTS, CITY_LIGHTS, STARFIELD } from './world-geo-data';
+import { LAND_POINTS, CITY_LIGHTS, STARFIELD } from './world-geo-data';
+import { getCountryRings, findCountry, MAJOR_COUNTRY_LABELS, regionName } from './world-countries';
 import { ONLINE_CUTOFF_MS } from '../utils/time';
 import { formatBytes, formatBps } from '../utils/format';
 
@@ -60,7 +61,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
   const [currentZoom, setCurrentZoom] = useState<number>(100);
   const [cursorCoords, setCursorCoords] = useState<{ lat: number; lon: number } | null>(null);
   const overlays = useRealtimeStore((s) => s.overlays);
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
 
   const rotYRef = useRef<number>(0.5);
   const rotXRef = useRef<number>(0.2);
@@ -354,30 +355,43 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
         ctx.setLineDash([]);
       });
 
-      // 5. Realistic Satellite Topography Landmasses & Crisp Vector Coastlines
-      WORLD_POLYGONS.forEach((poly) => {
-        // Deep emerald satellite land tint
-        ctx.fillStyle = `rgba(15, 42, 34, ${0.85 * (1 - morph * 0.2)})`;
-        // Luminous coastline contour
-        ctx.strokeStyle = `rgba(255, 255, 255, ${0.55 + morph * 0.25})`;
-        ctx.lineWidth = 1.1;
+      // 5. Natural Earth Country Boundaries (110m, vendored offline).
+      // Monochrome graphite fill + hairline coastlines per SpaceX chassis.
+      // Jump guard prevents antimeridian streaks in 2D mode.
+      getCountryRings().forEach((ring) => {
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.045 * (1 - morph * 0.2)})`;
+        ctx.strokeStyle = `rgba(255, 255, 255, ${0.5 + morph * 0.25})`;
+        ctx.lineWidth = 0.8;
 
         ctx.beginPath();
         let pathStarted = false;
-        poly.points.forEach(([lat, lon]) => {
+        let prevX = 0;
+        let prevVisible = false;
+        // A ring clipped by the limb (or split by the antimeridian) must stay
+        // OPEN: closing it would draw a bright chord across the cut.
+        let clipped = false;
+        for (const [lon, lat] of ring.points) {
           const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
-          if (pt.visible) {
+          const jumped = prevVisible && pt.visible && Math.abs(pt.x - prevX) > radius * 1.2;
+          if (pt.visible && !jumped) {
             if (!pathStarted) {
               ctx.moveTo(pt.x, pt.y);
               pathStarted = true;
             } else {
               ctx.lineTo(pt.x, pt.y);
             }
+          } else {
+            if (pathStarted) clipped = true;
+            pathStarted = false;
           }
-        });
+          prevX = pt.x;
+          prevVisible = pt.visible;
+        }
         if (pathStarted) {
-          ctx.closePath();
-          ctx.fill();
+          if (!clipped) {
+            ctx.closePath();
+            ctx.fill();
+          }
           ctx.stroke();
         }
       });
@@ -414,14 +428,32 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
         }
       });
 
-      // 8. Major Geographic Region Labels
-      MAJOR_REGIONS.forEach((reg) => {
-        const pt = projectMorphed(reg.lat, reg.lon, radius, rotX, rotY, morph, centerX, centerY);
+      // 8. Country Labels: curated majors + live node host countries.
+      // Display names follow the UI language via Intl.DisplayNames (no table).
+      const nodeCountries = new Map<string, { lon: number; lat: number }>();
+      nodes.forEach((n) => {
+        const lat = n.geo?.lat;
+        const lon = n.geo?.lon;
+        const code = (n.geo?.country || '').toUpperCase();
+        if (lat == null || lon == null || isNaN(lat) || isNaN(lon)) return;
+        if (!/^[A-Z]{2}$/.test(code)) return;
+        if (nodeCountries.has(code)) return;
+        // Skip when a curated major already covers this country.
+        const name = findCountry(lon, lat);
+        if (name && MAJOR_COUNTRY_LABELS.some((c) => c.name === name)) return;
+        nodeCountries.set(code, { lon, lat });
+      });
+      const labels = MAJOR_COUNTRY_LABELS.map((c) => ({ text: regionName(c.short, lang), lon: c.lon, lat: c.lat }));
+      nodeCountries.forEach((pos, code) => {
+        labels.push({ text: regionName(code, lang), lon: pos.lon, lat: pos.lat });
+      });
+      labels.forEach((label) => {
+        const pt = projectMorphed(label.lat, label.lon, radius, rotX, rotY, morph, centerX, centerY);
         if (pt.visible && pt.alpha > 0.35) {
           ctx.fillStyle = `rgba(255, 255, 255, ${pt.alpha * 0.8})`;
           ctx.font = '700 9px Inter, sans-serif';
           ctx.textAlign = 'center';
-          ctx.fillText(reg.name, pt.x, pt.y);
+          ctx.fillText(label.text, pt.x, pt.y);
           ctx.textAlign = 'left';
         }
       });
@@ -546,7 +578,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
     return () => {
       cancelAnimationFrame(animId);
     };
-  }, [geoNodes, overlays, mode, nodes.length]);
+  }, [geoNodes, overlays, mode, nodes.length, lang]);
 
   // Native Non-Passive Wheel Event Listener
   useEffect(() => {

@@ -49,9 +49,9 @@ export const CountryFlag: React.FC<CountryFlagProps> = ({
             display: 'inline-flex',
             width: `${width}px`,
             height: `${height}px`,
-            borderRadius: '2px',
+            borderRadius: '0px',
             overflow: 'hidden',
-            boxShadow: '0 0 1px rgba(255, 255, 255, 0.4)',
+            border: '1px solid var(--colors-hairline-subtle)',
             flexShrink: 0,
           }}
         >

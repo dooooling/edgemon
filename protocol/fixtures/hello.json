@@ -25,6 +25,7 @@
     "resources": {
       "cpu_model_visible": "AMD EPYC 9654",
       "cpu_capacity_cores": 0.5,
+      "cpu_physical_cores": 2,
       "memory_limit_bytes": 536870912,
       "swap_limit_bytes": 0,
       "rootfs_limit_bytes": null,

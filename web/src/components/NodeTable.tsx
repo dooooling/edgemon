@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { NodeItem } from '../api/client';
 import { useRealtimeStore } from '../realtime/store';
 import { useTranslation } from '../i18n/I18nContext';
+import { ONLINE_CUTOFF_MS } from '../utils/time';
 import { CountryFlag } from './CountryFlag';
 import { OsIcon } from './OsIcon';
 
@@ -13,20 +14,7 @@ interface NodeTableProps {
 type SortField = 'status' | 'name' | 'cpu' | 'ram' | 'disk' | 'net' | 'traffic' | 'rtt' | 'expire';
 type SortOrder = 'asc' | 'desc';
 
-function formatBytes(bytes?: number | null): string {
-  if (!bytes || bytes <= 0) return '0 B';
-  if (bytes >= 1024 * 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2) + ' TB';
-  if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
-  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  return (bytes / 1024).toFixed(0) + ' KB';
-}
-
-function formatBps(bps?: number | null): string {
-  if (!bps || bps <= 0) return '0 B/s';
-  if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(1) + ' MB/s';
-  if (bps >= 1024) return (bps / 1024).toFixed(0) + ' KB/s';
-  return bps.toFixed(0) + ' B/s';
-}
+import { formatBytes, formatBps } from '../utils/format';
 
 export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
   const navigate = useNavigate();
@@ -37,7 +25,7 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
   const now = Date.now();
-  const onlineCutoffMs = 90 * 1000;
+  const onlineCutoffMs = ONLINE_CUTOFF_MS;
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -188,11 +176,11 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
             if (node.expires_at_ms) {
               const daysLeft = Math.ceil((node.expires_at_ms - now) / (1000 * 60 * 60 * 24));
               if (daysLeft < 0) {
-                expBadge = <span className="spacex-chip" style={{ backgroundColor: 'rgba(226, 39, 24, 0.2)', color: '#e22718', border: '1px solid #e22718' }}>{t('exp_expired')}</span>;
+                expBadge = <span className="spacex-chip" style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', border: '1px solid #ef4444' }}>{t('exp_expired')}</span>;
               } else if (daysLeft <= 3) {
-                expBadge = <span className="spacex-chip" style={{ backgroundColor: 'rgba(226, 39, 24, 0.15)', color: '#e22718' }}>{daysLeft === 0 ? t('exp_today') : `${daysLeft}d`}</span>;
+                expBadge = <span className="spacex-chip" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>{daysLeft === 0 ? t('exp_today') : `${daysLeft}d`}</span>;
               } else if (daysLeft <= 7) {
-                expBadge = <span className="spacex-chip" style={{ backgroundColor: 'rgba(244, 180, 0, 0.15)', color: '#f4b400' }}>{daysLeft}d</span>;
+                expBadge = <span className="spacex-chip" style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>{daysLeft}d</span>;
               } else {
                 expBadge = <span className="spacex-chip">{daysLeft}d</span>;
               }
@@ -229,7 +217,7 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
                         <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={16} />
                         <span>{node.system?.os_version || node.environment?.type || 'LINUX'} · {cpuCores}C</span>
                         {isOnline && tcpEstab != null && (
-                          <span style={{ color: '#38bdf8' }}>· {tcpEstab} TCP</span>
+                          <span style={{ color: '#ffffff' }}>· {tcpEstab} TCP</span>
                         )}
                       </div>
                     </div>
@@ -241,7 +229,7 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 600 }}>
                     <span>{isOnline && cpuPct != null ? `${cpuPct}%` : 'N/A'}</span>
                     {isOnline && cpuTemp != null && (
-                      <span style={{ fontSize: '10px', color: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f59e0b' : '#00e676', fontWeight: 500 }}>
+                      <span style={{ fontSize: '10px', color: cpuTemp >= 80 ? '#ef4444' : cpuTemp >= 60 ? '#f59e0b' : '#22c55e', fontWeight: 500 }}>
                         {cpuTemp}°C
                       </span>
                     )}
@@ -329,13 +317,13 @@ export const NodeTable: React.FC<NodeTableProps> = ({ nodes }) => {
                         return (
                           <div style={{ display: 'flex', gap: '5px', fontSize: '10px', fontWeight: 600, marginTop: '2px' }}>
                             {ct?.latency_ms != null && (
-                              <span style={{ color: '#38bdf8' }} title="中国电信骨干延迟">电:{ct.latency_ms}m</span>
+                              <span style={{ color: '#ffffff' }} title="中国电信骨干延迟">电:{ct.latency_ms}ms</span>
                             )}
                             {cu?.latency_ms != null && (
-                              <span style={{ color: '#f87171' }} title="中国联通骨干延迟">联:{cu.latency_ms}m</span>
+                              <span style={{ color: '#ef4444' }} title="中国联通骨干延迟">联:{cu.latency_ms}ms</span>
                             )}
                             {cm?.latency_ms != null && (
-                              <span style={{ color: '#4ade80' }} title="中国移动骨干延迟">移:{cm.latency_ms}m</span>
+                              <span style={{ color: '#22c55e' }} title="中国移动骨干延迟">移:{cm.latency_ms}ms</span>
                             )}
                           </div>
                         );

@@ -100,6 +100,19 @@ export async function getSecretSetting(
 }
 
 // HMAC-SHA-256 for Admin Session Cookies
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlToBytes(s: string): Uint8Array {
+  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
 export async function signSession(payload: string, secret: string): Promise<string> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -109,12 +122,10 @@ export async function signSession(payload: string, secret: string): Promise<stri
     false,
     ['sign']
   );
-  const signature = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
-  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(signature)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-  return `${btoa(payload)}.${sigB64}`;
+  const payloadBytes = enc.encode(payload);
+  const signature = await crypto.subtle.sign('HMAC', key, payloadBytes);
+  const sigB64 = bytesToBase64Url(new Uint8Array(signature));
+  return `${bytesToBase64Url(payloadBytes)}.${sigB64}`;
 }
 
 export async function verifySession(token: string, secret: string): Promise<string | null> {
@@ -122,9 +133,26 @@ export async function verifySession(token: string, secret: string): Promise<stri
   if (parts.length !== 2) {
     return null;
   }
-  const [b64Payload, sigB64] = parts;
+  const [payloadB64, sigB64] = parts;
+  // New base64url format first, then legacy standard-base64 payload
+  // (pre-upgrade cookies) so one deploy does not log out all admins.
+  return (
+    (await verifySessionWith(payloadB64, sigB64, secret, false)) ??
+    (await verifySessionWith(payloadB64, sigB64, secret, true))
+  );
+}
+
+async function verifySessionWith(
+  payloadB64: string,
+  sigB64: string,
+  secret: string,
+  legacyPayload: boolean
+): Promise<string | null> {
   try {
-    const payload = atob(b64Payload);
+    const payloadBytes = legacyPayload
+      ? Uint8Array.from(atob(payloadB64), (c) => c.charCodeAt(0))
+      : base64UrlToBytes(payloadB64);
+    const payload = new TextDecoder().decode(payloadBytes);
     const enc = new TextEncoder();
     const key = await crypto.subtle.importKey(
       'raw',
@@ -134,8 +162,8 @@ export async function verifySession(token: string, secret: string): Promise<stri
       ['verify']
     );
 
-    const sigBytes = Uint8Array.from(atob(sigB64.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
-    const isValid = await crypto.subtle.verify('HMAC', key, sigBytes, enc.encode(payload));
+    const sigBytes = base64UrlToBytes(sigB64);
+    const isValid = await crypto.subtle.verify('HMAC', key, sigBytes, payloadBytes);
     return isValid ? payload : null;
   } catch {
     return null;

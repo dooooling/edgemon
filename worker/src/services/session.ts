@@ -1,5 +1,9 @@
 import { verifySession } from './crypto';
 
+// NOTE: the login-time client IP is recorded for audit only and is NOT
+// enforced here. Binding sessions to IP would log out roaming admins
+// (mobile networks, CF edge changes); containment relies on 12h expiry +
+// HttpOnly + Secure + SameSite=Strict instead.
 export async function verifyAdminSession(
   cookieHeader: string | null | undefined,
   sessionSecret?: string

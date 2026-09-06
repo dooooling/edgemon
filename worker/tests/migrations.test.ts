@@ -18,7 +18,7 @@ describe('D1 Migrations Verification (Fresh Install & Upgrade Path)', () => {
     }));
   }
 
-  it('Migration sequence has exactly 5 strictly numbered files starting with 0001_init.sql', () => {
+  it('Migration sequence has exactly 6 strictly numbered files starting with 0001_init.sql', () => {
     const migrations = getMigrationFiles();
     expect(migrations.map((m) => m.name)).toEqual([
       '0001_init.sql',
@@ -26,6 +26,7 @@ describe('D1 Migrations Verification (Fresh Install & Upgrade Path)', () => {
       '0003_wss_active_instance.sql',
       '0004_node_finance.sql',
       '0005_time_indexes.sql',
+      '0006_cpu_topology.sql',
     ]);
   });
 
@@ -58,7 +59,7 @@ describe('D1 Migrations Verification (Fresh Install & Upgrade Path)', () => {
     expect(m5).toContain('idx_traffic_periods_start');
   });
 
-  it('Real SQLite WebAssembly Execution: Fresh install executes 0001 -> 0005 sequentially without SQL errors', async () => {
+  it('Real SQLite WebAssembly Execution: Fresh install executes 0001 -> 0006 sequentially without SQL errors', async () => {
     const SQL = await initSqlJs();
     const db = new SQL.Database();
     const migrations = getMigrationFiles();
@@ -81,6 +82,7 @@ describe('D1 Migrations Verification (Fresh Install & Upgrade Path)', () => {
     expect(nodeColumns).toContain('plan_currency');
     expect(nodeColumns).toContain('billing_cycle');
     expect(nodeColumns).toContain('auto_renewal');
+    expect(nodeColumns).toContain('cpu_physical_cores');
 
     // Verify node_state columns
     const stateRes = db.exec('PRAGMA table_info(node_state)');

@@ -279,19 +279,16 @@ async function dispatchAlertNotifications(env: Env, transitions: AlertTransition
         console.error('[Alerts] Failed to mark alert delivered:', err);
       }
     } else if (successCount > 0) {
-      // 2. Partial delivery (some channels succeeded, some failed)
-      // Advance last_notified_at_ms to prevent notification storming, but audit failure
+      // 2. Partial delivery (some channels succeeded, some failed).
+      // Do NOT mark delivered: failed targets must retry next cycle.
+      // (Healthy targets may receive a duplicate on retry — bounded to the
+      // outage window and strictly better than silently dropping alerts.)
       await recordEvent(env.DB, t.nodeId, 'alert_delivered_partial', {
         status: t.status,
         type: t.type,
         succeeded_targets: stat.succeeded,
         failed_targets: stat.failed,
       });
-      try {
-        await markAlertDelivered(env.DB, t.stateKey, Date.now());
-      } catch (err) {
-        console.error('[Alerts] Failed to mark alert delivered:', err);
-      }
     } else {
       // 3. Complete failure across all channels - do NOT mark delivered, will retry next evaluation cycle
       await recordEvent(env.DB, t.nodeId, 'alert_delivery_all_failed', {

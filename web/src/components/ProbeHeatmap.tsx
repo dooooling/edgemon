@@ -29,15 +29,15 @@ export const TARGET_LABELS: Record<string, { name: string; flag: string }> = {
 };
 
 export function getLatencyColor(rtt: number | null | undefined, loss: number): string {
-  if (loss > 0 || rtt === null || rtt === undefined || rtt <= 0) {
-    if (loss >= 100 || rtt === null || rtt === undefined) return '#f85149'; // Red (down/loss)
-    return '#ff7043'; // Orange (packet loss)
-  }
-  if (rtt < 50) return '#00e676'; // Neon green (ultra fast)
-  if (rtt < 100) return '#00d4aa'; // Cyan green (good)
-  if (rtt < 180) return '#38bdf8'; // Sky blue (fair)
-  if (rtt < 280) return '#ffb870'; // Warm yellow (high)
-  return '#ff7043'; // Coral orange (very high)
+  // Tier colors strictly from DESIGN.md §1.3 Active Accents
+  if (loss >= 100 || rtt === null || rtt === undefined) return '#ef4444'; // Critical / Offline
+  if (loss > 0) return '#f97316'; // Degraded (packet loss)
+  if (rtt <= 0) return '#ef4444';
+  if (rtt < 50) return '#22c55e'; // Online / Normal (ultra fast)
+  if (rtt < 100) return '#4ade80'; // Online / Normal (good)
+  if (rtt < 180) return '#ffffff'; // Neutral (fair)
+  if (rtt < 280) return '#f59e0b'; // Warning / Degraded (high)
+  return '#ef4444'; // Critical (very high)
 }
 
 function getBarHeight(rtt: number | null | undefined, loss: number): number {
@@ -124,10 +124,10 @@ export const ProbeSparklineBar: React.FC<{
                   width: '100%',
                   height: `${sHeight}px`,
                   backgroundColor: sColor,
-                  borderRadius: '1px',
+                  borderRadius: '0px',
                   opacity: isLatest ? 1 : 0.65,
-                  transition: 'all 0.15s ease',
-                  boxShadow: isLatest ? `0 0 6px ${sColor}80` : 'none',
+                  transition: 'background-color 0.15s ease, opacity 0.15s ease',
+                  boxShadow: 'none',
                 }}
               />
             </div>
@@ -143,10 +143,9 @@ export const ProbeSparklineBar: React.FC<{
             top: `${activeTooltip.y - 8}px`,
             transform: 'translate(-50%, -100%)',
             padding: '5px 9px',
-            backgroundColor: '#0a0a0a',
+            backgroundColor: '#0a0a0c',
             border: '1px solid var(--colors-hairline-subtle)',
-            borderRadius: '4px',
-            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.8)',
+            borderRadius: '0px',
             fontSize: '10px',
             fontFamily: 'monospace',
             whiteSpace: 'nowrap',
@@ -203,7 +202,7 @@ export const ProbeHeatmap: React.FC<ProbeHeatmapProps> = ({
         padding: compact ? '8px 10px' : '14px 16px',
         backgroundColor: compact ? 'transparent' : 'rgba(255, 255, 255, 0.02)',
         border: compact ? 'none' : '1px solid var(--colors-hairline-subtle)',
-        borderRadius: '6px',
+        borderRadius: '0px',
         position: 'relative',
       }}
     >

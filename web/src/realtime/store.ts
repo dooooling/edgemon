@@ -78,6 +78,9 @@ interface RealtimeState {
 
 let activeSocket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectAttempts = 0;
+const RECONNECT_BASE_DELAY_MS = 2000;
+const RECONNECT_MAX_DELAY_MS = 30000;
 
 export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   overlays: {},
@@ -117,6 +120,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
+        reconnectAttempts = 0;
         set({ wsConnected: true, activeScope: scope, activeNodeId: targetNodeId });
       };
 
@@ -240,12 +244,19 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       ws.onclose = () => {
         set({ wsConnected: false });
         if (reconnectTimer) clearTimeout(reconnectTimer);
+        // Exponential backoff: 2s, 4s, 8s ... capped at 30s; reset on open.
+        // Manual disconnect sets activeScope 'none', which cancels retries.
+        const delayMs = Math.min(
+          RECONNECT_BASE_DELAY_MS * 2 ** reconnectAttempts,
+          RECONNECT_MAX_DELAY_MS
+        );
+        reconnectAttempts += 1;
         reconnectTimer = setTimeout(() => {
           const s = get();
           if (s.activeScope !== 'none') {
             get().connectRealtime(s.activeScope, s.activeNodeId || undefined);
           }
-        }, 2000);
+        }, delayMs);
       };
 
       activeSocket = ws;
@@ -259,6 +270,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
+    reconnectAttempts = 0;
     if (activeSocket) {
       activeSocket.close();
       activeSocket = null;
@@ -272,7 +284,9 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       delete nextOverlays[nodeId];
       const nextSeries = { ...state.realtimeSeries };
       delete nextSeries[nodeId];
-      return { overlays: nextOverlays, realtimeSeries: nextSeries };
+      const nextProbeHistory = { ...state.probeHistory };
+      delete nextProbeHistory[nodeId];
+      return { overlays: nextOverlays, realtimeSeries: nextSeries, probeHistory: nextProbeHistory };
     });
   },
 }));

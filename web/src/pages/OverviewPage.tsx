@@ -7,6 +7,8 @@ import { NodeCard } from '../components/NodeCard';
 import { NodeTable } from '../components/NodeTable';
 import { FinanceSummaryModal } from '../components/FinanceSummaryModal';
 import { useTranslation } from '../i18n/I18nContext';
+import { ONLINE_CUTOFF_MS } from '../utils/time';
+import { formatBps } from '../utils/format';
 
 export const OverviewPage: React.FC = () => {
   const { data, isLoading, isFetching, refetch } = usePublicNodesQuery();
@@ -25,7 +27,7 @@ export const OverviewPage: React.FC = () => {
 
   const nodes = data?.nodes || [];
   const now = Date.now();
-  const onlineCutoffMs = 90 * 1000;
+  const onlineCutoffMs = ONLINE_CUTOFF_MS;
 
   const onlineNodes = nodes.filter((n) => {
     const lastSeen = overlays[n.id]?.last_seen_at_ms ?? n.state?.last_seen_at_ms;
@@ -84,10 +86,10 @@ export const OverviewPage: React.FC = () => {
             <button
               type="button"
               className="button-ghost-on-dark button-ghost-sm"
-              style={{ borderColor: 'rgba(0, 230, 118, 0.5)', color: '#00e676', fontWeight: 600 }}
+              style={{ borderColor: 'rgba(34, 197, 94, 0.5)', color: '#22c55e', fontWeight: 600 }}
               onClick={() => setShowFinanceModal(true)}
             >
-              💰 财务账单 / 续费日历
+              {t('finance_summary_btn')}
             </button>
           )}
 
@@ -186,11 +188,3 @@ export const OverviewPage: React.FC = () => {
     </div>
   );
 };
-
-function formatBps(bps: number): string {
-  if (!bps || bps === 0) return '0 B/S';
-  if (bps >= 1024 * 1024 * 1024) return (bps / (1024 * 1024 * 1024)).toFixed(2) + ' GB/S';
-  if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(1) + ' MB/S';
-  if (bps >= 1024) return (bps / 1024).toFixed(0) + ' KB/S';
-  return bps + ' B/S';
-}

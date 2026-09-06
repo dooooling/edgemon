@@ -5,7 +5,8 @@ import { useRealtimeStore } from '../realtime/store';
 import { useTranslation } from '../i18n/I18nContext';
 import { OsIcon } from './OsIcon';
 import { CountryFlag } from './CountryFlag';
-import { formatUptime } from '../utils/time';
+import { formatUptime, ONLINE_CUTOFF_MS } from '../utils/time';
+import { formatBytes, formatBps } from '../utils/format';
 import { ProbeHeatmap } from './ProbeHeatmap';
 
 interface NodeCardProps {
@@ -28,7 +29,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
   const { t } = useTranslation();
 
   const lastSeenAtMs = overlay?.last_seen_at_ms ?? node.state?.last_seen_at_ms;
-  const isOnline = lastSeenAtMs ? Date.now() - lastSeenAtMs < 90 * 1000 : false;
+  const isOnline = lastSeenAtMs ? Date.now() - lastSeenAtMs < ONLINE_CUTOFF_MS : false;
 
   const cpuUsagePct = overlay?.cpu_usage_pct ?? node.state?.cpu_usage_pct;
   const memoryUsedBytes = overlay?.memory_used_bytes ?? node.state?.memory_used_bytes;
@@ -108,7 +109,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
               <CountryFlag countryCode={node.geo?.country} />
               <span>{node.name}</span>
               {fin && fin.price != null && fin.price > 0 && (
-                <span className="spacex-chip" style={{ color: '#00e676', borderColor: 'rgba(0, 230, 118, 0.4)' }}>
+                <span className="spacex-chip" style={{ color: '#22c55e', borderColor: 'rgba(34, 197, 94, 0.4)' }}>
                   {fin.currency || 'USD'} {fin.price}/{CYCLE_SHORT[fin.billing_cycle || 'monthly'] || fin.billing_cycle}
                 </span>
               )}
@@ -120,11 +121,11 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
               {node.expires_at_ms && (() => {
                 const daysLeft = Math.ceil((node.expires_at_ms - Date.now()) / (1000 * 60 * 60 * 24));
                 if (daysLeft < 0) {
-                  return <span className="spacex-chip" style={{ backgroundColor: 'rgba(226, 39, 24, 0.2)', color: '#e22718', border: '1px solid #e22718' }}>{t('exp_expired')}</span>;
+                  return <span className="spacex-chip" style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', border: '1px solid #ef4444' }}>{t('exp_expired')}</span>;
                 } else if (daysLeft <= 3) {
-                  return <span className="spacex-chip" style={{ backgroundColor: 'rgba(226, 39, 24, 0.15)', color: '#e22718' }}>{daysLeft === 0 ? t('exp_today') : `${daysLeft}d`}</span>;
+                  return <span className="spacex-chip" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>{daysLeft === 0 ? t('exp_today') : `${daysLeft}d`}</span>;
                 } else if (daysLeft <= 7) {
-                  return <span className="spacex-chip" style={{ backgroundColor: 'rgba(244, 180, 0, 0.15)', color: '#f4b400' }}>{daysLeft}d</span>;
+                  return <span className="spacex-chip" style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>{daysLeft}d</span>;
                 } else {
                   return <span className="spacex-chip">{daysLeft}d</span>;
                 }
@@ -133,7 +134,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--colors-on-primary-mute)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--colors-muted)' }}>
               <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={18} />
               <span>{node.resources?.cpu_capacity_cores || 1}C</span>
             </span>
@@ -149,11 +150,11 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           {/* CPU */}
           <div className="telemetry-row">
             <div className="telemetry-header-row">
-              <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('cpu_usage')}</span>
+              <span style={{ color: 'var(--colors-muted)' }}>{t('cpu_usage')}</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span>{cpuText}</span>
                 {isOnline && cpuTemp != null && (
-                  <span style={{ fontSize: '10px', color: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f59e0b' : '#00e676' }}>
+                  <span style={{ fontSize: '10px', color: cpuTemp >= 80 ? '#ef4444' : cpuTemp >= 60 ? '#f59e0b' : '#22c55e' }}>
                     {cpuTemp}°C
                   </span>
                 )}
@@ -167,7 +168,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           {/* Memory */}
           <div className="telemetry-row">
             <div className="telemetry-header-row">
-              <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('memory_allocation')}</span>
+              <span style={{ color: 'var(--colors-muted)' }}>{t('memory_allocation')}</span>
               <span>{memoryText}</span>
             </div>
             <div className="telemetry-bar-track">
@@ -178,7 +179,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           {/* Storage */}
           <div className="telemetry-row">
             <div className="telemetry-header-row">
-              <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('root_storage')}</span>
+              <span style={{ color: 'var(--colors-muted)' }}>{t('root_storage')}</span>
               <span>{diskText}</span>
             </div>
             <div className="telemetry-bar-track">
@@ -190,7 +191,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
           {traffic && (
             <div className="telemetry-row">
               <div className="telemetry-header-row">
-                <span style={{ color: 'var(--colors-on-primary-mute)' }}>{t('cycle_traffic')} (DAY {traffic.reset_day})</span>
+                <span style={{ color: 'var(--colors-muted)' }}>{t('cycle_traffic')} (DAY {traffic.reset_day})</span>
                 <span>
                   {formatBytes(trafficUsed)}
                   {trafficQuota ? ` / ${formatBytes(trafficQuota)}` : ''}
@@ -223,7 +224,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
               </span>
             )}
             {isOnline && tcpEstab != null && (
-              <span className="spacex-chip" style={{ color: '#38bdf8' }}>
+              <span className="spacex-chip" style={{ color: '#ffffff' }}>
                 {tcpEstab} TCP
               </span>
             )}
@@ -256,18 +257,3 @@ export const NodeCard: React.FC<NodeCardProps> = ({ node }) => {
     </div>
   );
 };
-
-function formatBytes(bytes?: number | null): string {
-  if (!bytes || bytes === 0) return '0 B';
-  if (bytes >= 1024 * 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2) + ' TB';
-  if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
-  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  return (bytes / 1024).toFixed(0) + ' KB';
-}
-
-function formatBps(bps?: number | null): string {
-  if (!bps || bps === 0) return '0 B/S';
-  if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(1) + ' MB/S';
-  if (bps >= 1024) return (bps / 1024).toFixed(0) + ' KB/S';
-  return bps + ' B/S';
-}

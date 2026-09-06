@@ -174,30 +174,11 @@ fn resolve_cgroup_v1(is_container: bool) -> Option<CgroupContext> {
         .filter(|p| p.exists())
         .unwrap_or_else(|| blkio_root.clone());
 
-    let mut min_cpu_quota_cores: Option<f64> = None;
-    let mut min_memory_max: Option<u64> = None;
-
-    // Check cpu quota
-    if let (Ok(q_str), Ok(p_str)) = (
-        fs::read_to_string(target_cpu.join("cpu.cfs_quota_us")),
-        fs::read_to_string(target_cpu.join("cpu.cfs_period_us")),
-    ) {
-        if let (Ok(q), Ok(p)) = (q_str.trim().parse::<f64>(), p_str.trim().parse::<f64>()) {
-            if q > 0.0 && p > 0.0 {
-                min_cpu_quota_cores = Some(q / p);
-            }
-        }
-    }
-
-    // Check memory limit
-    if let Ok(m_str) = fs::read_to_string(target_mem.join("memory.limit_in_bytes")) {
-        if let Ok(bytes) = m_str.trim().parse::<u64>() {
-            // Check if not infinite (> 1PB is typically unlimited)
-            if bytes < 1_000_000_000_000_000 {
-                min_memory_max = Some(bytes);
-            }
-        }
-    }
+    // Walk each subsystem from the target cgroup up to its mount root,
+    // taking the minimum quota/limit along the path (ancestor limits).
+    // A parent-level constraint must never be silently missed.
+    let min_cpu_quota_cores = min_v1_cpu_quota_along(&cpu_root, &target_cpu);
+    let min_memory_max = min_v1_mem_limit_along(&mem_root, &target_mem);
 
     Some(CgroupContext {
         version: CgroupVersion::V1,
@@ -213,6 +194,63 @@ fn resolve_cgroup_v1(is_container: bool) -> Option<CgroupContext> {
             swap_max_bytes: None,
         },
     })
+}
+
+/// Minimum v1 CPU quota (cores) from `target` up to subsystem `root`.
+/// Levels reporting -1 (unlimited) or unreadable files are skipped, so an
+/// unconstrained level never masks a constrained ancestor.
+pub fn min_v1_cpu_quota_along(root: &Path, target: &Path) -> Option<f64> {
+    let mut best: Option<f64> = None;
+    let mut current = target.to_path_buf();
+    loop {
+        if let (Ok(q_str), Ok(p_str)) = (
+            fs::read_to_string(current.join("cpu.cfs_quota_us")),
+            fs::read_to_string(current.join("cpu.cfs_period_us")),
+        ) {
+            if let (Ok(q), Ok(p)) = (q_str.trim().parse::<f64>(), p_str.trim().parse::<f64>()) {
+                if q > 0.0 && p > 0.0 {
+                    let cores = q / p;
+                    best = Some(best.map_or(cores, |b: f64| b.min(cores)));
+                }
+            }
+        }
+        if current == root {
+            break;
+        }
+        match current.parent() {
+            Some(parent) if current.starts_with(root) && parent.starts_with(root) => {
+                current = parent.to_path_buf()
+            }
+            _ => break,
+        }
+    }
+    best
+}
+
+/// Minimum v1 memory limit (bytes) from `target` up to subsystem `root`.
+/// Values >= 1PB are treated as unlimited (kernel reports ~9EB for "max").
+pub fn min_v1_mem_limit_along(root: &Path, target: &Path) -> Option<u64> {
+    let mut best: Option<u64> = None;
+    let mut current = target.to_path_buf();
+    loop {
+        if let Ok(m_str) = fs::read_to_string(current.join("memory.limit_in_bytes")) {
+            if let Ok(bytes) = m_str.trim().parse::<u64>() {
+                if bytes < 1_000_000_000_000_000 {
+                    best = Some(best.map_or(bytes, |b: u64| b.min(bytes)));
+                }
+            }
+        }
+        if current == root {
+            break;
+        }
+        match current.parent() {
+            Some(parent) if current.starts_with(root) && parent.starts_with(root) => {
+                current = parent.to_path_buf()
+            }
+            _ => break,
+        }
+    }
+    best
 }
 
 fn get_cgroup_v2_path(is_container: bool) -> Option<String> {

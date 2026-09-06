@@ -3,6 +3,9 @@
  * 严格遵循 24 小时制 北京时间 (Asia/Shanghai, UTC+8)，彻底杜绝 AM/PM
  */
 
+/** 节点在线判定阈值：90s 内无遥测即判离线（各页面/组件统一引用，见 DESIGN.md 附录） */
+export const ONLINE_CUTOFF_MS = 90 * 1000;
+
 const BEIJING_TIMEZONE = 'Asia/Shanghai';
 
 const beijingDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {

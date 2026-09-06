@@ -46,35 +46,18 @@ impl IoCollector {
             ) {
                 let elapsed_sec = now.duration_since(last_inst).as_secs_f64();
                 if elapsed_sec > 0.0 {
-                    let r_bps = match (prev.read_bytes, curr.read_bytes) {
-                        (Some(p), Some(c)) => {
-                            Some((c.saturating_sub(p) as f64 / elapsed_sec).round() as u64)
-                        }
-                        _ => None,
-                    };
-                    let w_bps = match (prev.write_bytes, curr.write_bytes) {
-                        (Some(p), Some(c)) => {
-                            Some((c.saturating_sub(p) as f64 / elapsed_sec).round() as u64)
-                        }
-                        _ => None,
-                    };
-                    let r_iops = match (prev.read_ios, curr.read_ios) {
-                        (Some(p), Some(c)) => {
-                            Some((c.saturating_sub(p) as f64 / elapsed_sec).round() as u64)
-                        }
-                        _ => None,
-                    };
-                    let w_iops = match (prev.write_ios, curr.write_ios) {
-                        (Some(p), Some(c)) => {
-                            Some((c.saturating_sub(p) as f64 / elapsed_sec).round() as u64)
-                        }
-                        _ => None,
-                    };
-                    let util_pct = match (prev.io_ticks_ms, curr.io_ticks_ms) {
-                        (Some(p), Some(c)) => {
-                            let ticks_delta = c.saturating_sub(p) as f64;
-                            let u =
-                                ((ticks_delta / (elapsed_sec * 1000.0)) * 100.0).clamp(0.0, 100.0);
+                    // Rollback (counter reset/remap) yields None and rebaselines,
+                    // mirroring network counter semantics — never report 0 for
+                    // a reset, and never compute a negative rate.
+                    let r_bps = rate_delta(prev.read_bytes, curr.read_bytes, elapsed_sec);
+                    let w_bps = rate_delta(prev.write_bytes, curr.write_bytes, elapsed_sec);
+                    let r_iops = rate_delta(prev.read_ios, curr.read_ios, elapsed_sec);
+                    let w_iops = rate_delta(prev.write_ios, curr.write_ios, elapsed_sec);
+                    let util_pct = match rate_delta(prev.io_ticks_ms, curr.io_ticks_ms, elapsed_sec)
+                    {
+                        Some(ticks_delta) => {
+                            let u = ((ticks_delta as f64 / (elapsed_sec * 1000.0)) * 100.0)
+                                .clamp(0.0, 100.0);
                             Some((u * 10.0).round() / 10.0)
                         }
                         _ => None,
@@ -98,6 +81,17 @@ impl IoCollector {
             write_iops,
             io_util_pct,
         }
+    }
+}
+
+/// Monotonic counter delta over `elapsed_sec`, rounded to whole units.
+/// Returns `None` when either side is missing or the counter moved backward
+/// (reset/remap): the caller reports null and rebaselines instead of
+/// fabricating a zero or negative rate.
+fn rate_delta(prev: Option<u64>, curr: Option<u64>, elapsed_sec: f64) -> Option<u64> {
+    match (prev, curr) {
+        (Some(p), Some(c)) if c >= p => Some(((c - p) as f64 / elapsed_sec).round() as u64),
+        _ => None,
     }
 }
 
@@ -280,5 +274,16 @@ mod tests {
         assert!(!is_primary_disk("nvme0n1p1"));
         assert!(!is_primary_disk("loop0"));
         assert!(!is_primary_disk("dm-0"));
+    }
+
+    #[test]
+    fn test_rate_delta_normal_and_rollback() {
+        assert_eq!(rate_delta(Some(1000), Some(3000), 2.0), Some(1000));
+        // Missing sides yield None, never zero.
+        assert_eq!(rate_delta(None, Some(3000), 2.0), None);
+        assert_eq!(rate_delta(Some(1000), None, 2.0), None);
+        // Counter reset yields None (caller reports null + rebaselines).
+        assert_eq!(rate_delta(Some(5000), Some(100), 2.0), None);
+        assert_eq!(rate_delta(Some(100), Some(100), 2.0), Some(0));
     }
 }

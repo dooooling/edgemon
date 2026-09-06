@@ -24,7 +24,7 @@ publicRoutes.get('/api/public/nodes', async (c) => {
       n.id, n.name, n.sort_order, n.note,
       n.hostname, n.os, n.os_version, n.kernel, n.arch,
       n.env_type, n.env_runtime, n.host_virtualization_hint, n.cgroup_version, n.resource_scope,
-      n.cpu_model_visible, n.cpu_capacity_cores,
+      n.cpu_model_visible, n.cpu_capacity_cores, n.cpu_physical_cores,
       n.memory_limit_bytes, n.swap_limit_bytes, n.rootfs_limit_bytes, n.rootfs_scope,
       n.geo_country, n.geo_region, n.geo_region_code, n.geo_city,
       n.geo_lat, n.geo_lon, n.asn, n.as_org, n.cf_colo,
@@ -94,6 +94,7 @@ publicRoutes.get('/api/public/nodes', async (c) => {
       resources: {
         cpu_model_visible: row.cpu_model_visible,
         cpu_capacity_cores: row.cpu_capacity_cores,
+        cpu_physical_cores: row.cpu_physical_cores,
         memory_limit_bytes: row.memory_limit_bytes,
         swap_limit_bytes: row.swap_limit_bytes,
         rootfs_limit_bytes: row.rootfs_limit_bytes,
@@ -111,13 +112,13 @@ publicRoutes.get('/api/public/nodes', async (c) => {
       },
       traffic: {
         reset_day: resetDay,
-        quota_bytes: row.traffic_quota_bytes || null,
+        quota_bytes: row.traffic_quota_bytes ?? null,
         period_start_ms: periodStartMs,
         period_rx_bytes: periodRx,
         period_tx_bytes: periodTx,
         period_total_bytes: periodRx + periodTx,
       },
-      expires_at_ms: row.expires_at_ms || null,
+      expires_at_ms: row.expires_at_ms ?? null,
       state: row.last_seen_at_ms ? {
         last_seen_at_ms: row.last_seen_at_ms,
         cpu_usage_pct: row.cpu_usage_pct,
@@ -163,6 +164,7 @@ publicRoutes.get('/api/public/nodes/:id/history', async (c) => {
   let fromMs = nowMs - 24 * 3600000;
   let isHourly = false;
   let resolutionSec = 60;
+  let knownRange = true;
 
   switch (range) {
     case '10m':
@@ -195,6 +197,16 @@ publicRoutes.get('/api/public/nodes/:id/history', async (c) => {
       isHourly = true;
       resolutionSec = 3600;
       break;
+    default:
+      knownRange = false;
+      break;
+  }
+
+  if (!knownRange) {
+    return c.json(
+      { error: `Unknown range '${range}'. Valid: 10m, 1h, 6h, 24h, 7d, 30d, 90d, 1y.` },
+      400
+    );
   }
 
   const points = isHourly

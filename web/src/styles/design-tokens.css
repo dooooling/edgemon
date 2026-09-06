@@ -1,26 +1,19 @@
 /* ==========================================================================
-   EdgeMon Design System — BMW M Motorsport & Performance Engineering Architecture
-   Strictly aligned with DESIGN.md (Pure Black / 0px Radius / M-Stripe / Heavy-Light Contrast)
+   EdgeMon Design System — SpaceX Aerospace & Mission Control Aesthetic
+   Strictly aligned with DESIGN.md (Pure Black / Ghost Pills / Status Accents)
    ========================================================================== */
 
 :root {
   /* Surfaces */
   --colors-canvas: #000000;
-  --colors-surface-soft: #0d0d0d;
-  --colors-surface-card: #1a1a1a;
-  --colors-surface-elevated: #262626;
-  --colors-carbon-gray: #2b2b2b;
-
-  /* BMW M Tricolor Brand Identity Stops */
-  --colors-m-blue-light: #0066b1;
-  --colors-m-blue-dark: #1c69d4;
-  --colors-m-red: #e22718;
-  --colors-electric-blue: #0653b6;
+  --colors-surface-soft: #050505;
+  --colors-surface-card: #0a0a0c;
+  --colors-surface-elevated: #0a0a0c;
 
   /* Hairlines & Borders */
-  --colors-hairline: #3c3c3c;
-  --colors-hairline-strong: #262626;
-  --colors-hairline-subtle: #222226;
+  --colors-hairline: #27272a;
+  --colors-hairline-strong: #3f3f46;
+  --colors-hairline-subtle: #27272a;
 
   /* Text & Ink */
   --colors-on-dark: #ffffff;
@@ -28,10 +21,10 @@
   --colors-body: #bbbbbb;
   --colors-muted: #7e7e7e;
 
-  /* Semantic Status */
-  --colors-status-live: #00e676;
-  --colors-status-alert: #e22718;
-  --colors-status-warning: #f4b400;
+  /* Semantic Status (DESIGN.md §1.3 Active Accents) */
+  --colors-status-live: #22c55e;
+  --colors-status-alert: #ef4444;
+  --colors-status-warning: #f59e0b;
 
   /* Spacing */
   --spacing-xxs: 4px;
@@ -43,10 +36,9 @@
   --spacing-xxl: 64px;
   --spacing-section: 96px;
 
-  /* Border Radii (Strictly 0px Sharp Silhouette per DESIGN.md) */
+  /* Border Radii: 0px panels, 50% status dots, 9999px pill CTAs.
+     Do NOT add intermediate radii — the vocabulary is intentionally closed. */
   --rounded-none: 0px;
-  --rounded-xs: 2px;
-  --rounded-sm: 4px;
   --rounded-full: 9999px;
 }
 
@@ -73,7 +65,7 @@ html {
 
 ::-webkit-scrollbar-thumb {
   background: #27272a;
-  border-radius: 4px;
+  border-radius: 0px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -85,8 +77,8 @@ body {
   padding: 0;
   background-color: var(--colors-canvas);
   color: var(--colors-on-dark);
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-weight: 300; /* BMW Type Light (300) for engineered body copy */
+  font-family: "D-DIN", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-weight: 300; /* Light body copy for engineered telemetry text */
   font-size: 15px;
   line-height: 1.5;
   letter-spacing: 0.2px;
@@ -96,49 +88,14 @@ body {
 }
 
 /* ==========================================================================
-   BMW M Tricolor Accent Stripe (.m-stripe-divider)
-   ========================================================================== */
-
-.m-stripe-divider {
-  height: 4px;
-  width: 100%;
-  background: linear-gradient(
-    90deg,
-    var(--colors-m-blue-light) 0%,
-    var(--colors-m-blue-light) 33.33%,
-    var(--colors-m-blue-dark) 33.33%,
-    var(--colors-m-blue-dark) 66.66%,
-    var(--colors-m-red) 66.66%,
-    var(--colors-m-red) 100%
-  );
-  display: block;
-}
-
-.m-stripe-pill {
-  display: inline-block;
-  height: 3px;
-  width: 32px;
-  background: linear-gradient(
-    90deg,
-    var(--colors-m-blue-light) 0%,
-    var(--colors-m-blue-light) 33.33%,
-    var(--colors-m-blue-dark) 33.33%,
-    var(--colors-m-blue-dark) 66.66%,
-    var(--colors-m-red) 66.66%,
-    var(--colors-m-red) 100%
-  );
-  vertical-align: middle;
-}
-
-/* ==========================================================================
-   Typography Scale (DESIGN.md Section 3 - Heavy 700 vs Light 300)
+   Typography Scale (DESIGN.md §1.2 — D-DIN, All-Caps +1.6px Tracking)
    ========================================================================== */
 
 .display-xxl {
   font-size: clamp(38px, 6vw, 76px);
   font-weight: 700;
   line-height: 1.0;
-  letter-spacing: 0px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
   color: var(--colors-on-dark);
 }
@@ -147,7 +104,7 @@ body {
   font-size: clamp(28px, 4.5vw, 56px);
   font-weight: 700;
   line-height: 1.05;
-  letter-spacing: 0px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
   color: var(--colors-on-dark);
 }
@@ -156,7 +113,7 @@ body {
   font-size: clamp(22px, 3vw, 40px);
   font-weight: 700;
   line-height: 1.1;
-  letter-spacing: 0px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
   color: var(--colors-on-dark);
 }
@@ -165,7 +122,7 @@ body {
   font-size: 13px;
   font-weight: 700;
   line-height: 1.3;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
   color: var(--colors-body);
   display: inline-block;
@@ -196,7 +153,7 @@ body {
 }
 
 /* ==========================================================================
-   Navigation Bar (Pinned 64px Black Header with M Tricolor Accent)
+   Navigation Bar (Pinned 64px Black Header)
    ========================================================================== */
 
 .nav-bar-overlay {
@@ -224,7 +181,7 @@ body {
   text-decoration: none;
   font-size: 20px;
   font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.6px;
   color: var(--colors-on-dark);
   text-transform: uppercase;
 }
@@ -241,7 +198,7 @@ body {
 .nav-menu-link {
   font-size: 14px;
   font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
   color: var(--colors-body);
   text-decoration: none;
@@ -257,7 +214,7 @@ body {
 }
 
 /* ==========================================================================
-   Buttons (Sharp 0px Silhouette + 1.5px Tracking)
+   Buttons (Ghost Outlined Pills per DESIGN.md §1.3)
    ========================================================================== */
 
 .button-ghost-on-dark,
@@ -269,11 +226,11 @@ body {
   padding: 0 24px;
   background-color: transparent;
   color: var(--colors-on-dark);
-  border: 1px solid var(--colors-on-dark);
-  border-radius: var(--rounded-none); /* 0px Sharp Corner */
+  border: 1px solid var(--colors-hairline-strong);
+  border-radius: 9999px;
   font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 1.5px;
+  font-weight: 600;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
   text-decoration: none;
   cursor: pointer;
@@ -294,12 +251,12 @@ body {
 }
 
 .button-ghost-danger {
-  border-color: var(--colors-m-red);
-  color: var(--colors-m-red);
+  border-color: var(--colors-status-alert);
+  color: var(--colors-status-alert);
 }
 
 .button-ghost-danger:hover {
-  background-color: var(--colors-m-red);
+  background-color: var(--colors-status-alert);
   color: var(--colors-on-dark);
 }
 
@@ -319,7 +276,7 @@ body {
   padding: 6px 14px;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
@@ -359,7 +316,7 @@ body {
 }
 
 .stat-tile {
-  background-color: var(--colors-surface-soft); /* #0d0d0d Spec Cell */
+  background-color: var(--colors-surface-soft); /* #050505 Spec Cell */
   border: 1px solid var(--colors-hairline);
   border-radius: var(--rounded-none);
   padding: 24px;
@@ -375,6 +332,7 @@ body {
   letter-spacing: 0px;
   margin-top: 12px;
   color: var(--colors-on-dark);
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-val-live {
@@ -382,7 +340,7 @@ body {
 }
 
 .stat-val-alert {
-  color: var(--colors-m-red);
+  color: var(--colors-status-alert);
 }
 
 /* ==========================================================================
@@ -409,21 +367,20 @@ body {
 
 .node-card,
 .node-card-tile {
-  background-color: var(--colors-surface-card); /* #1a1a1a */
+  background-color: var(--colors-surface-card);
   border: 1px solid var(--colors-hairline);
-  border-radius: 6px;
+  border-radius: 0px;
   padding: 24px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: border-color 0.2s ease;
   position: relative;
 }
 
 .node-card:hover,
 .node-card-tile:hover {
   border-color: rgba(255, 255, 255, 0.3);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
 }
 
 .node-card-header {
@@ -492,7 +449,7 @@ body {
 .spacex-chip {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
   padding: 4px 10px;
   background-color: var(--colors-surface-soft);
@@ -555,7 +512,7 @@ body {
 .spec-entry-label {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.6px;
   color: var(--colors-muted);
   text-transform: uppercase;
   margin-bottom: 8px;
@@ -585,7 +542,7 @@ body {
   gap: 8px;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
 }
 
@@ -597,11 +554,10 @@ body {
 
 .beacon-live {
   background-color: var(--colors-status-live);
-  box-shadow: 0 0 8px var(--colors-status-live);
 }
 
 .beacon-idle {
-  background-color: var(--colors-m-red);
+  background-color: var(--colors-status-alert);
 }
 
 /* Tables */
@@ -614,7 +570,7 @@ body {
 .spacex-table th {
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
   color: var(--colors-muted);
   padding: 16px;
@@ -676,7 +632,7 @@ body {
 
 .token-view-chassis {
   background-color: var(--colors-surface-soft);
-  border: 1px dashed var(--colors-m-red);
+  border: 1px dashed var(--colors-status-alert);
   padding: 16px;
   font-family: monospace;
   font-size: 14px;
@@ -720,7 +676,7 @@ body {
   padding: 8px 14px !important;
   background: rgba(255, 255, 255, 0.02) !important;
   border: 1px solid var(--colors-hairline-subtle) !important;
-  border-radius: 4px !important;
+  border-radius: 0px !important;
   margin-top: 10px !important;
   text-align: left !important;
   justify-content: flex-start !important;
@@ -741,7 +697,7 @@ body {
 .uplot .u-legend .u-marker {
   width: 8px !important;
   height: 8px !important;
-  border-radius: 2px !important;
+  border-radius: 0px !important;
 }
 
 .uplot .u-legend .u-label {

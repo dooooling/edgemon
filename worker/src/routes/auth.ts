@@ -9,6 +9,10 @@ interface RateLimitEntry {
   lastAttemptMs: number;
 }
 
+// NOTE: best-effort per-isolate rate limiting. Limits reset on isolate
+// evict/restart and are not shared across edge isolates — this slows casual
+// brute force but is not a distributed lockout. Failure audit writes are
+// coalesced (see login handler) so attackers cannot amplify D1 usage.
 const loginRateLimits = new Map<string, RateLimitEntry>();
 
 export function checkLoginRateLimit(ip: string): { allowed: boolean; remainingSec: number } {
@@ -106,16 +110,19 @@ authRoutes.post('/api/auth/login', async (c) => {
   if (!isMatch) {
     const failInfo = recordLoginFailure(clientIp);
 
-    // Audit log failed attempt to D1
-    try {
-      await recordEvent(c.env.DB, null, 'auth_login_failed', {
-        ip: clientIp,
-        user_agent: userAgent,
-        failures: failInfo.failures,
-        locked: failInfo.locked,
-      });
-    } catch {
-      // ignore
+    // Audit log to D1, coalesced: every 5th failure and every lockout.
+    // Per-attempt writes would let unauthenticated requests amplify D1 usage.
+    if (failInfo.locked || failInfo.failures % 5 === 0) {
+      try {
+        await recordEvent(c.env.DB, null, 'auth_login_failed', {
+          ip: clientIp,
+          user_agent: userAgent,
+          failures: failInfo.failures,
+          locked: failInfo.locked,
+        });
+      } catch {
+        // ignore
+      }
     }
 
     if (failInfo.locked) {

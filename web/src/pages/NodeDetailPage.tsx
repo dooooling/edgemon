@@ -4,7 +4,8 @@ import { usePublicNodesQuery } from '../queries/nodes';
 import { useRealtimeStore } from '../realtime/store';
 import { HistoryChart } from '../components/HistoryChart';
 import { useTranslation } from '../i18n/I18nContext';
-import { formatBeijingDate, formatUptime } from '../utils/time';
+import { formatBeijingDate, formatUptime, ONLINE_CUTOFF_MS } from '../utils/time';
+import { formatBytes, formatBps } from '../utils/format';
 import { OsIcon } from '../components/OsIcon';
 import { CountryFlag } from '../components/CountryFlag';
 import { ProbeSparklineBar, getLatencyColor } from '../components/ProbeHeatmap';
@@ -14,6 +15,7 @@ export const NodeDetailPage: React.FC = () => {
   const [range, setRange] = React.useState('10m');
   const { data, isLoading } = usePublicNodesQuery();
   const connectRealtime = useRealtimeStore((s) => s.connectRealtime);
+  const disconnectRealtime = useRealtimeStore((s) => s.disconnectRealtime);
   const clearOverlay = useRealtimeStore((s) => s.clearOverlay);
   const overlay = useRealtimeStore((s) => (id ? s.overlays[id] : undefined));
   const hasRealtimeTemp = useRealtimeStore((s) => {
@@ -32,8 +34,11 @@ export const NodeDetailPage: React.FC = () => {
       if (id) {
         clearOverlay(id);
       }
+      // Leave no node-scoped subscription behind: Admin and other pages
+      // never call connectRealtime themselves.
+      disconnectRealtime();
     };
-  }, [id, connectRealtime, clearOverlay]);
+  }, [id, connectRealtime, clearOverlay, disconnectRealtime]);
 
   const node = (data?.nodes || []).find((n) => n.id === id);
 
@@ -51,9 +56,9 @@ export const NodeDetailPage: React.FC = () => {
     return (
       <div className="page-container">
         <div className="detail-chassis-band" style={{ textAlign: 'center', padding: '60px', gap: '16px' }}>
-          <h2 className="display-lg">NODE IDENTIFIER NOT FOUND</h2>
+          <h2 className="display-lg">{t('detail_not_found_title')}</h2>
           <p className="caption" style={{ margin: '12px 0 24px' }}>
-            The specified node UUID does not exist or has been decommissioned.
+            {t('detail_not_found_body')}
           </p>
           <div>
             <Link to="/" className="button-ghost-on-dark">
@@ -66,8 +71,12 @@ export const NodeDetailPage: React.FC = () => {
   }
 
   const lastSeen = overlay?.last_seen_at_ms ?? node.state?.last_seen_at_ms;
-  const isOnline = lastSeen ? Date.now() - lastSeen < 90 * 1000 : false;
+  const isOnline = lastSeen ? Date.now() - lastSeen < ONLINE_CUTOFF_MS : false;
   const probes = overlay?.probes ?? node.state?.probes ?? [];
+
+  // CPU topology: physical vs logical cores (no P/E classification:
+  // no OS exposes efficiency classes uniformly).
+  const cpuPhysical = node.resources?.cpu_physical_cores;
 
   const rxBps = overlay?.rx_bps ?? node.state?.rx_bps;
   const txBps = overlay?.tx_bps ?? node.state?.tx_bps;
@@ -103,7 +112,7 @@ export const NodeDetailPage: React.FC = () => {
         <Link to="/" className="button-ghost-on-dark button-ghost-sm">
           {t('back_to_fleet')}
         </Link>
-        <div className="status-indicator-beacon" style={{ border: '1px solid var(--colors-hairline-on-dark)', padding: '6px 14px', borderRadius: '32px' }}>
+        <div className="status-indicator-beacon" style={{ border: '1px solid var(--colors-hairline)', padding: '6px 14px', borderRadius: '9999px' }}>
           <span className="beacon-dot beacon-live"></span>
           <span>{t('live_stream_badge')}</span>
         </div>
@@ -111,7 +120,6 @@ export const NodeDetailPage: React.FC = () => {
 
       {/* Instance Chassis Band */}
       <div className="detail-chassis-band" style={{ padding: 0, overflow: 'hidden', marginBottom: '24px' }}>
-        <div className="m-stripe-divider"></div>
         <div style={{ padding: '32px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
             <div>
@@ -120,7 +128,7 @@ export const NodeDetailPage: React.FC = () => {
                 <span>{node.name}</span>
                 <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--colors-body)', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                   <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={18} />
-                  <span>{node.system?.os_version || (node.environment?.type || 'INSTANCE').toUpperCase()} · {node.resources?.cpu_capacity_cores || 1}C</span>
+                  <span>{node.system?.os_version || (node.environment?.type || 'INSTANCE').toUpperCase()} · {node.resources?.cpu_capacity_cores || 1}C{cpuPhysical != null ? ` · ${cpuPhysical}P` : ''}</span>
                 </span>
               </h1>
               <span className="eyebrow-cap" style={{ fontSize: '11px', marginTop: '6px', display: 'block', color: 'var(--colors-muted)' }}>
@@ -129,7 +137,7 @@ export const NodeDetailPage: React.FC = () => {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               {oomKills != null && oomKills > 0 && (
-                <span className="spacex-chip" style={{ backgroundColor: 'rgba(226, 39, 24, 0.2)', color: '#e22718', border: '1px solid #e22718' }}>
+                <span className="spacex-chip" style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', border: '1px solid #ef4444' }}>
                   ⚠️ {oomKills} {t('oom_kill_badge')}
                 </span>
               )}
@@ -137,8 +145,8 @@ export const NodeDetailPage: React.FC = () => {
                 <span
                   className="spacex-chip"
                   style={{
-                    color: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f59e0b' : '#00e676',
-                    borderColor: cpuTemp >= 80 ? '#e22718' : cpuTemp >= 60 ? '#f59e0b' : '#00e676',
+                    color: cpuTemp >= 80 ? '#ef4444' : cpuTemp >= 60 ? '#f59e0b' : '#22c55e',
+                    borderColor: cpuTemp >= 80 ? '#ef4444' : cpuTemp >= 60 ? '#f59e0b' : '#22c55e',
                   }}
                 >
                   {cpuTemp >= 80 ? '🔥' : '🌡️'} {cpuTemp}°C
@@ -152,7 +160,7 @@ export const NodeDetailPage: React.FC = () => {
           </div>
 
           {/* Realtime Telemetry Status Bar */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '24px', padding: '14px 20px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid var(--colors-hairline-on-dark)', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '24px', padding: '14px 20px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '0px', border: '1px solid var(--colors-hairline)', flexWrap: 'wrap', gap: '12px' }}>
             <div className="traffic-rates-block" style={{ marginTop: 0 }}>
               <span>↓ {formatBps(rxBps)}</span>
               <span>↑ {formatBps(txBps)}</span>
@@ -174,7 +182,7 @@ export const NodeDetailPage: React.FC = () => {
                 </span>
               )}
               {tcpEstab != null && (
-                <span className="spacex-chip" style={{ color: '#38bdf8', borderColor: '#38bdf8' }}>
+                <span className="spacex-chip" style={{ color: '#ffffff', borderColor: '#ffffff' }}>
                   {tcpEstab} TCP ESTAB {tcpTw != null ? `· ${tcpTw} TW` : ''}
                 </span>
               )}
@@ -260,11 +268,11 @@ export const NodeDetailPage: React.FC = () => {
                   {(() => {
                     const daysLeft = Math.ceil((node.expires_at_ms - Date.now()) / (1000 * 60 * 60 * 24));
                     if (daysLeft < 0) {
-                      return <span className="spacex-chip" style={{ backgroundColor: 'rgba(226, 39, 24, 0.2)', color: '#e22718', border: '1px solid #e22718' }}>{t('exp_expired')}</span>;
+                      return <span className="spacex-chip" style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', border: '1px solid #ef4444' }}>{t('exp_expired')}</span>;
                     } else if (daysLeft <= 3) {
-                      return <span className="spacex-chip" style={{ backgroundColor: 'rgba(226, 39, 24, 0.15)', color: '#e22718' }}>{daysLeft === 0 ? t('exp_today') : `${daysLeft}d`}</span>;
+                      return <span className="spacex-chip" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>{daysLeft === 0 ? t('exp_today') : `${daysLeft}d`}</span>;
                     } else if (daysLeft <= 7) {
-                      return <span className="spacex-chip" style={{ backgroundColor: 'rgba(244, 180, 0, 0.15)', color: '#f4b400' }}>{daysLeft}d</span>;
+                      return <span className="spacex-chip" style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>{daysLeft}d</span>;
                     } else {
                       return <span className="spacex-chip">{daysLeft}d</span>;
                     }
@@ -274,25 +282,25 @@ export const NodeDetailPage: React.FC = () => {
             )}
             {node.finance && node.finance.price != null && node.finance.price > 0 && (
               <div className="spec-entry">
-                <span className="spec-entry-label">COST / 财务费用</span>
-                <span className="spec-entry-val" style={{ color: '#00e676', fontWeight: 700 }}>
+                <span className="spec-entry-label">{t('detail_cost_label')}</span>
+                <span className="spec-entry-val" style={{ color: '#22c55e', fontWeight: 700 }}>
                   {node.finance.currency || 'USD'} {node.finance.price.toFixed(2)}
                   <span style={{ fontSize: '11px', color: 'var(--colors-muted)', marginLeft: '4px', fontWeight: 500 }}>
-                    / {node.finance.billing_cycle === 'monthly' ? '月付' : node.finance.billing_cycle === 'annually' ? '年付' : node.finance.billing_cycle === 'quarterly' ? '季付' : node.finance.billing_cycle}
+                    / {node.finance.billing_cycle === 'monthly' ? t('fin_cycle_monthly') : node.finance.billing_cycle === 'annually' ? t('fin_cycle_annually') : node.finance.billing_cycle === 'quarterly' ? t('fin_cycle_quarterly') : node.finance.billing_cycle}
                   </span>
                 </span>
               </div>
             )}
             {node.note && (
               <div className="spec-entry">
-                <span className="spec-entry-label">NOTE / 备注</span>
+                <span className="spec-entry-label">{t('detail_note_label')}</span>
                 <span className="spec-entry-val">{node.note}</span>
               </div>
             )}
           </div>
 
           {/* Disk Mounts Section */}
-          <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--colors-hairline-on-dark)' }}>
+          <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--colors-hairline)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <span className="spec-entry-label" style={{ fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--colors-muted)' }}>
                 {t('mounts_title')}
@@ -318,8 +326,8 @@ export const NodeDetailPage: React.FC = () => {
                       style={{
                         background: 'rgba(255, 255, 255, 0.02)',
                         padding: '10px 14px',
-                        borderRadius: '6px',
-                        border: '1px solid var(--colors-hairline-on-dark)',
+                        borderRadius: '0px',
+                        border: '1px solid var(--colors-hairline)',
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
@@ -329,7 +337,7 @@ export const NodeDetailPage: React.FC = () => {
                             {m.fs_type || 'FS'}
                           </span>
                         </span>
-                        <span style={{ fontSize: '12px', fontWeight: 700, color: isFull ? '#e22718' : isWarn ? '#f59e0b' : '#ffffff' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: isFull ? '#ef4444' : isWarn ? '#f59e0b' : '#ffffff' }}>
                           {mPct}%
                         </span>
                       </div>
@@ -338,20 +346,20 @@ export const NodeDetailPage: React.FC = () => {
                           className="telemetry-bar-fill"
                           style={{
                             width: `${mPct}%`,
-                            backgroundColor: isFull ? '#e22718' : isWarn ? '#f59e0b' : '#ffffff',
+                            backgroundColor: isFull ? '#ef4444' : isWarn ? '#f59e0b' : '#ffffff',
                           }}
                         ></div>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--colors-muted)' }}>
                         <span>{formatBytes(mUsed)} / {formatBytes(mTotal)}</span>
-                        <span>{mTotal > mUsed ? `${formatBytes(mTotal - mUsed)} 可用` : '0 B'}</span>
+                        <span>{mTotal > mUsed ? `${formatBytes(mTotal - mUsed)} ${t('mounts_avail')}` : '0 B'}</span>
                       </div>
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '10px 14px', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '10px 14px', borderRadius: '0px', border: '1px solid var(--colors-hairline)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
                 <span style={{ fontWeight: 700, color: '#ffffff' }}>
                   {node.system?.os?.toLowerCase() === 'windows' ? 'C:\\ (SYSTEM)' : '/ (ROOTFS)'}
                 </span>
@@ -384,7 +392,7 @@ export const NodeDetailPage: React.FC = () => {
                 <th>{t('probe_status')}</th>
                 <th>{t('probe_rtt')}</th>
                 <th>{t('probe_loss')}</th>
-                <th style={{ minWidth: '160px' }}>时序延迟热力条 (60S BUCKETS)</th>
+                <th style={{ minWidth: '160px' }}>{t('detail_probe_heatbar')}</th>
               </tr>
             </thead>
             <tbody>
@@ -421,9 +429,9 @@ export const NodeDetailPage: React.FC = () => {
                       </span>
                     </td>
                     <td style={{ fontWeight: 700, fontFamily: 'monospace', color: getLatencyColor(rtt, loss) }}>
-                      {isDown ? (loss >= 100 ? '100% 丢包' : 'TIMEOUT') : `${rtt != null ? rtt.toFixed(1) : '0.0'} MS`}
+                      {isDown ? (loss >= 100 ? t('detail_loss_100') : 'TIMEOUT') : `${rtt != null ? rtt.toFixed(1) : '0.0'} MS`}
                     </td>
-                    <td style={{ fontFamily: 'monospace', color: loss > 0 ? '#f85149' : 'var(--colors-body)' }}>
+                    <td style={{ fontFamily: 'monospace', color: loss > 0 ? '#ef4444' : 'var(--colors-body)' }}>
                       {loss}%
                     </td>
                     <td>
@@ -474,7 +482,7 @@ export const NodeDetailPage: React.FC = () => {
             title={t('chart_temp_title')}
             metricKey="cpu_temp_celsius"
             unit="°C"
-            strokeColor="#ff9100"
+            strokeColor="#f97316"
           />
         )}
         <HistoryChart
@@ -492,8 +500,8 @@ export const NodeDetailPage: React.FC = () => {
           title={t('chart_net_title')}
           unit="B/S"
           series={[
-            { metricKey: 'rx_bps', label: t('chart_rx_label'), strokeColor: '#00e676', fillColor: 'rgba(0, 230, 118, 0.06)' },
-            { metricKey: 'tx_bps', label: t('chart_tx_label'), strokeColor: '#38bdf8', fillColor: 'rgba(56, 189, 248, 0.06)' },
+            { metricKey: 'rx_bps', label: t('chart_rx_label'), strokeColor: '#22c55e', fillColor: 'rgba(34, 197, 94, 0.06)' },
+            { metricKey: 'tx_bps', label: t('chart_tx_label'), strokeColor: '#ffffff', fillColor: 'rgba(255, 255, 255, 0.06)' },
           ]}
         />
         <HistoryChart nodeId={node.id} range={range} title={t('chart_rtt_title')} metricKey="edge_rtt_ms" unit="MS" strokeColor="#ffffff" />
@@ -501,21 +509,6 @@ export const NodeDetailPage: React.FC = () => {
     </div>
   );
 };
-
-function formatBytes(bytes?: number | null): string {
-  if (!bytes || bytes === 0) return '0 B';
-  if (bytes >= 1024 * 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2) + ' TB';
-  if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
-  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  return (bytes / 1024).toFixed(0) + ' KB';
-}
-
-function formatBps(bps?: number | null): string {
-  if (!bps || bps === 0) return '0 B/S';
-  if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(1) + ' MB/S';
-  if (bps >= 1024) return (bps / 1024).toFixed(0) + ' KB/S';
-  return bps + ' B/S';
-}
 
 export function getProbeLabel(id: string): { label: string; tag?: string; color?: string } {
   const lower = id.toLowerCase();

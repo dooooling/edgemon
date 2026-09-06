@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { NodeItem } from '../api/client';
 import { formatBeijingDate } from '../utils/time';
+import { useTranslation } from '../i18n/I18nContext';
 
 interface FinanceSummaryModalProps {
   nodes: NodeItem[];
@@ -40,15 +41,15 @@ const CYCLE_MONTH_DIVISORS: Record<string, number> = {
   free: 0,
 };
 
-const CYCLE_LABELS: Record<string, string> = {
-  monthly: '月付',
-  quarterly: '季付',
-  semi_annually: '半年付',
-  annually: '年付',
-  biennially: '两年付',
-  triennially: '三年付',
-  one_time: '一次性 (永久)',
-  free: '免费',
+const CYCLE_LABEL_KEYS: Record<string, 'fin_cycle_monthly' | 'fin_cycle_quarterly' | 'fin_cycle_semi_annually' | 'fin_cycle_annually' | 'fin_cycle_biennially' | 'fin_cycle_triennially' | 'fin_cycle_one_time' | 'fin_cycle_free'> = {
+  monthly: 'fin_cycle_monthly',
+  quarterly: 'fin_cycle_quarterly',
+  semi_annually: 'fin_cycle_semi_annually',
+  annually: 'fin_cycle_annually',
+  biennially: 'fin_cycle_biennially',
+  triennially: 'fin_cycle_triennially',
+  one_time: 'fin_cycle_one_time',
+  free: 'fin_cycle_free',
 };
 
 function convertToTarget(amount: number, fromCurrency: string, targetCurrency: CurrencyCode): number {
@@ -62,6 +63,7 @@ function convertToTarget(amount: number, fromCurrency: string, targetCurrency: C
 
 export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes, isOpen, onClose }) => {
   const [selectedCurrency, setSelectedCurrency] = useState<CurrencyCode>('CNY');
+  const { t } = useTranslation();
 
   if (!isOpen) return null;
 
@@ -88,7 +90,8 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
 
   for (const node of nodes) {
     const fin = node.finance;
-    const price = fin?.price != null ? Number(fin.price) : 0;
+    const rawPrice = fin?.price != null ? Number(fin.price) : 0;
+    const price = Number.isFinite(rawPrice) ? rawPrice : 0;
     const curr = fin?.currency || 'USD';
     const cycle = fin?.billing_cycle || 'monthly';
 
@@ -135,9 +138,9 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <div>
-            <span className="eyebrow-cap" style={{ color: '#00e676' }}>FINANCE & ASSET LIFECYCLE</span>
+            <span className="eyebrow-cap" style={{ color: '#22c55e' }}>FINANCE & ASSET LIFECYCLE</span>
             <h2 className="display-lg" style={{ fontSize: '20px', marginTop: '4px' }}>
-              服务器财务成本与续费账单
+              {t('fin_title')}
             </h2>
           </div>
           <button
@@ -156,7 +159,7 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
             alignItems: 'center',
             padding: '10px 14px',
             backgroundColor: 'rgba(255, 255, 255, 0.03)',
-            borderRadius: '6px',
+            borderRadius: '0px',
             border: '1px solid var(--colors-hairline-subtle)',
             marginBottom: '20px',
             flexWrap: 'wrap',
@@ -164,7 +167,7 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
           }}
         >
           <span style={{ fontSize: '11px', color: 'var(--colors-muted)', textTransform: 'uppercase' }}>
-            结算货币汇率折算 (CONVERSION CURRENCY):
+            {t('fin_currency_label')}
           </span>
           <div style={{ display: 'flex', gap: '6px' }}>
             {(['CNY', 'USD', 'EUR', 'HKD', 'GBP', 'JPY'] as CurrencyCode[]).map((cur) => (
@@ -196,15 +199,15 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
               padding: '16px',
               backgroundColor: 'rgba(255, 255, 255, 0.02)',
               border: '1px solid var(--colors-hairline-subtle)',
-              borderRadius: '6px',
+              borderRadius: '0px',
             }}
           >
-            <span className="eyebrow-cap" style={{ fontSize: '10px' }}>月均运营支出 (MONTHLY RUN RATE)</span>
-            <div style={{ fontSize: '24px', fontWeight: 700, color: '#00e676', marginTop: '6px', fontFamily: 'monospace' }}>
+            <span className="eyebrow-cap" style={{ fontSize: '10px' }}>{t('fin_monthly')}</span>
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#22c55e', marginTop: '6px', fontFamily: 'monospace' }}>
               {symbol} {totalMonthlyRate.toFixed(2)}
             </div>
             <span style={{ fontSize: '10px', color: 'var(--colors-muted)', marginTop: '4px', display: 'block' }}>
-              折合 {symbol} {(totalMonthlyRate / 30).toFixed(2)} / 天
+              {t('fin_daily_prefix')} {symbol} {(totalMonthlyRate / 30).toFixed(2)} {t('fin_daily_suffix')}
             </span>
           </div>
 
@@ -214,15 +217,15 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
               padding: '16px',
               backgroundColor: 'rgba(255, 255, 255, 0.02)',
               border: '1px solid var(--colors-hairline-subtle)',
-              borderRadius: '6px',
+              borderRadius: '0px',
             }}
           >
-            <span className="eyebrow-cap" style={{ fontSize: '10px' }}>年均预估支出 (ANNUAL COST)</span>
-            <div style={{ fontSize: '24px', fontWeight: 700, color: '#38bdf8', marginTop: '6px', fontFamily: 'monospace' }}>
+            <span className="eyebrow-cap" style={{ fontSize: '10px' }}>{t('fin_annual')}</span>
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '6px', fontFamily: 'monospace' }}>
               {symbol} {totalAnnualRate.toFixed(2)}
             </div>
             <span style={{ fontSize: '10px', color: 'var(--colors-muted)', marginTop: '4px', display: 'block' }}>
-              年化周期折算支出
+              {t('fin_annual_sub')}
             </span>
           </div>
 
@@ -232,15 +235,15 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
               padding: '16px',
               backgroundColor: 'rgba(255, 255, 255, 0.02)',
               border: '1px solid var(--colors-hairline-subtle)',
-              borderRadius: '6px',
+              borderRadius: '0px',
             }}
           >
-            <span className="eyebrow-cap" style={{ fontSize: '10px' }}>永久/一次性总投入 (CAPEX)</span>
-            <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffb870', marginTop: '6px', fontFamily: 'monospace' }}>
+            <span className="eyebrow-cap" style={{ fontSize: '10px' }}>{t('fin_capex')}</span>
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#f59e0b', marginTop: '6px', fontFamily: 'monospace' }}>
               {symbol} {totalOneTimeCost.toFixed(2)}
             </div>
             <span style={{ fontSize: '10px', color: 'var(--colors-muted)', marginTop: '4px', display: 'block' }}>
-              永久买断资产投入
+              {t('fin_capex_sub')}
             </span>
           </div>
 
@@ -250,15 +253,15 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
               padding: '16px',
               backgroundColor: 'rgba(255, 255, 255, 0.02)',
               border: '1px solid var(--colors-hairline-subtle)',
-              borderRadius: '6px',
+              borderRadius: '0px',
             }}
           >
-            <span className="eyebrow-cap" style={{ fontSize: '10px' }}>资产构成统计 (FLEET ASSETS)</span>
+            <span className="eyebrow-cap" style={{ fontSize: '10px' }}>{t('fin_fleet')}</span>
             <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '6px', fontFamily: 'monospace' }}>
-              {paidNodesCount} <span style={{ fontSize: '12px', color: 'var(--colors-muted)' }}>付费 / {freeNodesCount} 免费</span>
+              {paidNodesCount} <span style={{ fontSize: '12px', color: 'var(--colors-muted)' }}>{t('fin_paid')} / {freeNodesCount} {t('fin_free')}</span>
             </div>
             <span style={{ fontSize: '10px', color: 'var(--colors-muted)', marginTop: '4px', display: 'block' }}>
-              共管理 {nodes.length} 台服务器
+              {t('fin_managed_prefix')} {nodes.length} {t('fin_managed_suffix')}
             </span>
           </div>
         </div>
@@ -267,7 +270,7 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
         <div style={{ marginBottom: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <span className="eyebrow-cap" style={{ fontSize: '11px', color: '#ffffff' }}>
-              📅 即将到期账单与续费日历 ({renewalItems.length})
+              {t('fin_renewals')} ({renewalItems.length})
             </span>
             <span style={{ fontSize: '10px', color: 'var(--colors-muted)', fontFamily: 'monospace' }}>
               AUTO SORTED BY EXPIRATION
@@ -282,10 +285,10 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
                 color: 'var(--colors-muted)',
                 fontSize: '12px',
                 border: '1px dashed var(--colors-hairline-subtle)',
-                borderRadius: '6px',
+                borderRadius: '0px',
               }}
             >
-              当前暂无设置到期时间的节点。您可以在管理后台为节点设置到期时间与价格。
+              {t('fin_empty')}
             </div>
           ) : (
             <div
@@ -293,26 +296,27 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
                 maxHeight: '260px',
                 overflowY: 'auto',
                 border: '1px solid var(--colors-hairline-subtle)',
-                borderRadius: '6px',
+                borderRadius: '0px',
               }}
             >
               <table className="spacex-table" style={{ margin: 0 }}>
                 <thead>
                   <tr>
-                    <th>节点名称</th>
-                    <th>续费周期与价格</th>
-                    <th>折算金额 ({selectedCurrency})</th>
-                    <th>到期日期</th>
-                    <th>到期状态</th>
+                    <th>{t('fin_th_node')}</th>
+                    <th>{t('fin_th_cycle')}</th>
+                    <th>{t('fin_th_converted')} ({selectedCurrency})</th>
+                    <th>{t('fin_th_expiry')}</th>
+                    <th>{t('fin_th_status')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {renewalItems.map((item) => {
-                    const price = item.price ?? 0;
+                    const rawItemPrice = item.price ?? 0;
+                    const price = Number.isFinite(rawItemPrice) ? rawItemPrice : 0;
                     const converted = convertToTarget(price, item.currency, selectedCurrency);
                     const isExpired = item.daysLeft < 0;
                     const isUrgent = item.daysLeft >= 0 && item.daysLeft <= 7;
-                    const cycleName = CYCLE_LABELS[item.cycle] || item.cycle;
+                    const cycleName = CYCLE_LABEL_KEYS[item.cycle] ? t(CYCLE_LABEL_KEYS[item.cycle]) : item.cycle;
 
                     return (
                       <tr key={item.id}>
@@ -325,7 +329,7 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
                           </span>
                         </td>
                         <td>
-                          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#38bdf8' }}>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#ffffff' }}>
                             {price > 0 ? `${symbol} ${converted.toFixed(2)}` : '--'}
                           </span>
                         </td>
@@ -334,16 +338,16 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
                         </td>
                         <td>
                           {isExpired ? (
-                            <span className="spacex-chip" style={{ color: '#f85149', borderColor: '#f85149', fontSize: '10px' }}>
-                              已过期 {Math.abs(item.daysLeft)} 天
+                            <span className="spacex-chip" style={{ color: '#ef4444', borderColor: '#ef4444', fontSize: '10px' }}>
+                              {t('fin_expired_prefix')} {Math.abs(item.daysLeft)} {t('fin_expired_suffix')}
                             </span>
                           ) : isUrgent ? (
-                            <span className="spacex-chip" style={{ color: '#ffaa00', borderColor: '#ffaa00', fontSize: '10px' }}>
-                              ⚡ {item.daysLeft === 0 ? '今日到期' : `${item.daysLeft} 天后到期`}
+                            <span className="spacex-chip" style={{ color: '#f59e0b', borderColor: '#f59e0b', fontSize: '10px' }}>
+                              ⚡ {item.daysLeft === 0 ? t('fin_due_today') : `${item.daysLeft} ${t('fin_due_suffix')}`}
                             </span>
                           ) : (
-                            <span className="spacex-chip" style={{ color: '#00e676', borderColor: '#00e676', fontSize: '10px' }}>
-                              {item.daysLeft} 天后到期
+                            <span className="spacex-chip" style={{ color: '#22c55e', borderColor: '#22c55e', fontSize: '10px' }}>
+                              {item.daysLeft} {t('fin_due_suffix')}
                             </span>
                           )}
                         </td>
@@ -359,7 +363,7 @@ export const FinanceSummaryModal: React.FC<FinanceSummaryModalProps> = ({ nodes,
         {/* Modal Footer */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
           <button className="button-ghost-on-dark button-ghost-sm" onClick={onClose}>
-            关闭
+            {t('fin_close')}
           </button>
         </div>
       </div>

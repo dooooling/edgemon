@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { evaluateAlerts } from '../src/db/alerts';
 
+// Mirrors D1Database.batch for mocks: executes bound statements sequentially.
+async function mockBatch(stmts: any[]) {
+  for (const s of stmts) await s.run();
+  return [];
+}
+
 function createMockDb() {
   const nodes = [
     {
@@ -78,6 +84,7 @@ function createMockDb() {
         },
       };
     },
+    async batch(stmts: any[]) { return mockBatch(stmts); },
   } as any;
 }
 
@@ -131,6 +138,11 @@ describe('Alert Engine & State Machine', () => {
           async all() {
             if (sql.includes('FROM nodes')) return { results: [node] };
             if (sql.includes('FROM alert_rules')) return { results: [rule] };
+            if (sql.includes('SELECT * FROM alert_states')) {
+              // Pre-existing FIRING state (moved from first() overlay:
+              // evaluateAlerts preloads the whole table now).
+              return { results: [{ state_key: 'rule:201:node-1', active: 1, pending_since_ms: null }] };
+            }
             return { results: [] };
           },
           async first() {
@@ -143,6 +155,7 @@ describe('Alert Engine & State Machine', () => {
           async run() { return { success: true }; },
         };
       },
+      async batch(stmts: any[]) { return mockBatch(stmts); },
     } as any;
 
     const transitions = await evaluateAlerts(mockDb, 90);
@@ -360,6 +373,7 @@ describe('Alert Engine & State Machine', () => {
           async run() { return { success: true }; },
         };
       },
+      async batch(stmts: any[]) { return mockBatch(stmts); },
     } as any;
 
     const transitions = await evaluateAlerts(mockDb, 90);
@@ -400,6 +414,7 @@ describe('Alert Engine & State Machine', () => {
           async run() { return { success: true }; },
         };
       },
+      async batch(stmts: any[]) { return mockBatch(stmts); },
     } as any;
 
     const transitions = await evaluateAlerts(mockDb, 90);
@@ -456,6 +471,7 @@ describe('Alert Engine & State Machine', () => {
           async run() { return { success: true }; },
         };
       },
+      async batch(stmts: any[]) { return mockBatch(stmts); },
     } as any;
 
     const transitions = await evaluateAlerts(mockDb, 90);
@@ -514,6 +530,7 @@ describe('Alert Engine & State Machine', () => {
           async run() { return { success: true }; },
         };
       },
+      async batch(stmts: any[]) { return mockBatch(stmts); },
     } as any;
 
     const transitions = await evaluateAlerts(mockDb, 90);
@@ -560,6 +577,7 @@ describe('Alert Engine & State Machine', () => {
           async run() { return { success: true }; },
         };
       },
+      async batch(stmts: any[]) { return mockBatch(stmts); },
     } as any;
 
     const transitions = await evaluateAlerts(mockDb, 90);
@@ -609,6 +627,7 @@ describe('Alert Engine & State Machine', () => {
           async run() { return { success: true }; },
         };
       },
+      async batch(stmts: any[]) { return mockBatch(stmts); },
     } as any;
 
     const transitions = await evaluateAlerts(mockDb, 90);
@@ -658,6 +677,7 @@ describe('Alert Engine & State Machine', () => {
           async run() { return { success: true }; },
         };
       },
+      async batch(stmts: any[]) { return mockBatch(stmts); },
     } as any;
 
     const transitions = await evaluateAlerts(mockDb, 90);

@@ -6,26 +6,13 @@ import { useTranslation } from '../i18n/I18nContext';
 import { CountryFlag } from './CountryFlag';
 import { OsIcon } from './OsIcon';
 import { WORLD_POLYGONS, MAJOR_REGIONS, LAND_POINTS, CITY_LIGHTS, STARFIELD } from './world-geo-data';
+import { ONLINE_CUTOFF_MS } from '../utils/time';
+import { formatBytes, formatBps } from '../utils/format';
 
 interface Globe3DProps {
   nodes: NodeItem[];
   mode?: '3d' | '2d';
   onToggleMode?: () => void;
-}
-
-function formatBytes(bytes?: number | null): string {
-  if (!bytes || bytes <= 0) return '0 B';
-  if (bytes >= 1024 * 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2) + ' TB';
-  if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
-  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  return (bytes / 1024).toFixed(0) + ' KB';
-}
-
-function formatBps(bps?: number | null): string {
-  if (!bps || bps <= 0) return '0 B/s';
-  if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(1) + ' MB/s';
-  if (bps >= 1024) return (bps / 1024).toFixed(0) + ' KB/s';
-  return bps.toFixed(0) + ' B/s';
 }
 
 function formatUptime(uptimeSec?: number | null): string {
@@ -95,7 +82,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
 
   function isOnline(node: NodeItem): boolean {
     const lastSeen = overlays[node.id]?.last_seen_at_ms ?? node.state?.last_seen_at_ms;
-    return lastSeen ? Date.now() - lastSeen < 90 * 1000 : false;
+    return lastSeen ? Date.now() - lastSeen < ONLINE_CUTOFF_MS : false;
   }
 
   const onlineNodes = nodes.filter(isOnline);
@@ -237,10 +224,10 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
           centerY,
           radius * 1.22
         );
-        outerAtmo.addColorStop(0, `rgba(56, 189, 248, ${atmosphereAlpha * 0.7})`);
-        outerAtmo.addColorStop(0.4, `rgba(14, 165, 233, ${atmosphereAlpha * 0.4})`);
-        outerAtmo.addColorStop(0.8, `rgba(3, 105, 161, ${atmosphereAlpha * 0.15})`);
-        outerAtmo.addColorStop(1, 'rgba(14, 165, 233, 0.0)');
+        outerAtmo.addColorStop(0, `rgba(255, 255, 255, ${atmosphereAlpha * 0.7})`);
+        outerAtmo.addColorStop(0.4, `rgba(255, 255, 255, ${atmosphereAlpha * 0.28})`);
+        outerAtmo.addColorStop(0.8, `rgba(255, 255, 255, ${atmosphereAlpha * 0.1})`);
+        outerAtmo.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
 
         ctx.fillStyle = outerAtmo;
         ctx.beginPath();
@@ -268,10 +255,10 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
             centerY,
             radius * 1.05
           );
-          oceanGrad.addColorStop(0, `rgba(13, 40, 71, ${oceanAlpha})`);   // Sun-illuminated turquoise blue
-          oceanGrad.addColorStop(0.45, `rgba(7, 24, 46, ${oceanAlpha})`);  // Mid deep blue
-          oceanGrad.addColorStop(0.85, `rgba(3, 10, 20, ${oceanAlpha})`);  // Abyssal deep ocean
-          oceanGrad.addColorStop(1, `rgba(1, 4, 10, ${oceanAlpha})`);     // Cosmic edge horizon
+          oceanGrad.addColorStop(0, `rgba(255, 255, 255, ${0.08 * oceanAlpha})`);   // Sunlit sheen (monochrome)
+          oceanGrad.addColorStop(0.45, `rgba(255, 255, 255, ${0.05 * oceanAlpha})`);  // Mid graphite
+          oceanGrad.addColorStop(0.85, `rgba(255, 255, 255, ${0.03 * oceanAlpha})`);  // Abyssal graphite
+          oceanGrad.addColorStop(1, `rgba(255, 255, 255, ${0.015 * oceanAlpha})`);     // Cosmic edge horizon
 
           ctx.fillStyle = oceanGrad;
           ctx.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
@@ -285,16 +272,16 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
             centerY,
             radius
           );
-          rimGrad.addColorStop(0, 'rgba(56, 189, 248, 0.0)');
-          rimGrad.addColorStop(0.7, `rgba(56, 189, 248, ${0.12 * oceanAlpha})`);
-          rimGrad.addColorStop(1, `rgba(56, 189, 248, ${0.35 * oceanAlpha})`);
+          rimGrad.addColorStop(0, 'rgba(255, 255, 255, 0.0)');
+          rimGrad.addColorStop(0.7, `rgba(255, 255, 255, ${0.12 * oceanAlpha})`);
+          rimGrad.addColorStop(1, `rgba(255, 255, 255, ${0.35 * oceanAlpha})`);
 
           ctx.fillStyle = rimGrad;
           ctx.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
           ctx.restore();
 
           // Subtle Earth Horizon Rim Stroke
-          ctx.strokeStyle = `rgba(56, 189, 248, ${0.4 * oceanAlpha})`;
+          ctx.strokeStyle = `rgba(255, 255, 255, ${0.4 * oceanAlpha})`;
           ctx.lineWidth = 1.2;
           ctx.beginPath();
           ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
@@ -306,7 +293,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
       [-60, -30, 0, 30, 60].forEach((lat) => {
         const isEquator = lat === 0;
         ctx.strokeStyle = isEquator
-          ? `rgba(56, 189, 248, ${0.18 + morph * 0.12})`
+          ? `rgba(255, 255, 255, ${0.18 + morph * 0.12})`
           : `rgba(255, 255, 255, ${0.04 + morph * 0.03})`;
         ctx.lineWidth = isEquator ? 1.0 : 0.6;
         if (isEquator) ctx.setLineDash([6, 4]);
@@ -333,7 +320,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
         // Degree label along Prime Meridian
         const labelPt = projectMorphed(lat, 0, radius, rotX, rotY, morph, centerX, centerY);
         if (labelPt.visible && labelPt.alpha > 0.4) {
-          ctx.fillStyle = `rgba(160, 180, 210, ${labelPt.alpha * 0.5})`;
+          ctx.fillStyle = `rgba(255, 255, 255, ${labelPt.alpha * 0.5})`;
           ctx.font = '600 8px monospace';
           ctx.fillText(lat === 0 ? 'EQ 0°' : `${Math.abs(lat)}°${lat > 0 ? 'N' : 'S'}`, labelPt.x + 3, labelPt.y - 2);
         }
@@ -342,7 +329,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
       [-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150, 180].forEach((lon) => {
         const isPrime = lon === 0;
         ctx.strokeStyle = isPrime
-          ? `rgba(56, 189, 248, ${0.2 + morph * 0.12})`
+          ? `rgba(255, 255, 255, ${0.2 + morph * 0.12})`
           : `rgba(255, 255, 255, ${0.04 + morph * 0.03})`;
         ctx.lineWidth = isPrime ? 1.0 : 0.6;
         if (isPrime) ctx.setLineDash([6, 4]);
@@ -372,7 +359,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
         // Deep emerald satellite land tint
         ctx.fillStyle = `rgba(15, 42, 34, ${0.85 * (1 - morph * 0.2)})`;
         // Luminous coastline contour
-        ctx.strokeStyle = `rgba(56, 189, 248, ${0.55 + morph * 0.25})`;
+        ctx.strokeStyle = `rgba(255, 255, 255, ${0.55 + morph * 0.25})`;
         ctx.lineWidth = 1.1;
 
         ctx.beginPath();
@@ -402,7 +389,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
           const cityAlpha = pt.alpha * city.intensity * (pt.isSunlit ? 0.35 : 0.95);
           if (cityAlpha > 0.05) {
             // Soft Light Halo
-            ctx.fillStyle = `rgba(251, 191, 36, ${cityAlpha * 0.35})`;
+            ctx.fillStyle = `rgba(245, 158, 11, ${cityAlpha * 0.35})`;
             ctx.beginPath();
             ctx.arc(pt.x, pt.y, city.size * 2.2, 0, Math.PI * 2);
             ctx.fill();
@@ -420,7 +407,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
       LAND_POINTS.forEach(([lat, lon]) => {
         const pt = projectMorphed(lat, lon, radius, rotX, rotY, morph, centerX, centerY);
         if (pt.visible) {
-          ctx.fillStyle = `rgba(52, 211, 153, ${pt.alpha * 0.65})`;
+          ctx.fillStyle = `rgba(34, 197, 94, ${pt.alpha * 0.65})`;
           ctx.beginPath();
           ctx.arc(pt.x, pt.y, 1.3, 0, Math.PI * 2);
           ctx.fill();
@@ -431,7 +418,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
       MAJOR_REGIONS.forEach((reg) => {
         const pt = projectMorphed(reg.lat, reg.lon, radius, rotX, rotY, morph, centerX, centerY);
         if (pt.visible && pt.alpha > 0.35) {
-          ctx.fillStyle = `rgba(186, 230, 253, ${pt.alpha * 0.8})`;
+          ctx.fillStyle = `rgba(255, 255, 255, ${pt.alpha * 0.8})`;
           ctx.font = '700 9px Inter, sans-serif';
           ctx.textAlign = 'center';
           ctx.fillText(reg.name, pt.x, pt.y);
@@ -447,7 +434,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
             const nodeA = onlineNodes[i];
             const nodeB = onlineNodes[j];
 
-            ctx.strokeStyle = 'rgba(0, 230, 118, 0.28)';
+            ctx.strokeStyle = 'rgba(34, 197, 94, 0.28)';
             ctx.lineWidth = 1.0;
             ctx.setLineDash([4, 4]);
 
@@ -491,13 +478,10 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
             );
             const photonPt = projectMorphed(photonLat, photonLon, radius, rotX, rotY, morph, centerX, centerY);
             if (photonPt.visible) {
-              ctx.fillStyle = '#00e676';
-              ctx.shadowColor = '#00e676';
-              ctx.shadowBlur = 8;
+              ctx.fillStyle = '#22c55e';
               ctx.beginPath();
               ctx.arc(photonPt.x, photonPt.y, 2.5, 0, Math.PI * 2);
               ctx.fill();
-              ctx.shadowBlur = 0;
             }
           }
         }
@@ -522,7 +506,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
             // Expanding Sonar Radar Waves
             const wave1 = 6 + (pulsePhase * 4) % 14;
             const alpha1 = Math.max(0, 1 - wave1 / 20);
-            ctx.strokeStyle = `rgba(0, 230, 118, ${alpha1 * 0.85})`;
+            ctx.strokeStyle = `rgba(34, 197, 94, ${alpha1 * 0.85})`;
             ctx.lineWidth = 1.0;
             ctx.beginPath();
             ctx.arc(pt.x, pt.y, wave1, 0, Math.PI * 2);
@@ -530,14 +514,14 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
 
             const wave2 = 6 + ((pulsePhase * 4 + 7) % 14);
             const alpha2 = Math.max(0, 1 - wave2 / 20);
-            ctx.strokeStyle = `rgba(0, 230, 118, ${alpha2 * 0.65})`;
+            ctx.strokeStyle = `rgba(34, 197, 94, ${alpha2 * 0.65})`;
             ctx.beginPath();
             ctx.arc(pt.x, pt.y, wave2, 0, Math.PI * 2);
             ctx.stroke();
           }
 
           // Beacon Solid Core
-          ctx.fillStyle = online ? '#00e676' : '#e22718';
+          ctx.fillStyle = online ? '#22c55e' : '#ef4444';
           ctx.strokeStyle = '#000000';
           ctx.lineWidth = 1.8;
           ctx.beginPath();
@@ -711,7 +695,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
         height: 'clamp(580px, 68vh, 780px)',
         cursor: isDragging ? 'grabbing' : (tooltipData ? 'pointer' : 'grab'),
         touchAction: 'none',
-        backgroundColor: '#030305',
+        backgroundColor: '#000000',
         border: '1px solid var(--colors-hairline)',
         overflow: 'hidden',
       }}
@@ -729,9 +713,8 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
             letterSpacing: '0.05em',
             color: 'rgba(255, 255, 255, 0.75)',
             backgroundColor: 'rgba(5, 5, 8, 0.75)',
-            backdropFilter: 'blur(8px)',
             padding: '4px 8px',
-            borderRadius: '4px',
+            borderRadius: '0px',
             border: '1px solid var(--colors-hairline)',
             pointerEvents: 'none',
           }}
@@ -758,14 +741,12 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
             padding: '5px 10px',
             minHeight: 'auto',
             backgroundColor: 'rgba(5, 5, 8, 0.75)',
-            backdropFilter: 'blur(8px)',
             borderColor: 'var(--colors-hairline)',
-            borderRadius: '4px',
+            borderRadius: '0px',
             color: '#ffffff',
             cursor: 'pointer',
             fontSize: '11px',
             fontWeight: 700,
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
           }}
         >
           {mode === '3d' ? (
@@ -803,11 +784,9 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
           alignItems: 'center',
           gap: '8px',
           backgroundColor: 'rgba(5, 5, 8, 0.85)',
-          backdropFilter: 'blur(10px)',
           border: '1px solid var(--colors-hairline)',
-          borderRadius: '4px',
+          borderRadius: '0px',
           padding: '4px 10px',
-          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.6)',
           pointerEvents: 'none',
           userSelect: 'none',
         }}
@@ -819,7 +798,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
               height: '7px',
               borderRadius: '50%',
               backgroundColor: onlineNodes.length > 0 ? 'var(--colors-status-live)' : 'var(--colors-status-alert)',
-              boxShadow: onlineNodes.length > 0 ? '0 0 8px var(--colors-status-live)' : 'none',
+              boxShadow: 'none',
             }}
           />
           <span
@@ -859,13 +838,11 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
           right: '12px',
           zIndex: 10,
           backgroundColor: 'rgba(5, 5, 8, 0.75)',
-          backdropFilter: 'blur(8px)',
           border: '1px solid var(--colors-hairline)',
-          borderRadius: '4px',
+          borderRadius: '0px',
           padding: '2px',
           display: 'flex',
           gap: '2px',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
         }}
       >
         <button
@@ -933,9 +910,8 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
                 tooltipData.y < 160 ? '14px' : '-105%'
               })`,
               backgroundColor: 'rgba(8, 8, 12, 0.96)',
-              backdropFilter: 'blur(16px)',
-              border: '1px solid var(--colors-hairline)',
-              borderRadius: '6px',
+                border: '1px solid var(--colors-hairline)',
+              borderRadius: '0px',
               padding: '12px 14px',
               display: 'flex',
               flexDirection: 'column',
@@ -943,7 +919,6 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
               zIndex: 20,
               pointerEvents: 'auto',
               minWidth: '210px',
-              boxShadow: '0 12px 40px rgba(0, 0, 0, 0.9)',
               cursor: 'pointer',
               userSelect: 'none',
             }}
@@ -957,14 +932,14 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
               </span>
               <span className="status-indicator-beacon" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                 <span className={`beacon-dot ${online ? 'beacon-live' : 'beacon-idle'}`}></span>
-                <span style={{ fontSize: '10px', color: online ? 'var(--colors-status-live)' : 'var(--colors-on-primary-mute)' }}>
+                <span style={{ fontSize: '10px', color: online ? 'var(--colors-status-live)' : 'var(--colors-muted)' }}>
                   {online ? t('node_online') : t('node_offline')}
                 </span>
               </span>
             </div>
 
             {/* System & Geo Subtext */}
-            <div style={{ fontSize: '11px', color: 'var(--colors-on-primary-mute)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--colors-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <OsIcon os={node.system?.os} osVersion={node.system?.os_version} size={16} />
               <span>{node.system?.os || 'Linux'} · {node.geo?.city || node.geo?.country || 'COLO'} ({node.geo?.colo || 'CF'})</span>
             </div>
@@ -973,13 +948,13 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '6px', fontSize: '11px' }}>
               {/* CPU */}
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--colors-on-primary-mute)' }}>CPU ({cpuCores}C)</span>
+                <span style={{ color: 'var(--colors-muted)' }}>CPU ({cpuCores}C)</span>
                 <span style={{ color: '#ffffff', fontWeight: 600 }}>{online && cpuPct != null ? `${cpuPct}%` : 'N/A'}</span>
               </div>
 
               {/* RAM */}
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--colors-on-primary-mute)' }}>RAM</span>
+                <span style={{ color: 'var(--colors-muted)' }}>RAM</span>
                 <span style={{ color: '#ffffff', fontWeight: 600 }}>
                   {online && memoryUsed ? `${formatBytes(memoryUsed)}${memoryLimit ? ` / ${formatBytes(memoryLimit)}` : ''}` : 'N/A'}
                 </span>
@@ -988,7 +963,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
               {/* DISK */}
               {rootfsLimit && rootfsLimit > 0 ? (
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--colors-on-primary-mute)' }}>DISK</span>
+                  <span style={{ color: 'var(--colors-muted)' }}>DISK</span>
                   <span style={{ color: '#ffffff', fontWeight: 600 }}>
                     {rootfsUsed ? `${formatBytes(rootfsUsed)} / ${formatBytes(rootfsLimit)}` : `${formatBytes(rootfsLimit)} TOTAL`}
                   </span>
@@ -998,7 +973,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
               {/* NET Speed */}
               {online && (rxBps != null || txBps != null) ? (
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--colors-on-primary-mute)' }}>NET</span>
+                  <span style={{ color: 'var(--colors-muted)' }}>NET</span>
                   <span style={{ color: 'var(--colors-status-live)', fontWeight: 600 }}>
                     ↓ {formatBps(rxBps)} · ↑ {formatBps(txBps)}
                   </span>
@@ -1006,14 +981,14 @@ export const Globe3D: React.FC<Globe3DProps> = ({ nodes, mode = '3d', onToggleMo
               ) : null}
 
               {/* RTT & Uptime */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--colors-on-primary-mute)', fontSize: '10px', marginTop: '2px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--colors-muted)', fontSize: '10px', marginTop: '2px' }}>
                 <span>RTT: <strong style={{ color: rttMs ? 'var(--colors-status-live)' : 'inherit' }}>{rttMs ? `${rttMs} ms` : 'N/A'}</strong></span>
                 <span>UP: <strong style={{ color: '#ffffff' }}>{formatUptime(uptimeSec)}</strong></span>
               </div>
             </div>
 
             {/* Double Click Hint */}
-            <div style={{ fontSize: '9px', color: 'var(--colors-on-primary-mute)', textAlign: 'center', marginTop: '2px', opacity: 0.8 }}>
+            <div style={{ fontSize: '9px', color: 'var(--colors-muted)', textAlign: 'center', marginTop: '2px', opacity: 0.8 }}>
               ⚡ DOUBLE CLICK TO INSPECT
             </div>
           </div>

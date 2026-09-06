@@ -33,6 +33,29 @@ describe('Worker Protocol Contract Tests (Fixtures Alignment)', () => {
     expect(valid).toBe(true);
     expect(envelope.data.environment.type).toBe('container');
     expect(envelope.data.resources.cpu_capacity_cores).toBe(0.5);
+    expect(envelope.data.resources.cpu_physical_cores).toBe(2);
+  });
+
+  it('accepts replay batches with dropped count and null reset rates', () => {
+    const envelope = loadFixture<AgentEnvelope<ReportPayload>>('report_replay.json');
+    expect(validateReportPayload(envelope.data)).toBe(true);
+    expect(envelope.data.samples!.length).toBe(3);
+    expect(envelope.data.dropped_samples).toBe(2);
+    const reset = envelope.data.samples![1];
+    expect(reset.metrics.network.counter_id).toBe('b71c0ad3e55f02c9');
+    expect(reset.metrics.network.rx_bps).toBeNull();
+    expect(reset.metrics.network.tx_bps).toBeNull();
+    expect(reset.metrics.cpu.usage_pct).toBeNull();
+  });
+
+  it('rejects malformed hello payloads (missing sub-objects)', () => {
+    const base = loadFixture<AgentEnvelope<HelloPayload>>('hello.json').data;
+    expect(validateHelloPayload({ ...base, system: undefined as never })).toBe(false);
+    expect(validateHelloPayload({ ...base, resources: undefined as never })).toBe(false);
+    expect(
+      validateHelloPayload({ ...base, resources: { rootfs_scope: 42 } as never })
+    ).toBe(false);
+    expect(validateHelloPayload({ ...base, resources: { ...base.resources, cpu_physical_cores: -1 } })).toBe(false);
   });
 
   it('correctly deserializes and validates report.json fixture', () => {

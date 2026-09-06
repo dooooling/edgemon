@@ -12,6 +12,7 @@ import {
   ErrorData,
   ServerConfig,
   CloseCodes,
+  validateHelloPayload,
 } from '../protocol/types';
 import { updateNodeMetadataFromHello } from '../db/nodes';
 import { NormalizedGeo } from '../services/geo';
@@ -227,6 +228,29 @@ export class RealtimeHub extends DurableObject<Env> {
 
       const helloData = envelope.data as HelloPayload;
       const nodeId = attachment.node_id;
+
+      if (!validateHelloPayload(helloData)) {
+        this.sendError(ws, 'INVALID_HELLO', 'Hello payload failed validation', envelope.seq);
+        return;
+      }
+
+      // Stale-instance guard (mirrors HTTP INSTANCE_MISMATCH): if D1 already
+      // tracks a different active instance, this hello comes from an outdated
+      // process — reject it instead of evicting the healthy connection.
+      // 4002 is fatal on the agent, so the stale process terminates.
+      const activeRow = await this.env.DB
+        .prepare('SELECT active_instance_id FROM nodes WHERE id = ?')
+        .bind(nodeId)
+        .first<{ active_instance_id: string | null }>();
+      if (activeRow?.active_instance_id && activeRow.active_instance_id !== attachment.instance_id) {
+        this.sendError(ws, 'INSTANCE_MISMATCH', 'A newer agent instance is already active for this node', envelope.seq);
+        try {
+          ws.close(CloseCodes.REPLACED_BY_NEW_INSTANCE, 'Stale instance: newer instance active');
+        } catch {
+          // ignore
+        }
+        return;
+      }
 
       // Close ANY existing socket for this node (even if same instance_id to prevent duplicates)
       const existingSockets = this.ctx.getWebSockets(`agent:${nodeId}`);
@@ -457,9 +481,16 @@ export class RealtimeHub extends DurableObject<Env> {
     // 3. CONFIG_ACK MESSAGE
     if (envelope.type === 'config_ack') {
       const configAckData = envelope.data as ConfigAckData;
-      attachment.config_rev = configAckData.config_rev;
-      attachment.last_seq = envelope.seq;
-      ws.serializeAttachment(attachment);
+      // The server revision is the source of truth: accept the ack only when
+      // it references a revision we actually issued (<= current). A rev from
+      // the future is impossible — drop it. Never copy the client value in.
+      if (
+        Number.isInteger(configAckData.config_rev) &&
+        (configAckData.config_rev as number) <= attachment.config_rev
+      ) {
+        attachment.last_seq = envelope.seq;
+        safeSerializeAttachment(ws, attachment);
+      }
     }
   }
 

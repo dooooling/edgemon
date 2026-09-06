@@ -42,6 +42,7 @@ export interface HelloPayload {
   resources: {
     cpu_model_visible?: string | null;
     cpu_capacity_cores?: number | null;
+    cpu_physical_cores?: number | null;
     memory_limit_bytes?: number | null;
     swap_limit_bytes?: number | null;
     rootfs_limit_bytes?: number | null;
@@ -251,6 +252,10 @@ export function validateHelloPayload(data: HelloPayload): boolean {
   if (!data.system || typeof data.system.hostname !== 'string' || typeof data.system.os !== 'string') return false;
   if (!data.environment || typeof data.environment.type !== 'string' || typeof data.environment.resource_scope !== 'string') return false;
   if (!data.resources || typeof data.resources.rootfs_scope !== 'string') return false;
+  const physical = (data.resources as { cpu_physical_cores?: unknown }).cpu_physical_cores;
+  if (physical !== undefined && physical !== null) {
+    if (typeof physical !== 'number' || !Number.isFinite(physical) || physical < 0) return false;
+  }
   if (!data.sources || typeof data.sources.cpu !== 'string' || typeof data.sources.memory !== 'string') return false;
   if (!data.capabilities || typeof data.capabilities.icmp_probe !== 'boolean' || typeof data.capabilities.tcp_probe !== 'boolean') return false;
   return true;

@@ -40,6 +40,7 @@ pub struct EnvironmentInfo {
 pub struct ResourcesInfo {
     pub cpu_model_visible: Option<String>,
     pub cpu_capacity_cores: Option<f64>,
+    pub cpu_physical_cores: Option<u64>,
     pub memory_limit_bytes: Option<u64>,
     pub swap_limit_bytes: Option<u64>,
     pub rootfs_limit_bytes: Option<u64>,

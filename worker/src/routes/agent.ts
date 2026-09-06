@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { Env } from '../durable/realtime-hub';
-import { AgentEnvelope, HelloPayload, ReportPayload, ServerEnvelope, WelcomeData, AckData, ErrorData } from '../protocol/types';
+import { AgentEnvelope, HelloPayload, ReportPayload, ServerEnvelope, WelcomeData, AckData, ErrorData, validateHelloPayload } from '../protocol/types';
 import { verifyNodeAuth, updateNodeMetadataFromHello } from '../db/nodes';
 import { extractCloudflareMetadata } from '../services/geo';
 
@@ -45,6 +45,9 @@ agentRoutes.post('/api/agent/v1/hello', async (c) => {
     body = await c.req.json();
     if (body.v !== 1 || body.type !== 'hello' || !body.instance_id) {
       return errorResponse('INVALID_MESSAGE', 'Malformed hello envelope', 400);
+    }
+    if (!validateHelloPayload(body.data)) {
+      return errorResponse('INVALID_HELLO', 'Hello payload failed validation', 400);
     }
   } catch {
     return errorResponse('INVALID_MESSAGE', 'Failed to parse JSON body', 400);

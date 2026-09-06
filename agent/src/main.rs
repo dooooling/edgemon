@@ -11,6 +11,7 @@ use edgemon_agent::collector::disk::DiskCollector;
 use edgemon_agent::collector::io::IoCollector;
 use edgemon_agent::collector::memory::MemoryCollector;
 use edgemon_agent::collector::network::NetworkCollector;
+use edgemon_agent::collector::topology::read_cpu_topology;
 use edgemon_agent::collector::uptime::{get_boot_id, UptimeCollector};
 use edgemon_agent::config::{AgentConfig, CliArgs};
 use edgemon_agent::env::cgroup::{resolve_cgroup_context, CgroupVersion};
@@ -322,6 +323,12 @@ fn main() -> Result<()> {
     let init_net = NetworkCollector::new(config.network_interface.clone(), boot_id.clone());
 
     let true_cpu_capacity = init_cpu.effective_capacity();
+    let cpu_topology = read_cpu_topology();
+    info!(
+        "CPU topology: {} logical, {:?} physical",
+        cpu_topology.logical_cores,
+        cpu_topology.physical_cores
+    );
     let true_mem_limit = init_mem.effective_limit_bytes();
     let true_swap_limit = init_mem.effective_swap_limit_bytes();
     let true_rootfs_limit = init_disk.trusted_limit_bytes();
@@ -457,10 +464,11 @@ fn main() -> Result<()> {
                                 oom_kill_count: Some(0),
                             },
                             rootfs: {
-                                let real_disk = disk_collector.sample();
+                                // Mock is fully synthetic: never blend real host samples
+                                // into a fabricated report.
                                 RootfsMetrics {
-                                    used_bytes: real_disk.used_bytes.or(Some(34_359_738_368)),
-                                    mounts: real_disk.mounts,
+                                    used_bytes: Some(34_359_738_368),
+                                    mounts: None,
                                 }
                             },
                             io: DiskIoMetrics {
@@ -571,36 +579,62 @@ fn main() -> Result<()> {
         resources: ResourcesInfo {
             cpu_model_visible: get_cpu_model(),
             cpu_capacity_cores: Some(true_cpu_capacity),
+            cpu_physical_cores: cpu_topology.physical_cores,
             memory_limit_bytes: true_mem_limit,
             swap_limit_bytes: true_swap_limit,
             rootfs_limit_bytes: true_rootfs_limit,
             rootfs_scope: true_rootfs_scope,
         },
         sources: MetricSources {
-            cpu: if is_container {
+            // Mock mode advertises itself: every source reads "mock" so the
+            // server (and any downstream consumer) can distinguish synthetic
+            // telemetry from real measurements. Never use --mock in production.
+            cpu: if is_mock {
+                "mock".to_string()
+            } else if is_container {
                 "cgroup".to_string()
             } else {
                 "procfs".to_string()
             },
-            memory: if is_container {
+            memory: if is_mock {
+                "mock".to_string()
+            } else if is_container {
                 "cgroup".to_string()
             } else {
                 "procfs".to_string()
             },
-            io: if is_container {
+            io: if is_mock {
+                "mock".to_string()
+            } else if is_container {
                 "cgroup".to_string()
             } else {
                 "diskstats".to_string()
             },
-            network: "netns".to_string(),
-            rootfs: "statvfs".to_string(),
+            network: if is_mock {
+                "mock".to_string()
+            } else {
+                "netns".to_string()
+            },
+            rootfs: if is_mock {
+                "mock".to_string()
+            } else {
+                "statvfs".to_string()
+            },
         },
         capabilities: CapabilitiesInfo {
             icmp_probe: edgemon_agent::probe::icmp::can_use_icmp(),
             tcp_probe: true,
         },
-        boot_id: boot_id.clone(),
-        network_counter_id: initial_net_counter_id,
+        boot_id: if is_mock {
+            Some("mock-boot-id-4bc98ba4".to_string())
+        } else {
+            boot_id.clone()
+        },
+        network_counter_id: if is_mock {
+            Some("mock-net-counter".to_string())
+        } else {
+            initial_net_counter_id
+        },
     };
 
     loop {
@@ -665,7 +699,7 @@ fn main() -> Result<()> {
                             let stream_interval =
                                 { shared_config.read().unwrap().stream_interval_sec };
 
-                            // Send Report samples batch (up to 16 samples per report)
+                            // Send Report samples batch (up to 48 samples per WS frame, up to 300 per HTTP batch)
                             if last_report_time.elapsed() >= Duration::from_secs(stream_interval) {
                                 last_report_time = Instant::now();
 

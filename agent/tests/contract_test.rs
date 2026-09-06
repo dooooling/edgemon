@@ -23,6 +23,7 @@ fn test_parse_hello_fixture() {
     assert_eq!(envelope.data.agent.version, "0.1.0");
     assert_eq!(envelope.data.environment.env_type, "container");
     assert_eq!(envelope.data.resources.cpu_capacity_cores, Some(0.5));
+    assert_eq!(envelope.data.resources.cpu_physical_cores, Some(2));
     assert_eq!(envelope.data.resources.memory_limit_bytes, Some(536870912));
     assert_eq!(envelope.data.resources.rootfs_limit_bytes, None);
     assert_eq!(envelope.data.resources.rootfs_scope, "unknown");
@@ -124,4 +125,38 @@ fn test_parse_error_fixture() {
     assert_eq!(envelope.v, 1);
     assert_eq!(envelope.msg_type, "error");
     assert_eq!(envelope.data.code, "INSTANCE_MISMATCH");
+}
+
+#[test]
+fn test_server_config_missing_fields_fall_back_to_2s() {
+    // A config payload omitting interval fields must NOT silently slow the
+    // agent to 30s: serde defaults must match ServerConfig::default (2/2/60).
+    let config: ServerConfig = serde_json::from_str("{}").expect("empty config must parse");
+    assert_eq!(config.sample_interval_sec, 2);
+    assert_eq!(config.stream_interval_sec, 2);
+    assert_eq!(config.probe_interval_sec, 60);
+    assert_eq!(config, ServerConfig::default());
+}
+
+#[test]
+fn test_parse_replay_fixture() {
+    // Multi-sample batch with dropped count, null rates on counter reset
+    // (new counter_id), and a timeout probe.
+    let path = fixture_path("report_replay.json");
+    let content = fs::read_to_string(&path).expect("Failed to read report_replay.json fixture");
+    let envelope: Envelope<ReportPayload> =
+        serde_json::from_str(&content).expect("Failed to parse report_replay.json");
+
+    assert_eq!(envelope.msg_type, "report");
+    assert_eq!(envelope.data.samples.len(), 3);
+    assert_eq!(envelope.data.dropped_samples, 2);
+
+    let reset = &envelope.data.samples[1];
+    assert_eq!(reset.metrics.network.counter_id.as_deref(), Some("b71c0ad3e55f02c9"));
+    assert_eq!(reset.metrics.network.rx_bps, None);
+    assert_eq!(reset.metrics.network.tx_bps, None);
+    assert_eq!(reset.metrics.cpu.usage_pct, None);
+
+    let resumed = &envelope.data.samples[2];
+    assert_eq!(resumed.metrics.network.rx_bps, Some(19500));
 }

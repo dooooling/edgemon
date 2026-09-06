@@ -27,6 +27,7 @@ export interface NodeItem {
   resources: {
     cpu_model_visible?: string | null;
     cpu_capacity_cores?: number | null;
+    cpu_physical_cores?: number | null;
     memory_limit_bytes?: number | null;
     swap_limit_bytes?: number | null;
     rootfs_limit_bytes?: number | null;

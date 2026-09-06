@@ -152,7 +152,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
         },
         axes: [
           {
-            stroke: '#a0a0a8',
+            stroke: '#7e7e7e',
             grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
             ticks: { stroke: 'transparent' },
             font: '10px monospace',
@@ -161,7 +161,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
             values: (_u, splits) => (Array.isArray(splits) ? splits.map((ts) => formatBeijingAxis(Number(ts), range)) : []),
           },
           {
-            stroke: '#a0a0a8',
+            stroke: '#7e7e7e',
             grid: { stroke: 'rgba(255, 255, 255, 0.08)', width: 1 },
             ticks: { stroke: 'transparent' },
             font: '10px monospace',
@@ -256,7 +256,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
           {title}
         </span>
         {range === '10m' && (
-          <span className="spacex-chip" style={{ color: '#00e676', borderColor: '#00e676' }}>
+          <span className="spacex-chip" style={{ color: '#22c55e', borderColor: '#22c55e' }}>
             2-SEC LIVE STREAM
           </span>
         )}
@@ -289,7 +289,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
           marginTop: '10px',
           backgroundColor: 'rgba(255, 255, 255, 0.02)',
           border: '1px solid var(--colors-hairline-subtle)',
-          borderRadius: '4px',
+          borderRadius: '0px',
           fontFamily: 'monospace',
           fontSize: '11px',
         }}
@@ -305,7 +305,7 @@ export const HistoryChart: React.FC<HistoryChartProps> = ({
         {/* Series Values */}
         {activeSeries.map((s, idx) => (
           <div key={s.metricKey + idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>
-            <span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: s.strokeColor, borderRadius: '2px', flexShrink: 0 }}></span>
+            <span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: s.strokeColor, borderRadius: '0px', flexShrink: 0 }}></span>
             <span style={{ color: 'var(--colors-muted)', textTransform: 'uppercase' }}>{s.label}:</span>
             <span
               ref={(el) => {

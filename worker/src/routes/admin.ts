@@ -6,6 +6,53 @@ import { verifyAdminSession } from '../services/session';
 
 const adminRoutes = new Hono<{ Bindings: Env }>();
 
+const BILLING_CYCLES = [
+  'monthly',
+  'quarterly',
+  'semi_annually',
+  'annually',
+  'biennially',
+  'triennially',
+  'one_time',
+  'free',
+] as const;
+
+// Finance/lifecycle field validation shared by POST (create) and PATCH (update).
+// Only validates fields that are present (PATCH may send a subset).
+function validateFinanceInput(body: {
+  traffic_reset_day?: unknown;
+  traffic_quota_bytes?: unknown;
+  expires_at_ms?: unknown;
+  plan_price?: unknown;
+  plan_currency?: unknown;
+  billing_cycle?: unknown;
+}): string | null {
+  if (body.traffic_reset_day !== undefined && body.traffic_reset_day !== null) {
+    if (!Number.isInteger(body.traffic_reset_day) || (body.traffic_reset_day as number) < 1 || (body.traffic_reset_day as number) > 31) {
+      return 'traffic_reset_day must be an integer between 1 and 31';
+    }
+  }
+  for (const key of ['traffic_quota_bytes', 'expires_at_ms', 'plan_price'] as const) {
+    const val = body[key];
+    if (val !== undefined && val !== null) {
+      if (typeof val !== 'number' || !Number.isFinite(val) || val < 0) {
+        return `${key} must be a finite number >= 0`;
+      }
+    }
+  }
+  if (body.plan_currency !== undefined && body.plan_currency !== null) {
+    if (typeof body.plan_currency !== 'string' || !/^[A-Za-z]{3}$/.test(body.plan_currency)) {
+      return 'plan_currency must be a 3-letter currency code';
+    }
+  }
+  if (body.billing_cycle !== undefined && body.billing_cycle !== null) {
+    if (!(BILLING_CYCLES as readonly string[]).includes(body.billing_cycle as string)) {
+      return `billing_cycle must be one of: ${(BILLING_CYCLES as readonly string[]).join(', ')}`;
+    }
+  }
+  return null;
+}
+
 // Admin Auth Middleware - strictly requires signed HMAC-SHA-256 session cookie
 adminRoutes.use('/api/admin/*', async (c, next) => {
   const cookieHeader = c.req.header('Cookie');
@@ -48,6 +95,11 @@ adminRoutes.post('/api/admin/nodes', async (c) => {
     return c.json({ error: 'Node name is required' }, 400);
   }
 
+  const financeError = validateFinanceInput(body);
+  if (financeError) {
+    return c.json({ error: financeError }, 400);
+  }
+
   const autoRenewalNum =
     body.auto_renewal !== undefined
       ? typeof body.auto_renewal === 'boolean'
@@ -70,9 +122,9 @@ adminRoutes.post('/api/admin/nodes', async (c) => {
   const { node, rawToken } = await createNode(
     c.env.DB,
     body.name,
-    body.traffic_reset_day || 1,
-    body.traffic_quota_bytes || null,
-    body.expires_at_ms || null,
+    body.traffic_reset_day ?? 1,
+    body.traffic_quota_bytes ?? null,
+    body.expires_at_ms ?? null,
     body.note || null,
     body.plan_price !== undefined ? body.plan_price : null,
     body.plan_currency || 'USD',
@@ -94,6 +146,11 @@ adminRoutes.patch('/api/admin/nodes/:id', async (c) => {
   const existing = await getNodeById(c.env.DB, id);
   if (!existing) {
     return c.json({ error: 'Node not found' }, 404);
+  }
+
+  const financeError = validateFinanceInput(body);
+  if (financeError) {
+    return c.json({ error: financeError }, 400);
   }
 
   // 1. Sync runtime state changes with RealtimeHub DO FIRST (2-phase consistency - P1)

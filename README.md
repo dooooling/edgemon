@@ -9,7 +9,7 @@
 ## 🌟 核心特性
 
 - **云原生零服务器运维**：前端 SPA、管理后台、API 路由、D1 时序数据库与 WebSocket 实时广播全部运行在 Cloudflare 边缘网络。
-- **高频实时推流与 D1 配额保护**：Agent 默认按 30 秒周期平稳采样上报；Durable Objects 秒级分发实时数据，D1 **严格按 60 秒 Bucket** 批量 UPSERT 落盘，彻底保护数据库写入配额。
+- **高频实时推流与 D1 配额保护**：Agent 默认 2 秒 WSS 主链路实时推流（断开时 30 秒 HTTP 兜底）；Durable Objects 秒级分发实时数据，D1 **严格按 60 秒 Bucket** 批量 UPSERT 落盘，彻底保护数据库写入配额。
 - **故障降级与数据完整性**：长连中断时自动启用指数退避重连（1/2/4/8/16/30/60s + Jitter）并启动 HTTP 兜底上报；内置 sequence 边界校验与 D1 Checkpoint 重放机制，断网恢复后不丢数据、不重复计流量。
 - **容器配额边界感知**：Rust 原生读取 `/proc`、`/sys` 与 cgroup v1/v2 祖先层级配额，自动识别 Docker / LXC 资源边界，绝不将宿主机配置误报为容器套餐。
 - **低攻击面与 SSRF 深度防护**：坚决不做 WebSSH、远程 Shell、任意脚本执行等后门通道；网络探测与 Webhook 调用具备严格的私网与元数据 IP 拦截。

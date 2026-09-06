@@ -135,6 +135,12 @@ Browser control frame    <= 4 KiB
 Attachment target        <= 2 KiB
 ```
 
+> Implementation note (aligned with `PROTOCOL_V1.md` and `RealtimeHub`):
+> the enforced hard guard is 256KB per frame (`1009` close); nominal
+> framing is up to 48 samples per WSS frame and up to 300 samples per
+> HTTP fallback batch. The table above remains the original conservative
+> design target.
+
 超限关闭：
 
 ```text

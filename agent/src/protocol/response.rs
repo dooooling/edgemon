@@ -15,10 +15,10 @@ pub struct ServerConfig {
 }
 
 fn default_sample_interval() -> u64 {
-    30
+    2
 }
 fn default_stream_interval() -> u64 {
-    30
+    2
 }
 fn default_probe_interval() -> u64 {
     60

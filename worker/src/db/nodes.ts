@@ -24,6 +24,7 @@ export interface NodeRow {
   resource_scope: string | null;
   cpu_model_visible: string | null;
   cpu_capacity_cores: number | null;
+  cpu_physical_cores: number | null;
   memory_limit_bytes: number | null;
   swap_limit_bytes: number | null;
   rootfs_limit_bytes: number | null;
@@ -196,6 +197,7 @@ export async function updateNodeMetadataFromHello(
         hostname = ?, agent_version = ?, os = ?, os_version = ?, kernel = ?, arch = ?,
         env_type = ?, env_runtime = ?, host_virtualization_hint = ?, cgroup_version = ?,
         resource_scope = ?, cpu_model_visible = ?, cpu_capacity_cores = ?,
+        cpu_physical_cores = ?,
         memory_limit_bytes = ?, swap_limit_bytes = ?, rootfs_limit_bytes = ?, rootfs_scope = ?,
         egress_ip = ?, geo_country = ?, geo_region = ?, geo_region_code = ?,
         geo_city = ?, geo_lat = ?, geo_lon = ?, geo_timezone = ?, geo_continent = ?,
@@ -216,6 +218,7 @@ export async function updateNodeMetadataFromHello(
       hello.environment.resource_scope,
       hello.resources.cpu_model_visible || null,
       hello.resources.cpu_capacity_cores || null,
+      hello.resources.cpu_physical_cores ?? null,
       hello.resources.memory_limit_bytes || null,
       hello.resources.swap_limit_bytes || null,
       hello.resources.rootfs_limit_bytes || null,

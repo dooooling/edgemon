@@ -26,3 +26,18 @@
 - **Radar Heatmap & Latency Sparkbars**: Continuous 18-tick sparkline matrix rendering latency distribution and packet loss across China Telecom, China Unicom, China Mobile, and Alibaba DNS.
 - **World Orbital Map**: Equirectangular SVG radar projection with pulsing node beacons, Colo tags, and geographic pins.
 - **uPlot Telemetry Charts**: Zero-overhead Canvas charts rendering CPU, memory, IO throughput, and network rates with instant time-range switching (1H / 6H / 24H / 7D / 30D).
+
+## 2. EdgeMon Implementation Appendix (Verified Against Code)
+
+The following records decisions the base spec leaves undefined. All values below are verified against `web/src` (do not change one side without the other):
+
+- **Panels & surfaces**: cards, modals, inputs, tooltips, legends all `0px` radius; only pill CTAs (`9999px`) and 7–8px status dots (circular) are round.
+- **Ghost pill geometry**: `height: 44px; padding: 0 24px` (`36px` small variant); `1px #3f3f46` border; `600` weight; uppercase `1.6px` tracking.
+- **Display scale**: responsive clamps topping at `76px / 56px / 40px`, all-caps `1.6px` tracking; body `300`, tabular numerics for telemetry.
+- **Chart series**: primary white (`#ffffff`); secondary memory series Cloudflare orange (`#f97316`); grid/axis muted (`#7e7e7e`).
+- **Finance amounts**: monthly green (`#22c55e`), annual white, one-time amber (`#f59e0b`).
+- **Range capsules**: rectangular segmented toggles (`0px`), not pill CTAs.
+- **Latency heatmap tiers** (`getLatencyColor`): down `#ef4444`, partial loss `#f97316`, `<50ms` `#22c55e`, `<100ms` `#4ade80`, `<180ms` white, `<280ms` `#f59e0b`, above `#ef4444`.
+- **Third-party brand colors as data**: ISP/carrier tag colors, OS logos (`OsIcon`), and national flags are DATA (equivalent to photography) — exempt from the four-accent rule.
+- **Legacy class aliases**: `.spacex-*` class names in `design-tokens.css` are implementation aliases only; their tokens follow this document.
+- **Online threshold**: `90s` without telemetry (see `ONLINE_CUTOFF_MS` in `web/src/utils/time.ts`).

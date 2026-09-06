@@ -762,6 +762,12 @@ Config 更新时：
 
 ## 10.3 Realtime Hint
 
+> SUPERSEDED by `edgemon-wss-architecture-v1.md` v1.0: the lease state machine
+> (`realtime_lease_until` / `detailWatched` / `node:watch` / `lease_sec`) was
+> deleted. Agents stream at their configured interval (default 2s/2s/60s);
+> browsers subscribe without mutating agent cadence. The section below is
+> retained as historical context only.
+
 Realtime 是临时 hint，不属于持久 `config_rev`：
 
 ```json
@@ -2535,7 +2541,7 @@ export { RealtimeHub }
   "realtime": {
     "enabled": true,
     "interval_sec": 2,
-    "lease_sec": 60
+    "lease_sec": 60 // SUPERSEDED: lease state machine deleted per WSS-architecture v1.0
   }
 }
 ```

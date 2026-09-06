@@ -1,5 +1,6 @@
 # Dependencies & Build artifacts
 node_modules/
+.pnpm-store/
 dist/
 .wrangler/
 target/
@@ -10,6 +11,7 @@ target/
 !.env.example
 .dev.vars
 !.dev.vars.example
+.dev-agent-token
 *.pem
 *.key
 token

@@ -31,7 +31,8 @@ pub struct CliArgs {
     #[arg(long = "allow-private-probes", default_value_t = false)]
     pub allow_private_probes: bool,
 
-    /// Enable simulated telemetry metrics for local development & UI verification
+    /// Enable simulated telemetry metrics for local development & UI verification.
+    /// LOCAL-ONLY: mock reports advertise sources="mock" and must never run in production.
     #[arg(long = "mock", default_value_t = false)]
     pub mock: bool,
 }

@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { usePublicNodesQuery, useAdminSessionQuery } from '../queries/nodes';
 import { useRealtimeStore } from '../realtime/store';
 import { useTranslation } from '../i18n/I18nContext';
+import { ONLINE_CUTOFF_MS } from '../utils/time';
 
 export const HeaderNav: React.FC = () => {
   const location = useLocation();
@@ -15,7 +16,7 @@ export const HeaderNav: React.FC = () => {
 
   const nodes = data?.nodes || [];
   const now = Date.now();
-  const onlineCutoffMs = 90 * 1000;
+  const onlineCutoffMs = ONLINE_CUTOFF_MS;
 
   const onlineNodes = nodes.filter((n) => {
     const lastSeen = overlays[n.id]?.last_seen_at_ms ?? n.state?.last_seen_at_ms;
@@ -26,13 +27,9 @@ export const HeaderNav: React.FC = () => {
 
   return (
     <header className="nav-bar-overlay">
-      {/* Signature BMW M Tricolor Accent Stripe */}
-      <div className="m-stripe-divider"></div>
-
       <div className="nav-container">
-        {/* Brand Wordmark (Uppercase + M Tricolor Pill Accent) */}
+        {/* Brand Wordmark */}
         <Link to="/" className="nav-brand-wordmark">
-          <span className="m-stripe-pill"></span>
           <span>EDGEMON</span>
           <span style={{ color: 'var(--colors-muted)', fontWeight: 300 }}>{t('nav_brand_sub')}</span>
         </Link>
@@ -75,7 +72,7 @@ export const HeaderNav: React.FC = () => {
                   lineHeight: '26px',
                   padding: '0 12px',
                   fontSize: '10px',
-                  letterSpacing: '1px',
+                  letterSpacing: '1.6px',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '6px',
@@ -93,14 +90,14 @@ export const HeaderNav: React.FC = () => {
                   lineHeight: '26px',
                   padding: '0 12px',
                   fontSize: '10px',
-                  letterSpacing: '1px',
+                  letterSpacing: '1.6px',
                   borderColor: 'rgba(255, 255, 255, 0.4)',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '6px',
                 }}
               >
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#00e676' }}></span>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#22c55e' }}></span>
                 <span>{t('nav_console')}</span>
                 <span>→</span>
               </Link>
@@ -116,7 +113,7 @@ export const HeaderNav: React.FC = () => {
                 justifyContent: 'center',
                 width: '28px',
                 height: '28px',
-                borderRadius: '4px',
+                borderRadius: '0px',
                 border: '1px solid transparent',
                 color: 'var(--colors-muted)',
                 transition: 'all 0.15s ease',
@@ -125,7 +122,7 @@ export const HeaderNav: React.FC = () => {
               onMouseEnter={(e) => {
                 e.currentTarget.style.color = '#ffffff';
                 e.currentTarget.style.opacity = '1';
-                e.currentTarget.style.borderColor = 'var(--colors-hairline-on-dark)';
+                e.currentTarget.style.borderColor = 'var(--colors-hairline)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.color = 'var(--colors-muted)';

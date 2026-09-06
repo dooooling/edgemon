@@ -344,11 +344,11 @@ export const AdminPage: React.FC = () => {
       }
       if (newAlertChannel === 'telegram') {
         if (!newAlertBotToken || !newAlertChatId) {
-          alert('Telegram Bot Token & Chat ID required');
+          alert(t('admin_alert_token_required'));
           return;
         }
       } else if (newAlertChannel !== 'custom' && !newAlertWebhookUrl) {
-        alert('Webhook URL required');
+        alert(t('admin_alert_url_required'));
         return;
       }
 
@@ -357,7 +357,7 @@ export const AdminPage: React.FC = () => {
         try {
           headersObj = JSON.parse(newAlertHeaders.trim());
         } catch {
-          alert('Headers JSON format error');
+          alert(t('admin_alert_headers_json'));
           return;
         }
       }
@@ -553,7 +553,7 @@ export const AdminPage: React.FC = () => {
     e.preventDefault();
     if (!editingNode) return;
     if (configLoadError) {
-      alert('节点运行配置未成功加载，无法提交，请关闭后重新打开以防覆盖探测与告警规则！');
+      alert(t('admin_config_load_warn'));
       return;
     }
     setUpdatingNode(true);
@@ -635,9 +635,9 @@ export const AdminPage: React.FC = () => {
   return (
     <div className="page-container">
       {adminBannerWarning && (
-        <div className="detail-chassis-band" style={{ marginBottom: '24px', borderColor: '#e22718', backgroundColor: 'rgba(226, 39, 24, 0.08)' }}>
+        <div className="detail-chassis-band" style={{ marginBottom: '24px', borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.08)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: '#e22718', fontSize: '12px', fontWeight: 600 }}>{adminBannerWarning}</span>
+            <span style={{ color: '#ef4444', fontSize: '12px', fontWeight: 600 }}>{adminBannerWarning}</span>
             <button
               style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer' }}
               onClick={() => setAdminBannerWarning(null)}
@@ -651,7 +651,7 @@ export const AdminPage: React.FC = () => {
       {!authenticated ? (
         <div style={{ maxWidth: '440px', margin: '80px auto', width: '100%' }}>
           <div className="detail-chassis-band" style={{ padding: '36px 32px' }}>
-            <span className="eyebrow-cap" style={{ fontSize: '11px', color: 'var(--colors-m-blue-light)' }}>
+            <span className="eyebrow-cap" style={{ fontSize: '11px' }}>
               EDGEMON // ADMIN GATEWAY
             </span>
             <h2 className="display-lg" style={{ fontSize: '22px', marginTop: '6px', marginBottom: '8px' }}>
@@ -739,10 +739,10 @@ export const AdminPage: React.FC = () => {
             <div style={{
               margin: '0 0 16px 0',
               padding: '12px 16px',
-              backgroundColor: 'rgba(255, 170, 0, 0.08)',
-              border: '1px solid #ffaa00',
-              borderRadius: '4px',
-              color: '#ffaa00',
+              backgroundColor: 'rgba(245, 158, 11, 0.08)',
+              border: '1px solid #f59e0b',
+              borderRadius: '0px',
+              color: '#f59e0b',
               fontSize: '12px',
               display: 'flex',
               justifyContent: 'space-between',
@@ -751,7 +751,7 @@ export const AdminPage: React.FC = () => {
               <span>⚠️ {adminBannerWarning}</span>
               <button
                 className="button-ghost-on-dark button-ghost-sm"
-                style={{ borderColor: '#ffaa00', color: '#ffaa00', padding: '2px 8px', minHeight: 'auto' }}
+                style={{ borderColor: '#f59e0b', color: '#f59e0b', padding: '2px 8px', minHeight: 'auto' }}
                 onClick={() => setAdminBannerWarning(null)}
               >
                 DISMISS
@@ -779,7 +779,7 @@ export const AdminPage: React.FC = () => {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                           <strong>{n.name.toUpperCase()}</strong>
                           {n.plan_price != null && n.plan_price > 0 && (
-                            <span className="spacex-chip" style={{ color: '#00e676', borderColor: 'rgba(0, 230, 118, 0.4)', fontSize: '10px' }}>
+                            <span className="spacex-chip" style={{ color: '#22c55e', borderColor: 'rgba(34, 197, 94, 0.4)', fontSize: '10px' }}>
                               {n.plan_currency || 'USD'} {n.plan_price}/{n.billing_cycle || 'mo'}
                             </span>
                           )}
@@ -791,7 +791,7 @@ export const AdminPage: React.FC = () => {
                         </div>
                       </td>
                       <td>
-                        <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--colors-on-primary-mute)' }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--colors-muted)' }}>
                           {n.id}
                         </span>
                       </td>
@@ -801,14 +801,14 @@ export const AdminPage: React.FC = () => {
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <button
                             className="button-ghost-on-dark button-ghost-sm"
-                            style={{ borderColor: '#38bdf8', color: '#38bdf8' }}
+                            style={{ borderColor: '#ffffff', color: '#ffffff' }}
                             onClick={() => openEditModal(n)}
                           >
                             ⚙️ {t('btn_edit')}
                           </button>
                           <button
                             className="button-ghost-on-dark button-ghost-sm"
-                            style={{ borderColor: '#a78bfa', color: '#a78bfa' }}
+                            style={{ borderColor: '#ffffff', color: '#ffffff' }}
                             onClick={() => {
                               setCmdTab('linux_install');
                               setOneTimeTokenModal({
@@ -893,7 +893,7 @@ export const AdminPage: React.FC = () => {
                               <strong style={{ fontSize: '13px' }}>{parsedConfig.name || t('channels_title')}</strong>
                             </td>
                             <td>
-                              <span className="spacex-chip" style={{ color: '#00e676', borderColor: '#00e676' }}>
+                              <span className="spacex-chip" style={{ color: '#22c55e', borderColor: '#22c55e' }}>
                                 {platform.toUpperCase()}
                               </span>
                             </td>
@@ -911,7 +911,7 @@ export const AdminPage: React.FC = () => {
                               <div style={{ display: 'flex', gap: '8px' }}>
                                 <button
                                   className="button-ghost-on-dark button-ghost-sm"
-                                  style={{ borderColor: '#38bdf8', color: '#38bdf8' }}
+                                  style={{ borderColor: '#ffffff', color: '#ffffff' }}
                                   onClick={() => openEditChannelModal(channel)}
                                 >
                                   {t('btn_edit')}
@@ -938,7 +938,7 @@ export const AdminPage: React.FC = () => {
                   <div>
                     <span className="eyebrow-cap">🚨 {t('policies_title')} ({alertRules.filter(r => r.type !== 'channel' && r.type !== 'webhook').length})</span>
                   </div>
-                  <button className="button-ghost-on-dark button-ghost-sm" style={{ backgroundColor: 'rgba(56, 189, 248, 0.1)', borderColor: '#38bdf8', color: '#38bdf8' }} onClick={openAddPolicyModal}>
+                  <button className="button-ghost-on-dark button-ghost-sm" style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)', borderColor: '#ffffff', color: '#ffffff' }} onClick={openAddPolicyModal}>
                     {t('policies_add_btn')}
                   </button>
                 </div>
@@ -993,27 +993,27 @@ export const AdminPage: React.FC = () => {
                               {parsedConfig.conditions ? (
                                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                                   {parsedConfig.conditions.offline?.enabled && (
-                                    <span className="spacex-chip" style={{ color: '#e22718', borderColor: '#e22718', fontSize: '10px' }}>
+                                    <span className="spacex-chip" style={{ color: '#ef4444', borderColor: '#ef4444', fontSize: '10px' }}>
                                       ⚠️ {t('policy_cond_offline')} &gt; {parsedConfig.conditions.offline.duration_sec || 90}s
                                     </span>
                                   )}
                                   {parsedConfig.conditions.cpu?.enabled && (
-                                    <span className="spacex-chip" style={{ color: '#ffaa00', borderColor: '#ffaa00', fontSize: '10px' }}>
+                                    <span className="spacex-chip" style={{ color: '#f59e0b', borderColor: '#f59e0b', fontSize: '10px' }}>
                                       🔥 CPU &ge; {parsedConfig.conditions.cpu.threshold}% ({parsedConfig.conditions.cpu.duration_sec}s)
                                     </span>
                                   )}
                                   {parsedConfig.conditions.memory?.enabled && (
-                                    <span className="spacex-chip" style={{ color: '#38bdf8', borderColor: '#38bdf8', fontSize: '10px' }}>
+                                    <span className="spacex-chip" style={{ color: '#ffffff', borderColor: '#ffffff', fontSize: '10px' }}>
                                       🧠 RAM &ge; {parsedConfig.conditions.memory.threshold}% ({parsedConfig.conditions.memory.duration_sec}s)
                                     </span>
                                   )}
                                   {parsedConfig.conditions.disk?.enabled && (
-                                    <span className="spacex-chip" style={{ color: '#c084fc', borderColor: '#c084fc', fontSize: '10px' }}>
+                                    <span className="spacex-chip" style={{ color: '#ffffff', borderColor: '#ffffff', fontSize: '10px' }}>
                                       💾 DISK &ge; {parsedConfig.conditions.disk.threshold}%
                                     </span>
                                   )}
                                   {parsedConfig.conditions.expiry?.enabled && (
-                                    <span className="spacex-chip" style={{ color: '#fbbf24', borderColor: '#fbbf24', fontSize: '10px' }}>
+                                    <span className="spacex-chip" style={{ color: '#f59e0b', borderColor: '#f59e0b', fontSize: '10px' }}>
                                       📅 EXP &le; {parsedConfig.conditions.expiry.days}d
                                     </span>
                                   )}
@@ -1021,8 +1021,8 @@ export const AdminPage: React.FC = () => {
                               ) : (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                   <span className="spacex-chip" style={{
-                                    borderColor: rule.type === 'offline' ? '#e22718' : '#38bdf8',
-                                    color: rule.type === 'offline' ? '#e22718' : '#38bdf8',
+                                    borderColor: rule.type === 'offline' ? '#ef4444' : '#ffffff',
+                                    color: rule.type === 'offline' ? '#ef4444' : '#ffffff',
                                   }}>
                                     {rule.type.toUpperCase()}
                                   </span>
@@ -1040,7 +1040,7 @@ export const AdminPage: React.FC = () => {
                                   {associatedChannels.map(c => {
                                     const cConfig = c.config_json ? JSON.parse(c.config_json) : {};
                                     return (
-                                      <span key={c.id} className="spacex-chip" style={{ fontSize: '10px', color: '#00e676', borderColor: '#00e676' }}>
+                                      <span key={c.id} className="spacex-chip" style={{ fontSize: '10px', color: '#22c55e', borderColor: '#22c55e' }}>
                                         📢 {cConfig.name || t('channels_title')}
                                       </span>
                                     );
@@ -1055,7 +1055,7 @@ export const AdminPage: React.FC = () => {
                               <div style={{ display: 'flex', gap: '8px' }}>
                                 <button
                                   className="button-ghost-on-dark button-ghost-sm"
-                                  style={{ borderColor: '#38bdf8', color: '#38bdf8' }}
+                                  style={{ borderColor: '#ffffff', color: '#ffffff' }}
                                   onClick={() => openEditPolicyModal(rule)}
                                 >
                                   {t('btn_edit')}
@@ -1120,8 +1120,8 @@ export const AdminPage: React.FC = () => {
                           </td>
                           <td>
                             <span className="spacex-chip" style={{
-                              borderColor: evt.type.includes('fail') ? '#e22718' : evt.type.includes('alert') ? '#f59e0b' : '#38bdf8',
-                              color: evt.type.includes('fail') ? '#e22718' : evt.type.includes('alert') ? '#f59e0b' : '#38bdf8',
+                              borderColor: evt.type.includes('fail') ? '#ef4444' : evt.type.includes('alert') ? '#f59e0b' : '#ffffff',
+                              color: evt.type.includes('fail') ? '#ef4444' : evt.type.includes('alert') ? '#f59e0b' : '#ffffff',
                             }}>
                               {evt.type.toUpperCase()}
                             </span>
@@ -1194,7 +1194,7 @@ export const AdminPage: React.FC = () => {
                   {/* Finance / Price & Currency */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                     <div>
-                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>服务器价格 / Price (Optional)</span>
+                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('admin_price_label')} {t('admin_optional')}</span>
                       <input
                         value={newNodePrice}
                         onChange={(e) => setNewNodePrice(e.target.value)}
@@ -1258,7 +1258,7 @@ export const AdminPage: React.FC = () => {
                   </div>
 
                   <div style={{ marginBottom: '16px' }}>
-                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('th_expire')} (Optional)</span>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('th_expire')} {t('admin_optional')}</span>
                     <input
                       value={newNodeExpiresAt}
                       onChange={(e) => setNewNodeExpiresAt(e.target.value)}
@@ -1268,7 +1268,7 @@ export const AdminPage: React.FC = () => {
                   </div>
 
                   <div style={{ marginBottom: '20px' }}>
-                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>Note / 备注 (Optional)</span>
+                    <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '8px' }}>{t('detail_note_label')} {t('admin_optional')}</span>
                     <input
                       value={newNodeNote}
                       onChange={(e) => setNewNodeNote(e.target.value)}
@@ -1278,7 +1278,7 @@ export const AdminPage: React.FC = () => {
                   </div>
 
                   {/* Telemetry Frequency & Reporting Settings */}
-                  <div style={{ padding: '14px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)', marginBottom: '24px' }}>
+                  <div style={{ padding: '14px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '0px', border: '1px solid var(--colors-hairline)', marginBottom: '24px' }}>
                     <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '12px', color: '#ffffff' }}>
                       ⚙️ 采集与推流频率 / TELEMETRY FREQUENCY
                     </span>
@@ -1352,7 +1352,7 @@ export const AdminPage: React.FC = () => {
             <div className="modal-backdrop-dark">
               <div className="modal-box-dark" style={{ maxWidth: '760px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
                 {/* Fixed Modal Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--colors-hairline-on-dark)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--colors-hairline)' }}>
                   <div>
                     <span className="eyebrow-cap">⚙️ {t('edit_node_title')} // {editingNode.id}</span>
                     <h3 style={{ fontSize: '18px', fontWeight: 700, marginTop: '4px' }}>{editingNode.name}</h3>
@@ -1372,17 +1372,17 @@ export const AdminPage: React.FC = () => {
                 {/* Scrollable Form Body */}
                 <form onSubmit={handleUpdateNode} style={{ flex: 1, overflowY: 'auto', paddingRight: '4px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   {configLoading && (
-                    <div style={{ padding: '10px 14px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid #38bdf8', borderRadius: '4px', color: '#38bdf8', fontSize: '12px' }}>
+                    <div style={{ padding: '10px 14px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid #ffffff', borderRadius: '0px', color: '#ffffff', fontSize: '12px' }}>
                       ⏳ 正在载入节点运行与探测配置...
                     </div>
                   )}
                   {configLoadError && (
-                    <div style={{ padding: '12px 14px', background: 'rgba(226, 39, 24, 0.15)', border: '1px solid #e22718', borderRadius: '4px', color: '#ff6b6b', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ padding: '12px 14px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', borderRadius: '0px', color: '#ef4444', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span>{configLoadError}</span>
                       <button
                         type="button"
                         className="button-ghost-on-dark button-ghost-sm"
-                        style={{ borderColor: '#ff6b6b', color: '#ff6b6b', fontSize: '10px', padding: '2px 8px' }}
+                        style={{ borderColor: '#ef4444', color: '#ef4444', fontSize: '10px', padding: '2px 8px' }}
                         onClick={() => openEditModal(editingNode)}
                       >
                         重试
@@ -1391,7 +1391,7 @@ export const AdminPage: React.FC = () => {
                   )}
 
                   {/* SECTION 1: 📋 基础信息与财务账单 */}
-                  <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+                  <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '0px', border: '1px solid var(--colors-hairline)' }}>
                     <span className="eyebrow-cap" style={{ fontSize: '11px', display: 'block', marginBottom: '14px', color: '#ffffff' }}>
                       📋 基础信息与财务账单 / BASIC INFO & BILLING
                     </span>
@@ -1435,7 +1435,7 @@ export const AdminPage: React.FC = () => {
                     {/* Price & Currency */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
                       <div>
-                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>服务器价格 / Price (Optional)</span>
+                        <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>{t('admin_price_label')} {t('admin_optional')}</span>
                         <input
                           value={editingNode.plan_price}
                           onChange={(e) => setEditingNode({ ...editingNode, plan_price: e.target.value })}
@@ -1499,7 +1499,7 @@ export const AdminPage: React.FC = () => {
                     </div>
 
                     <div style={{ marginBottom: '14px' }}>
-                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>{t('th_expire')} (Optional)</span>
+                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>{t('th_expire')} {t('admin_optional')}</span>
                       <input
                         value={editingNode.expires_at}
                         onChange={(e) => setEditingNode({ ...editingNode, expires_at: e.target.value })}
@@ -1509,7 +1509,7 @@ export const AdminPage: React.FC = () => {
                     </div>
 
                     <div style={{ marginBottom: '14px' }}>
-                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>Note / 备注 (Optional)</span>
+                      <span className="eyebrow-cap" style={{ display: 'block', marginBottom: '6px' }}>{t('detail_note_label')} {t('admin_optional')}</span>
                       <input
                         value={editingNode.note}
                         onChange={(e) => setEditingNode({ ...editingNode, note: e.target.value })}
@@ -1534,7 +1534,7 @@ export const AdminPage: React.FC = () => {
 
                   {/* SECTION 2: ⚙️ 采集与推流频率设置 */}
                   {editingConfig && (
-                    <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+                    <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '0px', border: '1px solid var(--colors-hairline)' }}>
                       <span className="eyebrow-cap" style={{ fontSize: '11px', display: 'block', marginBottom: '14px', color: '#ffffff' }}>
                         ⚙️ 采集与推流频率设置 / TELEMETRY FREQUENCY
                       </span>
@@ -1604,7 +1604,7 @@ export const AdminPage: React.FC = () => {
                   )}
 
                   {/* SECTION 3: 📡 网络连通性雷达探针 */}
-                  <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+                  <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '0px', border: '1px solid var(--colors-hairline)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
                       <span className="eyebrow-cap" style={{ fontSize: '11px', color: '#ffffff' }}>
                         📡 网络连通性雷达探针 / NETWORK PROBES ({(editingConfig?.probes || []).length})
@@ -1614,7 +1614,7 @@ export const AdminPage: React.FC = () => {
                         <button
                           type="button"
                           className="button-ghost-on-dark button-ghost-sm"
-                          style={{ borderColor: '#38bdf8', color: '#38bdf8', fontSize: '10px', padding: '2px 8px' }}
+                          style={{ borderColor: '#ffffff', color: '#ffffff', fontSize: '10px', padding: '2px 8px' }}
                           onClick={() => handleApplyPreset('china_3net')}
                         >
                           🇨🇳 {t('preset_china_3net')}
@@ -1622,7 +1622,7 @@ export const AdminPage: React.FC = () => {
                         <button
                           type="button"
                           className="button-ghost-on-dark button-ghost-sm"
-                          style={{ borderColor: '#38bdf8', color: '#38bdf8', fontSize: '10px', padding: '2px 8px' }}
+                          style={{ borderColor: '#ffffff', color: '#ffffff', fontSize: '10px', padding: '2px 8px' }}
                           onClick={() => handleApplyPreset('global_infra')}
                         >
                           🌐 {t('preset_global_infra')}
@@ -1630,7 +1630,7 @@ export const AdminPage: React.FC = () => {
                         <button
                           type="button"
                           className="button-ghost-on-dark button-ghost-sm"
-                          style={{ borderColor: '#38bdf8', color: '#38bdf8', fontSize: '10px', padding: '2px 8px' }}
+                          style={{ borderColor: '#ffffff', color: '#ffffff', fontSize: '10px', padding: '2px 8px' }}
                           onClick={() => handleApplyPreset('minimal_ping')}
                         >
                           ⚡ {t('preset_minimal_ping')}
@@ -1641,7 +1641,7 @@ export const AdminPage: React.FC = () => {
                     {/* Probes List */}
                     <div style={{ marginBottom: '14px' }}>
                       {(!editingConfig?.probes || editingConfig.probes.length === 0) ? (
-                        <div style={{ padding: '12px', textAlign: 'center', color: 'var(--colors-muted)', fontSize: '12px', border: '1px dashed var(--colors-hairline-on-dark)', borderRadius: '4px' }}>
+                        <div style={{ padding: '12px', textAlign: 'center', color: 'var(--colors-muted)', fontSize: '12px', border: '1px dashed var(--colors-hairline)', borderRadius: '0px' }}>
                           暂未配置探测目标，请点击上方预设或在下方手动添加。
                         </div>
                       ) : (
@@ -1655,8 +1655,8 @@ export const AdminPage: React.FC = () => {
                                 alignItems: 'center',
                                 padding: '6px 10px',
                                 background: 'rgba(255, 255, 255, 0.03)',
-                                borderRadius: '4px',
-                                border: '1px solid var(--colors-hairline-on-dark)',
+                                borderRadius: '0px',
+                                border: '1px solid var(--colors-hairline)',
                               }}
                             >
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1681,7 +1681,7 @@ export const AdminPage: React.FC = () => {
                     </div>
 
                     {/* Add Custom Probe Form */}
-                    <div style={{ padding: '10px', background: 'rgba(0, 0, 0, 0.3)', borderRadius: '4px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+                    <div style={{ padding: '10px', background: 'rgba(0, 0, 0, 0.3)', borderRadius: '0px', border: '1px solid var(--colors-hairline)' }}>
                       <span className="eyebrow-cap" style={{ fontSize: '9px', display: 'block', marginBottom: '6px' }}>
                         + 添加自定义探测目标
                       </span>
@@ -1746,7 +1746,7 @@ export const AdminPage: React.FC = () => {
 
                   {/* SECTION 4: 🚨 告警与通知推送策略 */}
                   {editingConfig && (
-                    <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--colors-hairline-on-dark)' }}>
+                    <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '0px', border: '1px solid var(--colors-hairline)' }}>
                       <span className="eyebrow-cap" style={{ fontSize: '11px', display: 'block', marginBottom: '12px', color: '#ffffff' }}>
                         🚨 节点告警与通知推送策略 / ALERT NOTIFICATION POLICY
                       </span>
@@ -1782,8 +1782,8 @@ export const AdminPage: React.FC = () => {
                             fontSize: '11px',
                             width: '100%',
                             textTransform: 'none',
-                            borderColor: editingConfig.alert_policy?.mode === 'none' ? '#e22718' : undefined,
-                            color: editingConfig.alert_policy?.mode === 'none' ? '#e22718' : undefined
+                            borderColor: editingConfig.alert_policy?.mode === 'none' ? '#ef4444' : undefined,
+                            color: editingConfig.alert_policy?.mode === 'none' ? '#ef4444' : undefined
                           }}
                           onClick={() => setEditingConfig({
                             ...editingConfig,
@@ -1795,13 +1795,13 @@ export const AdminPage: React.FC = () => {
                       </div>
 
                       {(!editingConfig.alert_policy || editingConfig.alert_policy.mode === 'global') && (
-                        <div style={{ fontSize: '11px', color: '#00e676', marginTop: '6px' }}>
+                        <div style={{ fontSize: '11px', color: '#22c55e', marginTop: '6px' }}>
                           🌐 已设为继承全局规则：该节点将自动应用在后台「🚨 告警策略」中配置的所有通用规则，以及系统默认的离线与到期检测。
                         </div>
                       )}
 
                       {editingConfig.alert_policy?.mode === 'custom' && (
-                        <div style={{ padding: '12px', background: 'rgba(0, 0, 0, 0.5)', borderRadius: '4px', border: '1px solid var(--colors-hairline-on-dark)', marginTop: '8px' }}>
+                        <div style={{ padding: '12px', background: 'rgba(0, 0, 0, 0.5)', borderRadius: '0px', border: '1px solid var(--colors-hairline)', marginTop: '8px' }}>
                           <span style={{ fontSize: '11px', color: 'var(--colors-muted)', display: 'block', marginBottom: '8px' }}>
                             勾选需要对此服务器生效的告警策略：
                           </span>
@@ -1839,7 +1839,7 @@ export const AdminPage: React.FC = () => {
                       )}
 
                       {editingConfig.alert_policy?.mode === 'none' && (
-                        <div style={{ fontSize: '11px', color: '#ffaa00', marginTop: '6px' }}>
+                        <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '6px' }}>
                           ⚠️ 该节点已被设置为完全静音，发生离线、CPU/内存/磁盘高负载或到期时均不会发送任何推送。
                         </div>
                       )}
@@ -1847,7 +1847,7 @@ export const AdminPage: React.FC = () => {
                   )}
 
                   {/* Fixed Form Footer */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', paddingTop: '14px', borderTop: '1px solid var(--colors-hairline-on-dark)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', paddingTop: '14px', borderTop: '1px solid var(--colors-hairline)' }}>
                     <button
                       type="button"
                       className="button-ghost-on-dark button-ghost-sm"
@@ -1865,7 +1865,7 @@ export const AdminPage: React.FC = () => {
                       className="button-ghost-on-dark button-ghost-sm"
                       style={{
                         backgroundColor: (updatingNode || configLoading || Boolean(configLoadError)) ? 'rgba(255, 255, 255, 0.2)' : '#ffffff',
-                        color: (updatingNode || configLoading || Boolean(configLoadError)) ? '#888888' : '#000000',
+                        color: (updatingNode || configLoading || Boolean(configLoadError)) ? 'var(--colors-muted)' : '#000000',
                         fontWeight: 700,
                         cursor: (updatingNode || configLoading || Boolean(configLoadError)) ? 'not-allowed' : 'pointer'
                       }}
@@ -1952,11 +1952,11 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                     <div style={{
                       padding: '8px 12px',
                       backgroundColor: 'rgba(167, 139, 250, 0.1)',
-                      border: '1px solid #a78bfa',
-                      borderRadius: '4px',
+                      border: '1px solid #ffffff',
+                      borderRadius: '0px',
                       marginBottom: '16px',
                       fontSize: '11px',
-                      color: '#c4b5fd',
+                      color: '#ffffff',
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
@@ -1966,7 +1966,7 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                       <span>ℹ️ {t('token_placeholder_notice')}</span>
                       <button
                         className="button-ghost-on-dark button-ghost-sm"
-                        style={{ borderColor: '#a78bfa', color: '#ffffff', fontSize: '10px', padding: '3px 8px' }}
+                        style={{ borderColor: '#ffffff', color: '#ffffff', fontSize: '10px', padding: '3px 8px' }}
                         onClick={() => handleRotateToken(nodeId)}
                       >
                         {t('btn_rotate_and_show')}
@@ -1977,12 +1977,12 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                   {oneTimeTokenModal.warning && (
                     <div style={{
                       padding: '8px 12px',
-                      backgroundColor: 'rgba(255, 170, 0, 0.1)',
-                      border: '1px solid #ffaa00',
-                      borderRadius: '4px',
+                      backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                      border: '1px solid #f59e0b',
+                      borderRadius: '0px',
                       marginBottom: '16px',
                       fontSize: '11px',
-                      color: '#ffaa00'
+                      color: '#f59e0b'
                     }}>
                       ⚠️ WARNING: {oneTimeTokenModal.warning} — Active agent socket disconnect RPC timed out. Existing stream will be evicted on next verification.
                     </div>
@@ -1991,12 +1991,12 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                   {!isPlaceholder && (
                     <div style={{
                       padding: '8px 12px',
-                      backgroundColor: 'rgba(255, 170, 0, 0.08)',
-                      border: '1px solid rgba(255, 170, 0, 0.3)',
-                      borderRadius: '4px',
+                      backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                      border: '1px solid rgba(245, 158, 11, 0.3)',
+                      borderRadius: '0px',
                       marginBottom: '16px',
                       fontSize: '11px',
-                      color: '#ffaa00'
+                      color: '#f59e0b'
                     }}>
                       {t('cmd_security_notice')}
                     </div>
@@ -2341,7 +2341,7 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                         />
                       </div>
 
-                      <div style={{ padding: '8px 12px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--colors-hairline-on-dark)', borderRadius: '4px', marginBottom: '16px', fontSize: '10px', color: 'var(--colors-muted)' }}>
+                      <div style={{ padding: '8px 12px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--colors-hairline)', borderRadius: '0px', marginBottom: '16px', fontSize: '10px', color: 'var(--colors-muted)' }}>
                         💡 Variables: <code>&#123;&#123;node_name&#125;&#125;</code>, <code>&#123;&#123;event&#125;&#125;</code>, <code>&#123;&#123;title&#125;&#125;</code>, <code>&#123;&#123;message&#125;&#125;</code>, <code>&#123;&#123;time&#125;&#125;</code>
                       </div>
                     </>
@@ -2374,19 +2374,19 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                   {testFeedback && (
                     <div style={{
                       padding: '10px 14px',
-                      borderRadius: '4px',
+                      borderRadius: '0px',
                       marginBottom: '16px',
                       fontSize: '11px',
                       fontWeight: 600,
-                      backgroundColor: testFeedback.success ? 'rgba(0, 230, 118, 0.1)' : 'rgba(226, 39, 24, 0.1)',
-                      border: `1px solid ${testFeedback.success ? '#00e676' : '#e22718'}`,
-                      color: testFeedback.success ? '#00e676' : '#e22718',
+                      backgroundColor: testFeedback.success ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                      border: `1px solid ${testFeedback.success ? '#22c55e' : '#ef4444'}`,
+                      color: testFeedback.success ? '#22c55e' : '#ef4444',
                     }}>
                       {testFeedback.message}
                     </div>
                   )}
 
-                  <div style={{ padding: '8px 12px', background: 'rgba(0, 230, 118, 0.05)', border: '1px solid rgba(0, 230, 118, 0.2)', borderRadius: '4px', marginBottom: '20px', fontSize: '11px', color: '#00e676' }}>
+                  <div style={{ padding: '8px 12px', background: 'rgba(34, 197, 94, 0.05)', border: '1px solid rgba(34, 197, 94, 0.2)', borderRadius: '0px', marginBottom: '20px', fontSize: '11px', color: '#22c55e' }}>
                     🔒 AES-GCM 256-bit Encrypted Storage
                   </div>
 
@@ -2395,7 +2395,7 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                       type="button"
                       disabled={testingAlert}
                       className="button-ghost-on-dark button-ghost-sm"
-                      style={{ borderColor: '#38bdf8', color: '#38bdf8' }}
+                      style={{ borderColor: '#ffffff', color: '#ffffff' }}
                       onClick={handleTestAlert}
                     >
                       {testingAlert ? t('channel_testing') : t('channel_test_btn')}
@@ -2468,7 +2468,7 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {/* Condition 1: Offline */}
-                      <div style={{ padding: '10px 12px', background: condOfflineEnabled ? 'rgba(226, 39, 24, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condOfflineEnabled ? 'rgba(226, 39, 24, 0.3)' : 'var(--colors-hairline-on-dark)'}`, borderRadius: '4px' }}>
+                      <div style={{ padding: '10px 12px', background: condOfflineEnabled ? 'rgba(239, 68, 68, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condOfflineEnabled ? 'rgba(239, 68, 68, 0.3)' : 'var(--colors-hairline)'}`, borderRadius: '0px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>
                             <input
@@ -2497,7 +2497,7 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                       </div>
 
                       {/* Condition 2: CPU */}
-                      <div style={{ padding: '10px 12px', background: condCpuEnabled ? 'rgba(255, 170, 0, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condCpuEnabled ? 'rgba(255, 170, 0, 0.3)' : 'var(--colors-hairline-on-dark)'}`, borderRadius: '4px' }}>
+                      <div style={{ padding: '10px 12px', background: condCpuEnabled ? 'rgba(245, 158, 11, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condCpuEnabled ? 'rgba(245, 158, 11, 0.3)' : 'var(--colors-hairline)'}`, borderRadius: '0px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>
                             <input
@@ -2541,7 +2541,7 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                       </div>
 
                       {/* Condition 3: Memory */}
-                      <div style={{ padding: '10px 12px', background: condMemoryEnabled ? 'rgba(56, 189, 248, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condMemoryEnabled ? 'rgba(56, 189, 248, 0.3)' : 'var(--colors-hairline-on-dark)'}`, borderRadius: '4px' }}>
+                      <div style={{ padding: '10px 12px', background: condMemoryEnabled ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condMemoryEnabled ? 'rgba(255, 255, 255, 0.3)' : 'var(--colors-hairline)'}`, borderRadius: '0px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>
                             <input
@@ -2585,7 +2585,7 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                       </div>
 
                       {/* Condition 4: Disk */}
-                      <div style={{ padding: '10px 12px', background: condDiskEnabled ? 'rgba(192, 132, 252, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condDiskEnabled ? 'rgba(192, 132, 252, 0.3)' : 'var(--colors-hairline-on-dark)'}`, borderRadius: '4px' }}>
+                      <div style={{ padding: '10px 12px', background: condDiskEnabled ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condDiskEnabled ? 'rgba(255, 255, 255, 0.3)' : 'var(--colors-hairline)'}`, borderRadius: '0px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>
                             <input
@@ -2614,7 +2614,7 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                       </div>
 
                       {/* Condition 5: Expiry */}
-                      <div style={{ padding: '10px 12px', background: condExpiryEnabled ? 'rgba(251, 191, 36, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condExpiryEnabled ? 'rgba(251, 191, 36, 0.3)' : 'var(--colors-hairline-on-dark)'}`, borderRadius: '4px' }}>
+                      <div style={{ padding: '10px 12px', background: condExpiryEnabled ? 'rgba(245, 158, 11, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${condExpiryEnabled ? 'rgba(245, 158, 11, 0.3)' : 'var(--colors-hairline)'}`, borderRadius: '0px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>
                             <input
@@ -2650,11 +2650,11 @@ systemctl daemon-reload && systemctl enable --now edgemon`;
                       {t('policy_channels_heading')} ({t('policy_channels_hint')})
                     </span>
                     {alertRules.filter(r => r.type === 'channel' || r.type === 'webhook').length === 0 ? (
-                      <div style={{ padding: '10px 12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--colors-hairline-on-dark)', borderRadius: '4px', fontSize: '11px', color: 'var(--colors-muted)' }}>
+                      <div style={{ padding: '10px 12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--colors-hairline)', borderRadius: '0px', fontSize: '11px', color: 'var(--colors-muted)' }}>
                         {t('no_channels_configured')}
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '130px', overflowY: 'auto', padding: '8px', background: 'rgba(0, 0, 0, 0.4)', border: '1px solid var(--colors-hairline-on-dark)', borderRadius: '4px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '130px', overflowY: 'auto', padding: '8px', background: 'rgba(0, 0, 0, 0.4)', border: '1px solid var(--colors-hairline)', borderRadius: '0px' }}>
                         {alertRules.filter(r => r.type === 'channel' || r.type === 'webhook').map((c) => {
                           let cConfig: any = {};
                           try { cConfig = c.config_json ? JSON.parse(c.config_json) : {}; } catch { cConfig = {}; }
